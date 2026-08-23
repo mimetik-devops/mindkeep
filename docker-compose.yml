@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mindstash
+      POSTGRES_PASSWORD: mindstash
+      POSTGRES_DB: mindstash
+    ports: [ "5433:5432" ]
+    volumes: [ pgdata:/var/lib/postgresql/data ]
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U mindstash" ]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    ports: [ "8001:8000" ]
+    volumes: [ "./backend:/app", "wikidata:/data" ]
+    depends_on:
+      db: { condition: service_healthy }
+
+  frontend:
+    build: ./frontend
+    env_file: ./frontend/.env
+    ports: [ "5163:5163" ]
+    volumes: [ "./frontend:/app", "/app/node_modules" ]
+    depends_on: [ backend ]
+
+volumes:
+  pgdata:
+  wikidata:

@@ -1,0 +1,531 @@
+import html
+import mimetypes
+import os
+import re
+import shutil
+import zipfile
+from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
+
+from app import assist, runs, schedule, todos
+from app.auth import CurrentUser
+from app.db import LINT_OFF
+from app.ingest import LINT, agent_owns, enqueue, lock_for, pages_citing, user_owns
+from app.kinde import who_is
+
+router = APIRouter()
+
+TEMPLATES = Path(__file__).parent / "templates"
+TODO = "todo.md"  # shared: the wiki agent writes questions, the assistant ticks them off
+# Keep human filenames: spaces and brackets are fine on every filesystem and in a URL.
+# Path separators and traversal are handled by Path(...).name plus safe_path.
+UNSAFE_NAME = re.compile(r"[^A-Za-z0-9 ()._-]")
+BUNDLE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+FRONTMATTER = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n?", re.DOTALL)
+
+
+def tenant(user: CurrentUser) -> Path:
+    """The tenant's directory of bundles. This path prefix is the isolation boundary."""
+    root = Path(os.environ.get("WIKI_ROOT", "/data")).resolve()
+    home = root / user
+    if not home.exists():
+        # A fresh sign-in fires several requests at once. Seeding in place is not enough
+        # even under a lock: seed() creates the tenant directory as its first act, so a
+        # concurrent request sees home.exists(), skips the lock, and reads a tree whose
+        # files are not written yet. Build it aside and move it in one step — the
+        # directory either does not exist or is complete, never halfway.
+        with lock_for(home):
+            if not home.exists():
+                staging = root / f".{user}.seeding"
+                shutil.rmtree(staging, ignore_errors=True)  # a crashed earlier attempt
+                # ponytail: new tenants get one bundle, so the UI never opens on empty.
+                seed(staging / "default")
+                try:
+                    staging.rename(home)
+                except OSError:  # another worker got there first; theirs is as good
+                    shutil.rmtree(staging, ignore_errors=True)
+    return home
+
+
+Tenant = Annotated[Path, Depends(tenant)]
+
+
+def bundle(name: str, home: Tenant) -> Path:
+    """One OKF bundle. `name` comes from the URL, so it is validated before it becomes a path."""
+    if not BUNDLE_NAME.match(name):
+        raise HTTPException(400, "bundle names are lowercase letters, digits and hyphens")
+    target = home / name
+    if not target.is_dir():
+        raise HTTPException(404, "no such bundle")
+    # raw/ and wiki/ are the bundle's shape rather than its content: a bundle with
+    # nowhere to put a source is not a bundle. Emptying either one must not remove it,
+    # so rather than trusting every path that deletes, guarantee it on the way in.
+    for half in ("raw", "wiki"):
+        (target / half).mkdir(exist_ok=True)
+    # same argument, and it gives bundles made before the question list existed one too
+    if not (target / TODO).exists():
+        put_text(target / TODO, todos.EMPTY)
+    return target
+
+
+Bundle = Annotated[Path, Depends(bundle)]
+
+
+def docx_text(path: Path) -> str | None:
+    """A .docx is a zip of XML. Pull the body out with the standard library, no dependency."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            xml = archive.read("word/document.xml").decode("utf-8", "replace")
+    except (zipfile.BadZipFile, KeyError, OSError):
+        return None
+    xml = re.sub(r"</w:p>", "\n", xml)  # paragraphs become newlines before tags are cut
+    return html.unescape(re.sub(r"<[^>]+>", "", xml)).strip()
+
+
+def readable_text(path: Path) -> str | None:
+    """The file as text a model can actually use, or None when it is binary.
+
+    Without this the agent is handed replacement characters for a PDF or a .docx, cannot
+    tell that it failed, and burns turns and tokens guessing at mojibake.
+    """
+    if path.suffix.lower() == ".docx":
+        return docx_text(path)
+    try:
+        return path.read_bytes().decode("utf-8")  # strict: a decode error means binary
+    except UnicodeDecodeError:
+        return None
+
+
+def put_text(target: Path, text: str) -> None:
+    """Always LF. Windows would translate to CRLF, and the wiki syncs to other machines."""
+    target.write_text(text, encoding="utf-8", newline="\n")
+
+
+def seed(home: Path) -> None:
+    """A new bundle gets the OKF skeleton plus the manual the ingest agent runs on."""
+    (home / "raw").mkdir(parents=True, exist_ok=True)
+    (home / "wiki").mkdir(exist_ok=True)
+    put_text(home / "CLAUDE.md", (TEMPLATES / "CLAUDE.md").read_text("utf-8"))
+    put_text(home / "index.md", '---\nokf_version: "0.2"\n---\n\n# Index\n')
+    put_text(home / "log.md", "# Log\n")
+    put_text(home / TODO, todos.EMPTY)
+
+
+def safe_path(home: Path, rel: str) -> Path:
+    try:
+        target = (home / rel).resolve()
+    except ValueError:  # null bytes and friends
+        raise HTTPException(400, "bad path") from None
+    if not target.is_relative_to(home):
+        raise HTTPException(400, "bad path")
+    return target
+
+
+def raw_path(rel: str) -> str:
+    """A user-supplied path under raw/, made safe one segment at a time.
+
+    Folders are the point — someone organising their own sources should keep their
+    structure. `..` and `.` strip to nothing and are dropped, and UNSAFE_NAME cannot
+    produce a separator, so no segment can climb out of raw/. safe_path still checks
+    the result, because two guards on a path from the outside is not one too many.
+    """
+    parts = [p for segment in rel.split("/") if (p := UNSAFE_NAME.sub("-", segment).strip(" ."))]
+    return "/".join(parts) or "upload"
+
+
+def prune_empty(start: Path, stop: Path) -> None:
+    """Walk up from `start`, removing empty folders until something is left or `stop`.
+
+    An emptied folder is clutter in every synced copy of the bundle. A folder someone
+    made on purpose is only ever empty until they put something in it, and this runs
+    when a file leaves — so the one case it cannot distinguish, an intentionally empty
+    folder that briefly held a file, costs one re-create.
+    """
+    folder = start
+    while folder != stop and folder.is_dir() and not any(folder.iterdir()):
+        folder.rmdir()
+        folder = folder.parent
+
+
+@router.get("/bundles")
+def list_bundles(home: Tenant) -> list[str]:
+    return sorted(p.name for p in home.iterdir() if p.is_dir() and BUNDLE_NAME.match(p.name))
+
+
+@router.post("/bundles", status_code=201)
+def create_bundle(home: Tenant, name: Annotated[str, Body(embed=True)]) -> dict[str, str]:
+    if not BUNDLE_NAME.match(name):
+        raise HTTPException(400, "bundle names are lowercase letters, digits and hyphens")
+    if (home / name).exists():
+        raise HTTPException(409, "bundle already exists")
+    seed(home / name)
+    return {"name": name}
+
+
+@router.get("/bundles/{name}/tree")
+def tree(home: Bundle) -> dict[str, str]:
+    """path -> sha256. The client diffs this against its folder to decide what to fetch.
+
+    ponytail: hashes every file per call. Fine for a wiki; cache by mtime if it ever bites.
+    """
+    files = (p for p in home.rglob("*") if p.is_file() and not p.name.startswith("."))
+    # as_posix: these round-trip into URLs, so they are always forward-slashed.
+    return {p.relative_to(home).as_posix(): sha256(p.read_bytes()).hexdigest() for p in files}
+
+
+@router.get("/bundles/{name}/files/{path:path}")
+def read(path: str, home: Bundle) -> Response:
+    target = safe_path(home, path)
+    if not target.is_file():
+        raise HTTPException(404, "not found")
+    # bytes, not text: raw/ holds PDFs and images as well as markdown.
+    # .md explicitly, because Windows' mimetypes does not know it and Linux does.
+    kind = "text/markdown" if target.suffix == ".md" else mimetypes.guess_type(target.name)[0]
+    return Response(target.read_bytes(), media_type=kind or "application/octet-stream")
+
+
+@router.get("/bundles/{name}/text/{path:path}")
+def read_as_text(path: str, home: Bundle) -> Response:
+    """A source as the agent reads it — .docx unzipped, anything UTF-8 as itself.
+
+    The bytes route serves a .docx as a download, which is right for saving it and useless
+    for looking at it. This is the same extraction the ingest agent gets, so what you read
+    here is what it read, which is the version worth arguing with.
+
+    415 when nothing can be extracted, rather than an empty page pretending to be the file.
+    """
+    target = safe_path(home, path)
+    if not target.is_file():
+        raise HTTPException(404, "not found")
+    text = readable_text(target)
+    if text is None:
+        raise HTTPException(415, f"Mindstash cannot read {target.suffix or 'this format'} yet")
+    return Response(text, media_type="text/plain; charset=utf-8")
+
+
+@router.put("/bundles/{name}/files/{path:path}")
+async def write(path: str, request: Request, home: Bundle) -> dict[str, str]:
+    target = safe_path(home, path)
+    shared = target == home / TODO  # both agents and the owner write this one
+    if not user_owns(home, target) and not shared:
+        raise HTTPException(409, "wiki/ belongs to the agent — add a source instead")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(await request.body())
+
+    rel = target.relative_to(home).as_posix()
+    # a corrected source should correct the wiki: the pages built from it are now stale.
+    # todo.md is a record *about* the knowledge, so nothing is re-read when it changes.
+    if not shared:
+        enqueue(home, rel)
+    return {"path": rel}
+
+
+@router.post("/bundles/{name}/verify/{path:path}")
+def verify(path: str, home: Bundle, user: CurrentUser) -> dict[str, str]:
+    """Stamp a page as human-checked.
+
+    The server owns this, not the client: `verified` is the field that separates what
+    the agent inferred from what a person confirmed, so the identity has to come from
+    the token rather than from whatever the browser felt like sending.
+    """
+    target = safe_path(home, path)
+    if not target.is_file() or not agent_owns(home, target):
+        raise HTTPException(404, "not found")
+
+    who = who_is(user)
+    at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    text = target.read_text(encoding="utf-8")
+    match = FRONTMATTER.match(text)
+    if not match:
+        raise HTTPException(409, "page has no frontmatter to stamp")
+
+    # ponytail: drop any single-line `verified:` and append a fresh one, rather than
+    # re-dumping the YAML, which would reformat every other field. OKF also allows a
+    # list of verifications — write that when someone actually needs the history.
+    kept = [ln for ln in match[1].split("\n") if not ln.startswith("verified:")]
+    stamped = f"verified: {{ by: human:{who}, at: {at} }}"
+    put_text(target, "---\n" + "\n".join([*kept, stamped]) + "\n---\n" + text[match.end() :])
+    return {"verified_by": f"human:{who}", "at": at}
+
+
+@router.get("/bundles/{name}/sources")
+def sources(home: Bundle) -> list[dict[str, str | int | bool]]:
+    """Every raw source with its ingest state.
+
+    "Ingested" is not a flag anyone sets — it is whether any wiki page cites the source.
+    That cannot drift out of step with reality, which a status column would.
+    """
+    last = runs.latest(home)
+    done = runs.ingested_sources(home)
+    moment = datetime.now(UTC)
+    # a source moved since the last lint is still cited by the path it used to have
+    was = {new for _, _, new in runs.pending_moves(home)}
+
+    def state(rel: str) -> dict[str, str | int | bool]:
+        run = last.get(rel)
+        if run is None:  # never attempted
+            return {"ingesting": False, "seconds": 0, "error": "", "took": 0, "note": ""}
+        if run.finished_at is None:
+            return {
+                "ingesting": True,
+                "seconds": int((moment - runs.utc(run.started_at)).total_seconds()),
+                "error": "",
+                "took": 0,
+                "note": run.note,  # the last thing the agent did, for the live card
+            }
+        return {
+            "ingesting": False,
+            "seconds": 0,
+            "error": run.error,
+            "took": run.seconds or 0,
+            "note": "",
+        }
+
+    return [
+        {
+            "path": (rel := p.relative_to(home).as_posix()),
+            "pages": pages_citing(home, rel),
+            # recorded when a run finished cleanly, not inferred from what cites it
+            "ingested": rel in done,
+            # ...which is why a moved source still reads as ingested while its citations
+            # are stale. The flag lets the UI say so rather than leaving it puzzling.
+            "moved": rel in was,
+        }
+        | state(rel)
+        for p in sorted((home / "raw").rglob("*"))
+        if p.is_file()
+    ]
+
+
+@router.get("/bundles/{name}/todos")
+def list_todos(home: Bundle) -> list[dict[str, object]]:
+    """The open questions, as the agents left them in todo.md."""
+    target = home / TODO
+    return todos.parse(target.read_text(encoding="utf-8")) if target.is_file() else []
+
+
+@router.post("/bundles/{name}/todos/{index}")
+def set_todo(index: int, home: Bundle, done: Annotated[bool, Body(embed=True)]) -> dict[str, bool]:
+    """Tick a question off by hand, or put it back."""
+    target = home / TODO
+    if not target.is_file():
+        raise HTTPException(404, "nothing to tick")
+    text = target.read_text(encoding="utf-8")
+    if index >= len(todos.parse(text)):
+        raise HTTPException(404, "no such question")
+    put_text(target, todos.tick(text, index, done))
+    return {"done": done}
+
+
+@router.post("/bundles/{name}/assist")
+def ask(
+    home: Bundle,
+    question: Annotated[str, Body()],
+    messages: Annotated[list[dict[str, str]], Body()],
+) -> dict[str, object]:
+    """One turn with the assistant. The browser holds the conversation; the server does not.
+
+    Synchronous on purpose: this is a chat, and the person is waiting for the answer. The
+    ingests it may trigger are the part that goes on the queue.
+    """
+    if not messages:
+        raise HTTPException(400, "nothing to say")
+    return assist.reply(home, question, messages)
+
+
+@router.get("/bundles/{name}/lint")
+def lint_state(home: Bundle) -> dict[str, str | int | bool]:
+    """Whether a lint is running, and how the last one went."""
+    run = runs.last_lint(home)
+    nxt = schedule.next_run(home)  # empty when the nightly pass is switched off
+    hour = schedule.hour_for(home)
+    if run is None:
+        return {
+            "linting": False,
+            "seconds": 0,
+            "at": "",
+            "error": "",
+            "note": "",
+            "turns": 0,
+            "next": nxt,
+            "hour": hour,
+        }
+    if run.finished_at is None:
+        return {
+            "linting": True,
+            "seconds": int((datetime.now(UTC) - runs.utc(run.started_at)).total_seconds()),
+            "at": "",
+            "error": "",
+            # a lint reads for minutes before it writes anything, so the live card needs
+            # something more specific than a spinner
+            "note": run.note,
+            "turns": run.turns or 0,
+            "next": nxt,
+            "hour": hour,
+        }
+    return {
+        "linting": False,
+        "seconds": run.seconds or 0,
+        "at": runs.utc(run.finished_at).strftime("%Y-%m-%d"),
+        "error": run.error,
+        "note": "",
+        "turns": run.turns or 0,
+        "next": nxt,
+        "hour": hour,
+    }
+
+
+@router.put("/bundles/{name}/lint")
+def set_lint_schedule(home: Bundle, hour: Annotated[int, Body(embed=True)]) -> dict[str, int]:
+    """Choose the hour (UTC) this bundle is linted, or -1 to stop linting it nightly."""
+    if hour != LINT_OFF and not 0 <= hour <= 23:
+        raise HTTPException(400, "hour is 0-23, or -1 to switch the nightly lint off")
+    runs.set_lint_hour(home, hour)
+    return {"hour": hour}
+
+
+@router.post("/bundles/{name}/lint")
+def lint(home: Bundle) -> dict[str, str]:
+    """Run a maintenance pass now. The nightly one does exactly this, on a timer."""
+    if LINT in runs.running_sources(home):
+        raise HTTPException(409, "a lint is already running")
+    enqueue(home, LINT)
+    return {"linting": home.name}
+
+
+@router.get("/bundles/{name}/folders")
+def list_folders(home: Bundle) -> list[str]:
+    """Folders under raw/, including empty ones.
+
+    They cannot come from `tree`, which maps files to hashes — an empty folder has no
+    file to carry it. The web UI and the desktop client both need them to exist before
+    anything is in them, which is the whole point of making one.
+    """
+    raw = home / "raw"
+    if not raw.is_dir():
+        return []
+    return sorted(
+        p.relative_to(raw).as_posix()
+        for p in raw.rglob("*")
+        if p.is_dir() and not p.name.startswith(".")
+    )
+
+
+@router.post("/bundles/{name}/folders/{path:path}", status_code=201)
+def create_folder(path: str, home: Bundle) -> dict[str, str]:
+    rel = raw_path(path)
+    target = safe_path(home, f"raw/{rel}")
+    if target.exists():
+        raise HTTPException(409, "already there")
+    target.mkdir(parents=True)
+    return {"folder": rel}
+
+
+@router.delete("/bundles/{name}/folders/{path:path}")
+def remove_folder(path: str, home: Bundle) -> dict[str, str]:
+    """Only an empty one. Deleting sources is the other route, and it asks first."""
+    target = safe_path(home, f"raw/{path}")
+    if not user_owns(home, target) or not target.is_dir() or target == home / "raw":
+        raise HTTPException(404, "not found")
+    if any(target.iterdir()):
+        raise HTTPException(409, "the folder is not empty")
+    target.rmdir()
+    prune_empty(target.parent, home / "raw")
+    return {"deleted": target.relative_to(home).as_posix()}
+
+
+@router.post("/bundles/{name}/move")
+def move_raw(
+    home: Bundle, source: Annotated[str, Body()], target: Annotated[str, Body()]
+) -> dict[str, str]:
+    """Move a source. Both ends are under raw/, which is the half the user owns.
+
+    Pages cite a source by path, so a move leaves those citations pointing at nothing.
+    Repointing them is the lint's job, not this route's: the server never edits a wiki
+    page, and firing an agent run per move would make reorganising a folder cost as much
+    as ingesting it. The manual tells the lint that a moved source is not a missing one.
+    """
+    old = safe_path(home, source)
+    if not user_owns(home, old) or not old.is_file():
+        raise HTTPException(404, "not found")
+
+    # Both ends are spelled the same way, bundle-relative. Accepting a bare "papers/x.md"
+    # as well would quietly turn a mistyped "wiki/x.md" into "raw/wiki/x.md" rather than
+    # refusing it, and a silent reinterpretation of a path is worse than an error.
+    if not target.startswith("raw/"):
+        raise HTTPException(400, "a source can only be moved within raw/")
+    new = safe_path(home, f"raw/{raw_path(target.removeprefix('raw/'))}")
+    if new.exists():
+        raise HTTPException(409, "something is already there")
+
+    was = old.relative_to(home).as_posix()
+    new.parent.mkdir(parents=True, exist_ok=True)
+    old.rename(new)
+    prune_empty(old.parent, home / "raw")
+
+    now = new.relative_to(home).as_posix()
+    runs.rename_source(home, was, now)  # its history is about the document, not the path
+    runs.record_move(home, was, now)  # and the next lint is told, rather than left to notice
+    return {"from": was, "to": now}
+
+
+@router.post("/bundles/{name}/ingest/{path:path}")
+def reingest(path: str, home: Bundle) -> dict[str, str]:
+    """Run the agent over a source again.
+
+    Ingests are long and not durable — a deploy, a crash, or `--reload` in development
+    kills one mid-run, and the only trace is a source with no pages citing it. Rather than
+    build a queue, give the source a retry button.
+    """
+    target = safe_path(home, f"raw/{path}")
+    if not user_owns(home, target) or not target.is_file():
+        raise HTTPException(404, "not found")
+    rel = target.relative_to(home).as_posix()
+    enqueue(home, rel)
+    return {"ingesting": rel}
+
+
+@router.delete("/bundles/{name}/raw/{path:path}")
+def remove_raw(path: str, home: Bundle) -> dict[str, str]:
+    """Delete a raw source. Only ever raw/ — never a wiki page.
+
+    Deleting a source orphans the pages derived from it. That is fine and expected: the
+    lint pass notices pages whose only source is gone and removes them, using the agent's
+    own delete tool. Blocking the delete to protect a citation would be the wrong trade.
+    """
+    target = safe_path(home, f"raw/{path}")
+    if not user_owns(home, target) or not target.is_file():
+        raise HTTPException(404, "not found")
+    rel = target.relative_to(home).as_posix()
+    target.unlink()
+    prune_empty(target.parent, home / "raw")
+    runs.forget_moves(home, rel)  # a deleted source has nowhere to be repointed to
+    return {"deleted": rel}
+
+
+@router.post("/bundles/{name}/raw/{path:path}")
+async def add_raw(
+    path: str, home: Bundle, request: Request
+) -> dict[str, str]:
+    """Raw documents land here as sent, keeping their own name.
+
+    No provenance sidecar: the ingest agent writes a summary page under wiki/ that cites
+    the source, and that page is the real record. A second mechanical file written before
+    anything had read the document only duplicated it.
+    """
+    target = home / "raw" / raw_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stem, suffix = target.stem, target.suffix
+    for n in range(2, 1000):  # a new upload never silently replaces an existing source
+        if not target.exists():
+            break
+        target = target.with_name(f"{stem}-{n}{suffix}")
+    target.write_bytes(await request.body())
+
+    rel = target.relative_to(home).as_posix()
+    enqueue(home, rel)
+    return {"path": rel}

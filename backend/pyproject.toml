@@ -1,0 +1,30 @@
+[project]
+name = "mindstash-backend"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy>=2",
+    "psycopg[binary]",
+    "alembic",
+    "pyjwt[crypto]",
+    "httpx",
+    "anthropic",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = ["mypy", "ruff", "pytest", "httpx"]
+
+[tool.ruff]
+line-length = 100
+# alembic writes these; they are generated output, not code we style
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
