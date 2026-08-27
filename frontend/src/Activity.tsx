@@ -188,7 +188,7 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
                   ? "failed"
                   : "";
           return (
-            <article key={key} className={`event ${e.kind} ${state}`}>
+            <article key={key} className={`event kind-${e.kind} ${state}`}>
               <span className="when" title={e.at}>
                 {e.kind === "pending" ? "now" : when(e.at)}
               </span>
