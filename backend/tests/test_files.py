@@ -51,7 +51,10 @@ def client(tmp_path, monkeypatch, ingested, database):
     # role and profile come from the token's claims; the tests hand them in directly
     app.dependency_overrides[current_role] = lambda: "Owner"
     app.dependency_overrides[current_profile] = lambda: Profile(
-        first_name="Ada", last_name="Lovelace", email="ada@example.com", picture="https://pics/ada.png"
+        first_name="Ada",
+        last_name="Lovelace",
+        email="ada@example.com",
+        picture="https://pics/ada.png",
     )
     with TestClient(app) as c:
         yield c
@@ -502,22 +505,29 @@ def test_the_nightly_lint_is_off_outside_its_hour(client, monkeypatch):
     assert ran == []
 
 
-def test_the_agent_runs_on_the_current_manual(client, tmp_path, monkeypatch):
-    """CLAUDE.md ships with the app, so an old bundle must not run on an old manual."""
+def test_the_agent_runs_on_the_manual_and_the_bundle_carries_the_guide(
+    client, tmp_path, monkeypatch
+):
+    """Two texts: the agent's prompt never leaves the server; the reader's guide in the
+    bundle ships with the app too, so an old bundle must not carry an old one."""
     from app import ingest as agent
     from app.files import TEMPLATES
 
     client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
-    (home / "CLAUDE.md").write_text("stale manual", encoding="utf-8")
+    (home / "CLAUDE.md").write_text("stale guide", encoding="utf-8")
 
     seen: dict = {}
     monkeypatch.setattr(agent, "anthropic", _FakeAnthropic(seen))
     agent.ingest(home, "raw/notes.txt")
 
-    current = (TEMPLATES / "CLAUDE.md").read_text(encoding="utf-8")
-    assert seen["system"] == current
-    assert (home / "CLAUDE.md").read_text(encoding="utf-8") == current
+    manual = (TEMPLATES / "manual.md").read_text(encoding="utf-8")
+    guide = (TEMPLATES / "CLAUDE.md").read_text(encoding="utf-8")
+    assert seen["system"] == manual
+    assert "edit_file" in manual and "Do not edit it in place" in guide
+    assert "edit_file" not in guide  # the guide names no tool the local reader lacks
+    assert (home / "CLAUDE.md").read_text(encoding="utf-8") == guide
+    assert not (home / "manual.md").exists()
 
 
 class _FakeAnthropic:
@@ -796,7 +806,7 @@ def test_a_moved_source_is_still_ingested(client, tmp_path, page):
 
 
 def test_a_failed_reingest_does_not_unmake_the_pages_already_written(client, tmp_path):
-    """"Ingested" is whether a run ever succeeded, not whether the last one did."""
+    """ "Ingested" is whether a run ever succeeded, not whether the last one did."""
     from app import runs
 
     home = tmp_path / tenant_id("alice") / "default"
@@ -855,9 +865,7 @@ def test_questions_are_a_shared_list_neither_side_owns(client, ingested):
     """todo.md is the third kind of file: the wiki agent writes it, the assistant ticks it
     off, a person edits it in the synced folder — and changing it re-ingests nothing,
     because it is a record about the knowledge rather than knowledge."""
-    written = (
-        "# Todo\n\n- [ ] Which figure is current, 85% or 92%?\n  Used 85% for now.\n"
-    )
+    written = "# Todo\n\n- [ ] Which figure is current, 85% or 92%?\n  Used 85% for now.\n"
     assert client.put(f"{B}/files/todo.md", content=written.encode()).status_code == 200
     assert ingested == []  # emphatically not a source
 

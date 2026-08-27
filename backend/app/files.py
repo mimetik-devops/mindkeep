@@ -143,7 +143,8 @@ def put_text(target: Path, text: str) -> None:
 
 
 def seed(home: Path) -> None:
-    """A new bundle gets the OKF skeleton plus the manual the ingest agent runs on."""
+    """A new bundle gets the OKF skeleton plus the reader's guide. The agent's manual
+    stays on the server (templates/manual.md); it is a prompt, not content."""
     (home / "raw").mkdir(parents=True, exist_ok=True)
     (home / "wiki").mkdir(exist_ok=True)
     put_text(home / "CLAUDE.md", (TEMPLATES / "CLAUDE.md").read_text("utf-8"))
