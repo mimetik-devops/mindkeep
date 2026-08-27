@@ -38,13 +38,8 @@ ROLE_CLAIM = "roles"
 
 
 def issuer() -> str:
-    """The provider's issuer URL, pinned as the JWT `iss`. Scheme optional, slash tolerated.
-
-    AUTH_ISSUER is the name; KINDE_ISSUER still works for the deployments that set it
-    before there was a choice of provider.
-    """
-    raw = os.environ.get("AUTH_ISSUER") or os.environ["KINDE_ISSUER"]
-    return "https://" + raw.removeprefix("https://").rstrip("/")
+    """The provider's issuer URL, pinned as the JWT `iss`. Scheme optional, slash tolerated."""
+    return "https://" + os.environ["AUTH_ISSUER"].removeprefix("https://").rstrip("/")
 
 
 @lru_cache
