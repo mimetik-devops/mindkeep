@@ -252,6 +252,10 @@ const json = (body: unknown, method = "POST") => ({
 });
 
 export const listTeams = () => call<Team[]>("/teams");
+/** The `bundles` permission; the name must be free; not mid-ingest. Resolves to the new name. */
+export const renameBundle = (bundle: string, to: string) =>
+  call<{ name: string }>(at(bundle), json({ to }, "PUT"));
+
 /** Owners and admins on both sides; the name must be free there; not mid-ingest. */
 export const moveBundle = (bundle: string, to: string) =>
   call<{ team: string; bundle: string }>(`${at(bundle)}/team`, json({ to }, "PUT"));

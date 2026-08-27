@@ -46,6 +46,16 @@ def move_bundle(old: str, new: str, bundle: str) -> None:
         s.commit()
 
 
+def rename_bundle(tenant: str, old: str, new: str) -> None:
+    """Every row of one bundle, under its new name. Once, when the bundle is renamed."""
+    with session() as s:
+        for table in (IngestRun, BundleSetting, SourceMove):
+            s.execute(
+                update(table).where(table.tenant == tenant, table.bundle == old).values(bundle=new)
+            )
+        s.commit()
+
+
 def forget_tenant(tenant: str) -> None:
     """Every row a tenant owns, gone. Once, when the team is deleted."""
     with session() as s:

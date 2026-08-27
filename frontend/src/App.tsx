@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { createTeam, listBundles, listTeams, type Profile as Person, setTeam, type Team } from "./api";
+import {
+  createTeam,
+  listBundles,
+  listTeams,
+  type Profile as Person,
+  setTeam,
+  type Team,
+} from "./api";
 import { Bundles } from "./Bundles";
 import { Console } from "./Console";
 import { Graph } from "./Graph";
@@ -165,6 +172,10 @@ export function App({ user }: { user: User }) {
                   choose(next);
                   setBundle(moved);
                 }
+              }}
+              onBundleRenamed={(from, to) => {
+                setBundles((b) => b.map((n) => (n === from ? to : n)).sort());
+                setBundle(to);
               }}
             />
           )}

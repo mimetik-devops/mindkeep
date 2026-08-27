@@ -123,6 +123,45 @@ def test_a_personal_team_cannot_be_deleted(client):
     assert client.delete(f"/teams/{mine}").status_code == 409
 
 
+def test_a_bundle_is_renamed_with_its_history(client, tmp_path):
+    from app import runs
+
+    mine = tenant_id("alice")
+    client.post(f"/teams/{mine}/bundles", json={"name": "notes"})
+    client.post(f"/teams/{mine}/bundles/notes/raw/a.md", content=b"a")
+    run = runs.start(tmp_path / mine / "notes", "raw/a.md", "m")
+    runs.finish(tmp_path / mine / "notes", run, turns=1, chars=1)
+
+    assert client.put(f"/teams/{mine}/bundles/notes", json={"to": "journal"}).json() == {
+        "name": "journal"
+    }
+    assert client.get(f"/teams/{mine}/bundles").json() == ["default", "journal"]
+    assert (tmp_path / mine / "journal" / "raw" / "a.md").read_bytes() == b"a"
+    assert not (tmp_path / mine / "notes").exists()
+    [src] = client.get(f"/teams/{mine}/bundles/journal/sources").json()
+    assert src["path"] == "raw/a.md" and src["ingested"]
+    assert client.get(f"/teams/{mine}/bundles/notes/tree").status_code == 404
+
+
+def test_a_rename_needs_a_valid_free_name_a_quiet_bundle_and_management(client, monkeypatch):
+    mine = tenant_id("alice")
+    client.post(f"/teams/{mine}/bundles", json={"name": "notes"})
+    assert client.put(f"/teams/{mine}/bundles/notes", json={"to": "Bad Name"}).status_code == 400
+    assert client.put(f"/teams/{mine}/bundles/notes", json={"to": "default"}).status_code == 409
+    assert client.put(f"/teams/{mine}/bundles/notes", json={"to": "notes"}).status_code == 200
+    monkeypatch.setattr("app.files.busy", lambda home: True)
+    assert client.put(f"/teams/{mine}/bundles/notes", json={"to": "later"}).status_code == 409
+    monkeypatch.setattr("app.files.busy", lambda home: False)
+
+    team = client.post("/teams", json={"name": "Acme"}).json()["id"]
+    token = client.post(f"/teams/{team}/invites", json={"role": "contributor"}).json()["token"]
+    client.post(f"/invites/{token}/accept", headers=as_("bob"))
+    refused = client.put(
+        f"/teams/{team}/bundles/default", json={"to": "shared"}, headers=as_("bob")
+    )
+    assert refused.status_code == 403
+
+
 def test_a_bundle_moves_to_another_team_with_its_history(client, tmp_path):
     from app import runs
 

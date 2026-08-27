@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 
-import { can, deviceToken, LINT_OFF, moveBundle, setLintHour, startLint, type Team } from "./api";
+import {
+  can,
+  deviceToken,
+  LINT_OFF,
+  moveBundle,
+  renameBundle,
+  setLintHour,
+  startLint,
+  type Team,
+} from "./api";
 import { Members } from "./Members";
 import { TeamSettings } from "./TeamSettings";
 import { Copy } from "./icons";
@@ -39,6 +48,7 @@ export function Settings({
   teams,
   onTeamChanged,
   onBundleMoved,
+  onBundleRenamed,
 }: {
   bundle: string;
   team: Team;
@@ -48,11 +58,14 @@ export function Settings({
   onTeamChanged: () => void;
   /** The bundle now lives over there: the app follows it. */
   onBundleMoved: (team: string, bundle: string) => void;
+  /** The bundle has a new name: the app's list and selection follow. */
+  onBundleRenamed: (from: string, to: string) => void;
 }) {
   const { lint, refresh } = useLint(bundle);
   const [section, setSection] = useState<Section>("Bundle");
   const [error, setError] = useState("");
   const [destination, setDestination] = useState("");
+  const [newName, setNewName] = useState(bundle);
   const manages = can(team, "bundles");
   const elsewhere = teams.filter((t) => t.id !== team.id && can(t, "bundles"));
   const [token, setToken] = useState("");
@@ -153,6 +166,36 @@ export function Settings({
               </p>
             )}
           </section>
+
+          {manages && (
+            <section className="card">
+              <h2>Rename this bundle</h2>
+              <p>
+                Lowercase letters, digits and hyphens. A desktop client pointed at the old name will
+                need <code>mindstash login</code> again.
+              </p>
+              <form
+                className="field"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setError("");
+                  renameBundle(bundle, newName.trim())
+                    .then((r) => onBundleRenamed(bundle, r.name))
+                    .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
+                }}
+              >
+                <span>Name</span>
+                <input
+                  aria-label="Bundle name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+                <button type="submit" className="lint" disabled={newName.trim() === bundle}>
+                  Rename
+                </button>
+              </form>
+            </section>
+          )}
 
           {manages && elsewhere.length > 0 && (
             <section className="card">

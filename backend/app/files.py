@@ -244,6 +244,28 @@ def create_bundle(
     return {"name": name}
 
 
+@router.put("/bundles/{name}")
+def rename_bundle(
+    name: str, home: Bundle, _: Manager, to: Annotated[str, Body(embed=True)]
+) -> dict[str, str]:
+    """Rename a bundle: the directory, and its rows. Same rules as a move — not while
+    anything is ingesting it, and the new name must be free. Mirrors pointed at the old
+    name will 404 on their next pass and need `mindstash login` again."""
+    if not BUNDLE_NAME.match(to):
+        raise HTTPException(400, "bundle names are lowercase letters, digits and hyphens")
+    if to == name:
+        return {"name": name}
+    if (home.parent / to).exists():
+        raise HTTPException(409, "bundle already exists")
+    if busy(home):
+        raise HTTPException(409, "this bundle is being ingested — rename it when that has finished")
+    with lock_for(home):
+        home.rename(home.parent / to)
+    runs.rename_bundle(home.parent.name, name, to)
+    log.info("renamed bundle %s to %s in %s", name, to, home.parent.name)
+    return {"name": to}
+
+
 @router.put("/bundles/{name}/team")
 def move_bundle(
     name: str,
