@@ -5,8 +5,9 @@ provider minted — any OIDC provider will do: Kinde, Clerk, Auth0, Keycloak, Zi
 Logto. What is checked is the standard set — RS256 signature against the issuer's
 published keys, the issuer itself, expiry — and what is read is the standard claims:
 `sub` for who, `email`/`given_name`/`family_name`/`picture` for the profile, and one
-configurable claim for the role. The desktop client sends a device token instead,
-derived here from the subject, because a scheduled sync cannot do an interactive login.
+configurable claim for the role. The desktop client sends a device token instead —
+one per machine, minted on the website and revocable there — because a scheduled sync
+cannot do an interactive login.
 
 Mindstash keeps no user table. A person is their `sub`; everything else is read off the
 token they present, so there is nothing to drift out of step with the provider.
@@ -27,10 +28,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 bearer = HTTPBearer()
 
-# A subject rides inside the device token, split from its digest on the token's one dot
-# — so no dots, and nothing that will not survive a URL or a log line. Kinde (kp_…),
-# Clerk (user_…), Auth0 (auth0|…), Keycloak (a UUID) and Zitadel (digits) all pass.
+# A subject names directories (hashed) and rows, so it is held to what real providers
+# issue — nothing that will not survive a URL or a log line. Kinde (kp_…), Clerk
+# (user_…), Auth0 (auth0|…), Keycloak (a UUID) and Zitadel (digits) all pass.
 SAFE_SUB = re.compile(r"^[A-Za-z0-9_@:|-]{1,128}$")
+DEVICE_ID = re.compile(r"^[0-9a-f]{32}$")
 
 # Kinde's shape, which is also the default: [{"id": …, "key": "admin", "name": "Admin"}].
 # A list of strings or a single string is accepted too, which covers most others.
@@ -79,21 +81,28 @@ def _claims(token: str) -> dict[str, Any]:
 
 
 # ponytail: one derived token per user, nothing stored. A scheduled sync cannot do an
-# interactive login, so it needs a credential that outlives a browser session.
-# Ceiling: revoking one person means rotating DEVICE_SECRET, which revokes everyone.
-def device_token(sub: str) -> str:
+# interactive login, so it needs a credential that outlives a browser session. The token
+# is `<device id>.<digest>`: the digest says it was minted here, the device row says
+# whose it is — and its absence says it was revoked. See devices.py.
+def _sign(device_id: str) -> str:
     secret = os.environ.get("DEVICE_SECRET", "")
     if not secret:
         raise HTTPException(500, "DEVICE_SECRET is not set")  # never derive from an empty secret
-    return f"{sub}.{hmac.new(secret.encode(), sub.encode(), sha256).hexdigest()}"
+    return hmac.new(secret.encode(), device_id.encode(), sha256).hexdigest()
+
+
+def device_token(device_id: str) -> str:
+    return f"{device_id}.{_sign(device_id)}"
 
 
 def _holder_of(token: str) -> str | None:
-    """The user a device token belongs to, or None. The token names its own owner."""
-    sub, _, digest = token.rpartition(".")
-    if not SAFE_SUB.match(sub):
+    """The user a device token belongs to, or None: forged, or revoked."""
+    from app import devices  # a lookup, once the digest has ruled out forgeries
+
+    device_id, _, digest = token.rpartition(".")
+    if not DEVICE_ID.match(device_id) or not hmac.compare_digest(_sign(device_id), digest):
         return None
-    return sub if hmac.compare_digest(device_token(sub).rpartition(".")[2], digest) else None
+    return devices.holder(device_id)
 
 
 def _is_device(token: str) -> bool:
@@ -113,6 +122,18 @@ def current_user(cred: Annotated[HTTPAuthorizationCredentials, Depends(bearer)])
 
 
 CurrentUser = Annotated[str, Depends(current_user)]
+
+
+def person(cred: Annotated[HTTPAuthorizationCredentials, Depends(bearer)]) -> str:
+    """Someone at the website, with the provider's token — never a device. Minting and
+    revoking devices is a thing a person does, not a thing a stolen laptop may do."""
+    token = cred.credentials
+    if _is_device(token):
+        raise HTTPException(403, "sign in on the website to do this")
+    return str(_claims(token)["sub"])
+
+
+Person = Annotated[str, Depends(person)]
 
 
 def role_from(claims: dict[str, Any]) -> str:
@@ -193,11 +214,17 @@ def who_is(user: CurrentUser, profile: CurrentProfile) -> str:
 CurrentIdentity = Annotated[str, Depends(who_is)]
 
 
-if __name__ == "__main__":  # python -m app.auth <sub> — issue the first token by hand
+if __name__ == "__main__":  # python -m app.auth <sub> [name] — a device token by hand
     import sys
 
-    if len(sys.argv) != 2 or not SAFE_SUB.match(sys.argv[1]):
-        sys.exit("usage: python -m app.auth <user-id>   (no dots or spaces)")
+    from app import devices
+
+    if len(sys.argv) not in (2, 3) or not SAFE_SUB.match(sys.argv[1]):
+        sys.exit("usage: python -m app.auth <user-id> [device name]")
     if not os.environ.get("DEVICE_SECRET"):
         sys.exit("DEVICE_SECRET is not set")
-    print(device_token(sys.argv[1]))
+    print(
+        device_token(
+            devices.create(sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else "by hand").id
+        )
+    )

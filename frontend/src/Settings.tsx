@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import {
   can,
   deleteBundle,
-  deviceToken,
+  addDevice,
+  type Device,
+  devices,
+  removeDevice,
   LINT_OFF,
   moveBundle,
   renameBundle,
@@ -13,6 +16,7 @@ import {
 } from "./api";
 import { Members } from "./Members";
 import { TeamSettings } from "./TeamSettings";
+import { confirm } from "./dialog";
 import { Copy } from "./icons";
 import { took, useLint, when } from "./useSources";
 
@@ -73,12 +77,47 @@ export function Settings({
   const [confirmDelete, setConfirmDelete] = useState("");
   const manages = can(team, "bundles");
   const elsewhere = teams.filter((t) => t.id !== team.id && can(t, "bundles"));
-  const [token, setToken] = useState("");
+  const [mine, setMine] = useState<Device[]>([]);
+  const [deviceName, setDeviceName] = useState("");
+  // a token is shown once, right after it is made; reloading the page loses it for good
+  const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    deviceToken().then((r) => setToken(r.token));
+    devices()
+      .then(setMine)
+      .catch(() => setMine([]));
   }, []);
+
+  async function connectDevice() {
+    const name = deviceName.trim();
+    if (!name) return;
+    setError("");
+    try {
+      const made = await addDevice(name);
+      setFresh({ name: made.name, token: made.token });
+      setCopied(false);
+      setDeviceName("");
+      setMine(await devices());
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function revoke(d: Device) {
+    const sure = await confirm(
+      `Sign ${d.name} out? Its token stops working at once; the files it synced stay where they are.`,
+      { ok: "Sign out", danger: true },
+    );
+    if (!sure) return;
+    setError("");
+    try {
+      await removeDevice(d.id);
+      setMine((all) => all.filter((x) => x.id !== d.id));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   const act = (work: Promise<unknown>) => {
     setError("");
@@ -277,26 +316,58 @@ export function Settings({
 
       {section === "Account" && (
         <section className="card">
-          <h2>On your machine</h2>
+          <h2>Your devices</h2>
           <p>
-            The desktop client keeps a copy of a bundle that Claude can read directly, and uploads
-            whatever you drop in its raw folder. It signs in with your device token — yours, not the
-            bundle's, so one login covers every bundle.
+            The desktop app keeps a copy of your bundles that Claude can read directly, and uploads
+            whatever you drop in a raw folder. Each machine signs in with a token of its own — the
+            app asks for one through this website, or you make one here and paste it in.
           </p>
-          <div className="command">
-            <code>python mindstash.py login</code>
-            <button
-              disabled={!token}
-              onClick={() => {
-                navigator.clipboard.writeText(token);
-                setCopied(true);
-              }}
-              title="Copy your device token"
-            >
-              {copied ? "copied" : <Copy />}
+          {mine.length > 0 && (
+            <ul className="devices">
+              {mine.map((d) => (
+                <li key={d.id}>
+                  <b>{d.name}</b>
+                  <span className="soft">
+                    {d.last_seen ? `seen ${when(d.last_seen)}` : "never seen"}
+                  </span>
+                  <button className="more" onClick={() => revoke(d)}>
+                    sign out
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="row">
+            <input
+              value={deviceName}
+              placeholder="Name this machine"
+              onChange={(e) => setDeviceName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && connectDevice()}
+            />
+            <button className="primary" disabled={!deviceName.trim()} onClick={connectDevice}>
+              Make a token
             </button>
           </div>
-          <p className="soft">Paste the token when the login asks for it.</p>
+          {fresh && (
+            <>
+              <div className="command">
+                <code>{fresh.token}</code>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(fresh.token);
+                    setCopied(true);
+                  }}
+                  title={`Copy the token for ${fresh.name}`}
+                >
+                  {copied ? "copied" : <Copy />}
+                </button>
+              </div>
+              <p className="soft">
+                The token for {fresh.name}, shown this once. Paste it into the app, or into{" "}
+                <code>mindstash login</code>.
+              </p>
+            </>
+          )}
         </section>
       )}
     </div>

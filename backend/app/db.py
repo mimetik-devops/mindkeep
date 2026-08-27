@@ -156,6 +156,23 @@ class Invite(Base):
     __table_args__ = (Index("ix_invite_team", "team_id"),)
 
 
+class Device(Base):
+    """A machine signed in with a long-lived token — the desktop client, the tray app.
+
+    The token is `id.digest`; this row is what makes it revocable. See devices.py.
+    """
+
+    __tablename__ = "device"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sub: Mapped[str] = mapped_column(String(128))
+    name: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (Index("ix_device_sub", "sub"),)
+
+
 LINT_OFF = -1
 
 

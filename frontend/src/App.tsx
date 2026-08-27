@@ -11,6 +11,8 @@ import {
 import { Bundles } from "./Bundles";
 import { Activity } from "./Activity";
 import { Graph } from "./Graph";
+import { Connect } from "./Connect";
+import { forgetConnect, pendingConnect } from "./handoff";
 import { Invite } from "./Invite";
 import { forget, pending } from "./invites";
 import { Mark } from "./icons";
@@ -38,6 +40,7 @@ export function App({ user }: { user: User }) {
   const [tab, setTab] = useState<Tab>("Library");
   // from the address, or kept across a sign-in that started from an invite link
   const [invite, setInvite] = useState(pending);
+  const [asked, setAsked] = useState(pendingConnect);
   const [error, setError] = useState("");
 
   // The team comes first: every bundle URL carries it, so nothing loads until one is chosen.
@@ -78,6 +81,18 @@ export function App({ user }: { user: User }) {
       })
       .catch((e) => setError(String(e)));
   }, [team]);
+
+  if (asked) {
+    return (
+      <Connect
+        asked={asked}
+        onDismiss={() => {
+          forgetConnect();
+          setAsked(null);
+        }}
+      />
+    );
+  }
 
   if (invite) {
     return (

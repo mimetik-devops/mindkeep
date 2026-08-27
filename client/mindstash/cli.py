@@ -18,6 +18,7 @@ import time
 import urllib.error
 from pathlib import Path
 
+from mindstash.connect import about, hostname, sign_in
 from mindstash.sync import INTERVAL, LAYOUT, Unreachable, call_json, sync
 
 CONFIG = Path.home() / ".mindstash.json"
@@ -26,7 +27,19 @@ CONFIG = Path.home() / ".mindstash.json"
 def login(config: Path) -> None:
     default_folder = Path.home() / "Mindstash"
     server = input("API address [http://localhost:8001]: ").strip() or "http://localhost:8001"
-    token = input("Device token (copy it from Settings): ").strip()
+    token = input("Sign in through the browser [Enter], or paste a device token: ").strip()
+    if not token:
+        try:
+            web = about(server)["web"]
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            sys.exit(f"Could not reach the API: {e}")
+        if not web:
+            sys.exit("The server does not say where its website is (WEB_URL); paste a token.")
+        print("Waiting for you to click Connect in the browser…")
+        try:
+            token = sign_in(web, hostname())
+        except TimeoutError:
+            sys.exit("Nobody connected this device in time. Run `mindstash login` again.")
     folder = input(f"Save the wiki in [{default_folder}]: ").strip() or str(default_folder)
 
     # The teams you belong to, personal first — the server makes the personal one on
@@ -67,7 +80,9 @@ def needs_team(cfg: dict) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="mindstash", description="Mindstash desktop client, from the command line.")
+    parser = argparse.ArgumentParser(
+        prog="mindstash", description="Mindstash desktop client, from the command line."
+    )
     parser.add_argument("command", nargs="?", default="sync", choices=["login", "sync", "watch"])
     parser.add_argument("--config", type=Path, default=CONFIG, help=f"default: {CONFIG}")
     args = parser.parse_args()

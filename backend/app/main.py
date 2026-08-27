@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Body, FastAPI
+from fastapi import Body, FastAPI, HTTPException
 
-from app import files, ingest, runs, schedule, teams
-from app.auth import CurrentProfile, CurrentRole, CurrentUser, device_token
+from app import devices, files, ingest, runs, schedule, teams
+from app.auth import CurrentProfile, CurrentRole, CurrentUser, Person, device_token
 from app.files import raw_path
 
 # Without this, app logs vanish: uvicorn configures only its own loggers, and the root
@@ -100,7 +100,29 @@ def clean_names(
     return {"paths": [raw_path(p) for p in paths]}
 
 
-@app.get("/device-token")
-def my_device_token(user: CurrentUser) -> dict[str, str]:
-    """What the website shows so someone can set up the desktop client."""
-    return {"token": device_token(user)}
+@app.get("/about")
+def about() -> dict[str, str]:
+    """Where the website is, for a machine that only knows the API — the desktop client
+    opens the connect page there to sign in. No auth: it is an address, not a secret."""
+    return {"web": os.environ.get("WEB_URL", "")}
+
+
+@app.get("/devices")
+def my_devices(who: Person) -> list[dict[str, object]]:
+    return [devices.as_dict(d) for d in devices.mine(who)]
+
+
+@app.post("/devices", status_code=201)
+def add_device(who: Person, name: Annotated[str, Body(embed=True)]) -> dict[str, object]:
+    """A token for one machine, shown once. The website hands it to the desktop client
+    over loopback, or a person pastes it."""
+    device = devices.create(who, name)
+    return {**devices.as_dict(device), "token": device_token(device.id)}
+
+
+@app.delete("/devices/{device_id}")
+def revoke_device(who: Person, device_id: str) -> dict[str, str]:
+    """Out, from the next request on. Nobody else's device is touched."""
+    if not devices.forget(who, device_id):
+        raise HTTPException(404, "no such device")
+    return {"revoked": device_id}

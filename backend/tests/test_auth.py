@@ -42,6 +42,5 @@ def test_the_subjects_real_providers_issue_are_accepted(sub):
 
 
 @pytest.mark.parametrize("sub", ["a.b", "with space", "", "x" * 129])
-def test_a_subject_that_would_break_the_device_token_is_not(sub):
-    # a device token is `sub.digest`, split on its one dot
+def test_a_subject_no_provider_would_issue_is_not(sub):
     assert not auth.SAFE_SUB.match(sub)

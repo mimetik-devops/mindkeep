@@ -322,4 +322,13 @@ export const peekInvite = (token: string) =>
 export const acceptInvite = (token: string) =>
   call<Team>(`/invites/${token}/accept`, { method: "POST" });
 
-export const deviceToken = () => call<{ token: string }>("/device-token");
+export type Device = { id: string; name: string; created_at: string; last_seen: string | null };
+export const devices = () => call<Device[]>("/devices");
+/** The token comes back once, here, and never again. */
+export const addDevice = (name: string) =>
+  call<Device & { token: string }>("/devices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+export const removeDevice = (id: string) => call(`/devices/${id}`, { method: "DELETE" });

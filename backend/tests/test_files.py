@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
-from app.auth import Profile, current_profile, current_role, current_user, device_token
+from app.auth import Profile, current_profile, current_role, current_user, person
 from app.files import safe_path, tenant_id
 from app.main import app
 
@@ -49,6 +49,7 @@ def client(tmp_path, monkeypatch, ingested, database):
         return request.headers.get("x-test-user", "alice")
 
     app.dependency_overrides[current_user] = as_user
+    app.dependency_overrides[person] = as_user
     # role and profile come from the token's claims; the tests hand them in directly
     app.dependency_overrides[current_role] = lambda: "Owner"
     app.dependency_overrides[current_profile] = lambda: Profile(
@@ -563,19 +564,50 @@ def test_tenants_cannot_see_each_other(client, page):
     assert client.get(f"{B}/files/wiki/secret.md", headers=bob).status_code == 404
 
 
-def test_device_token_names_its_own_owner(client, monkeypatch):
-    app.dependency_overrides.clear()  # exercise the real auth path
-    alice = device_token("alice")
-    assert alice.startswith("alice.")
-    assert client.get("/device-token", headers={"Authorization": f"Bearer {alice}"}).json() == {
-        "token": alice
-    }
+def bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
 
-    # a token is only good for its own tenant, and rotating the secret revokes everyone
-    assert device_token("bob") != alice
+
+def test_a_device_token_is_one_machine_and_revocable(client, monkeypatch):
+    """Alice connects two machines at the website. Each gets its own token, shown once;
+    revoking one leaves the other signed in; a device may not mint or revoke devices."""
+    laptop = client.post("/devices", json={"name": "laptop"}).json()
+    desk = client.post("/devices", json={"name": "desk"}).json()
+    listed = client.get("/devices").json()
+    assert [d["name"] for d in listed] == ["laptop", "desk"] and "token" not in listed[0]
+
+    app.dependency_overrides.clear()  # the real auth path from here on
+    assert client.get("/me", headers=bearer(laptop["token"])).json()["id"] == "alice"
+    assert (
+        client.post("/devices", json={"name": "x"}, headers=bearer(laptop["token"])).status_code
+        == 403
+    )
+    forged = laptop["token"][:-1] + ("0" if laptop["token"][-1] != "0" else "1")
+    assert client.get("/me", headers=bearer(forged)).status_code == 401
+
+    app.dependency_overrides[person] = lambda: "alice"  # back at the website
+    assert client.delete(f"/devices/{laptop['id']}").json() == {"revoked": laptop["id"]}
+    assert client.delete(f"/devices/{laptop['id']}").status_code == 404
+    app.dependency_overrides.clear()
+    assert client.get("/me", headers=bearer(laptop["token"])).status_code == 401
+    assert client.get("/me", headers=bearer(desk["token"])).status_code == 200
+
+    # and rotating the secret still revokes everyone at once
     monkeypatch.setenv("DEVICE_SECRET", "rotated")
-    stale = client.get("/device-token", headers={"Authorization": f"Bearer {alice}"})
-    assert stale.status_code == 401
+    assert client.get("/me", headers=bearer(desk["token"])).status_code == 401
+
+
+def test_a_device_is_only_its_owners_to_see_or_revoke(client):
+    bob = {"x-test-user": "bob"}
+    theirs = client.post("/devices", json={"name": "bob's"}, headers=bob).json()
+    assert client.delete(f"/devices/{theirs['id']}").status_code == 404  # alice asking
+    assert client.get("/devices").json() == []
+    assert [d["id"] for d in client.get("/devices", headers=bob).json()] == [theirs["id"]]
+
+
+def test_about_tells_a_machine_where_the_website_is(client, monkeypatch):
+    monkeypatch.setenv("WEB_URL", "https://app.example")
+    assert client.get("/about").json() == {"web": "https://app.example"}
 
 
 @pytest.mark.parametrize("path", ["../bob/secret.md", "a/../../bob/secret.md", "/etc/passwd"])
