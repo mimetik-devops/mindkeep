@@ -74,6 +74,28 @@ def undo(home: Path, sha: str, message: str) -> str:
     return _git(home, "rev-parse", "--short", "HEAD").stdout.strip()
 
 
+def head(home: Path) -> str:
+    """The commit the bundle is at, or "" before the first one."""
+    out = _git(home, "rev-parse", "--short", "HEAD")
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+DIFF_LINES = 400
+
+
+def diff(home: Path, since: str, path: str) -> str:
+    """One file's changes since a commit, as a unified diff without the header noise —
+    what a re-ingest is handed. Cut off past DIFF_LINES; a rewrite that long is a new
+    document, and the agent is told so."""
+    out = _git(home, "diff", "--no-color", "-U1", since, "HEAD", "--", path)
+    lines = [ln for ln in out.stdout.splitlines() if not ln.startswith(("diff --git", "index "))]
+    if len(lines) > DIFF_LINES:
+        lines = lines[:DIFF_LINES] + [
+            f"… {len(lines) - DIFF_LINES} more lines; read the whole source"
+        ]
+    return "\n".join(lines)
+
+
 def changed(home: Path, sha: str) -> list[dict[str, str]]:
     """What a commit touched: A added, M modified, D deleted, R renamed (the new path)."""
     out = _git(home, "show", "--name-status", "--format=", sha)

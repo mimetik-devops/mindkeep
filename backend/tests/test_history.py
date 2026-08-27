@@ -43,6 +43,25 @@ def test_undoing_a_run_keeps_what_people_added_and_takes_back_what_the_agent_wro
     assert sorted(r["path"] for r in history.changed(home, undone)) == ["index.md", "wiki/deck.md"]
 
 
+def test_a_diff_since_a_commit_is_one_file_and_no_header_noise(tmp_path):
+    home = bundle(tmp_path)
+    (home / "raw" / "deck.md").write_text(
+        "Alice is CTO\nBob is CFO\n", encoding="utf-8", newline="\n"
+    )
+    then = history.commit(home, "run 1")
+    assert history.head(home) == then
+    (home / "raw" / "deck.md").write_text(
+        "Alice is CEO\nBob is CFO\n", encoding="utf-8", newline="\n"
+    )
+    (home / "wiki" / "x.md").write_text("unrelated\n", encoding="utf-8")
+    history.commit(home, "before run 2")
+
+    out = history.diff(home, then, "raw/deck.md")
+    assert "-Alice is CTO" in out and "+Alice is CEO" in out
+    assert "unrelated" not in out and "diff --git" not in out
+    assert history.diff(home, then, "raw/nope.md") == ""
+
+
 def test_an_undo_that_a_later_run_wrote_over_is_refused_cleanly(tmp_path):
     home = bundle(tmp_path)
     history.commit(home, "seeded")

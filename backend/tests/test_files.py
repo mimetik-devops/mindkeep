@@ -168,6 +168,27 @@ def test_a_save_may_name_the_version_it_saw(client):
     assert client.put(f"{B}/files/raw/notes.txt", content=b"theirs").status_code == 200
 
 
+def test_a_changed_source_is_reingested_with_its_diff(client, tmp_path, monkeypatch):
+    """The second read of a source is handed what changed since the first — removed lines
+    as withdrawn claims — rather than the whole document as if it were new."""
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/deck.md", content=b"Alice is CTO\nBob is CFO\n")
+
+    seen: dict = {}
+    monkeypatch.setattr(agent, "anthropic", _FakeAnthropic(seen))
+    agent.ingest_safely(home, "raw/deck.md")
+    assert "changed since" not in seen["messages"][0]["content"]  # a first read
+
+    client.put(f"{B}/files/raw/deck.md", content=b"Alice is CEO\nBob is CFO\n")
+    agent.ingest_safely(home, "raw/deck.md")
+    task = seen["messages"][0]["content"]
+    assert "changed since" in task and "-Alice is CTO" in task and "+Alice is CEO" in task
+    assert "Bob is CFO" not in task.split("```diff")[1].split("\n-")[0]  # context is one line
+
+
 def test_a_run_can_be_undone_and_the_source_stays(client, tmp_path):
     """The agent's work is a commit; undo reverts it. What people added is a commit of
     its own before the run, so it is not taken back with it."""

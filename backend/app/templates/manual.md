@@ -111,6 +111,15 @@ When a new file appears in `raw/`:
    where it is attached to the claim it justifies. A log entry nobody can skim is a log
    entry nobody reads.
 
+### A source that changed
+
+A source ingested before and edited since comes with a diff of what changed since you
+last read it. Work from the diff: removed lines are claims withdrawn — retire what rested
+only on them, in the pages and in their `sources` — and added lines are new. The rest is
+already in the wiki. Do not re-read the whole document as new, and do not rewrite pages
+the change did not move. If the diff says it was cut short, the document was rewritten:
+read it whole.
+
 ### Notes from local agents
 
 A source under `raw/notes/` is a finding written by a tool working on someone's machine —

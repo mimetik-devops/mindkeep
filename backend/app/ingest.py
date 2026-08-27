@@ -66,7 +66,18 @@ INGEST_TASK = (
     "Today is {today}. A new source has arrived at `{source}`. Ingest it into the wiki, "
     "following the ingest workflow. Work autonomously: do not stop to ask. Anything you "
     "cannot settle from the sources goes in `todo.md` for a person to answer later, as "
-    "the manual describes."
+    "the manual describes.{hints}"
+)
+
+# A source read before, changed since: the server has the version the agent read, so it
+# says exactly what changed rather than leaving the agent to re-read the whole document
+# as if it were new — and to miss what was taken out of it.
+CHANGED = (
+    "\n\nThis source was ingested before; it has changed since. Below is what changed, as "
+    "a diff. Lines removed (`-`) are claims withdrawn: retire what rested only on them, "
+    "in the pages and in their `sources`. Lines added (`+`) are new. What is unchanged "
+    "is already in the wiki — do not re-read the whole document as if it were new, and "
+    "do not rewrite pages it did not move.\n\n```diff\n{diff}\n```"
 )
 
 LINT_TASK = (
@@ -101,6 +112,7 @@ def ingest(
     run_id: int | None = None,
     moves: list[tuple[int, str, str]] | None = None,
     thin: list[gaps.Gap] | None = None,
+    changed: str = "",
 ) -> tuple[int, int]:
     """Have Claude fold a new source into the wiki, or lint it. One writer, serialized.
 
@@ -251,7 +263,9 @@ def ingest(
             hints += GAPS.format(list=gaps.describe(thin))
         task = LINT_TASK.format(today=today, hints=hints)
     else:
-        task = INGEST_TASK.format(source=source, today=today)
+        task = INGEST_TASK.format(
+            source=source, today=today, hints=CHANGED.format(diff=changed) if changed else ""
+        )
 
     client = anthropic.Anthropic()
     with lock_for(home):
@@ -371,10 +385,16 @@ def ingest_safely(home: Path, source: str) -> None:
     # What people changed since the last run — uploads, answers — is committed on its own
     # first, so undoing this run takes back only what the agent wrote.
     snapshot(home, f"before run {run_id}")
+    # remember the state being read, and, for a source read before, what changed since
+    base = history.head(home)
+    runs.set_base(run_id, base)
+    changed = ""
+    if source != LINT and base and (last := runs.last_read(home, source)) and last.based_on:
+        changed = history.diff(home, last.based_on, source)
     turns = written = 0
     error = ""
     try:
-        turns, written = ingest(home, source, run_id, moves, thin)
+        turns, written = ingest(home, source, run_id, moves, thin, changed)
     except Exception as e:
         log.exception("ingest failed for %s (source is still on disk, retry is safe)", source)
         # the sentence a person can act on, not the serialised error body around it

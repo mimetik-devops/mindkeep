@@ -120,6 +120,34 @@ def get(home: Path, run_id: int) -> IngestRun | None:
         return run if run and (run.tenant, run.bundle) == (tenant, bundle) else None
 
 
+def set_base(run_id: int, sha: str) -> None:
+    """The commit the agent is about to read from."""
+    with session() as s:
+        run = s.get(IngestRun, run_id)
+        if run is not None:
+            run.based_on = sha
+            s.commit()
+
+
+def last_read(home: Path, source: str) -> IngestRun | None:
+    """The latest run that read this source and finished cleanly — and was not undone,
+    since an undone run's reading no longer stands in the wiki."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        return s.scalar(
+            select(IngestRun)
+            .where(
+                IngestRun.tenant == tenant,
+                IngestRun.bundle == bundle,
+                IngestRun.source == source,
+                IngestRun.finished_at.is_not(None),
+                IngestRun.error == "",
+                IngestRun.undone_at.is_(None),
+            )
+            .order_by(IngestRun.started_at.desc())
+        )
+
+
 def mark_undone(run_id: int) -> None:
     with session() as s:
         run = s.get(IngestRun, run_id)

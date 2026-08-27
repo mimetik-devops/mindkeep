@@ -46,6 +46,9 @@ class IngestRun(Base):
     # the last thing the agent did, overwritten as it works. A lint reads a hundred pages
     # and writes nothing for minutes; without this the UI can only show a spinner.
     note: Mapped[str] = mapped_column(Text, default="")
+    # the commit the bundle was at when the agent started reading — the state it saw, so
+    # a later re-ingest of the same source can be handed what changed since
+    based_on: Mapped[str] = mapped_column(String(40), default="")
     # the commit holding what this run wrote (history.py); "" when it wrote nothing
     commit: Mapped[str] = mapped_column(String(40), default="")
     # set when the run was reverted — it no longer counts as having ingested its source
