@@ -481,3 +481,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .graph .side .link { background: none; border: 0; padding: 0; text-align: left; color: var(--clay-ink); font-size: 13px; }
 .graph .side .link:hover { color: #8f4426; }
 .graph .side .toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+
+.graph g.gap line { stroke: var(--clay); stroke-width: 2; stroke-dasharray: 8 6; opacity: 0.55; cursor: pointer; }
+.graph g.gap.picked line { stroke-width: 3; opacity: 1; }
+.graph g.gap text { fill: var(--clay-ink); font-weight: 600; pointer-events: none; }
+.graph .side .link.picked { color: var(--ink); font-weight: 600; }
+.graph .side .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 4px 0 0; vertical-align: -1px; }

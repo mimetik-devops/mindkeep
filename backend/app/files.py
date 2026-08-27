@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
-from app import assist, graph, runs, schedule, todos
+from app import assist, gaps, graph, runs, schedule, todos
 from app.auth import CurrentUser
 from app.db import LINT_OFF
 from app.ingest import LINT, agent_owns, enqueue, lock_for, pages_citing, user_owns
@@ -192,9 +192,17 @@ def tree(home: Bundle) -> dict[str, str]:
 
 @router.get("/bundles/{name}/graph")
 def link_graph(home: Bundle) -> dict[str, object]:
-    """The wiki as pages and links, for the graph view. Rebuilt from the files on every
-    call — the same graph `related` and the gap measurement read, never a stored copy."""
-    return graph.export(home)
+    """The wiki as pages and links, for the graph view, with the pairs of areas the lint
+    would call gaps. Rebuilt from the files on every call — the same graph `related` and
+    the gap measurement read, never a stored copy."""
+    G = graph.build(home)
+    U = G.to_undirected()
+    out = graph.export(G)
+    thin = gaps.pairs(U, graph.areas(U)) if U.number_of_edges() else []
+    out["gaps"] = [
+        {"a": p.a, "b": p.b, "links": p.links, "expected": round(p.expected, 1)} for p in thin
+    ]
+    return out
 
 
 @router.get("/bundles/{name}/files/{path:path}")

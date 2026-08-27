@@ -72,7 +72,7 @@ def test_export_gives_pages_an_area_and_lists_links(tmp_path):
             page(tmp_path, f"wiki/{side}/{side}{n}.md", f"{side}{n}", others)
     page(tmp_path, "wiki/alone.md", "Alone", sources=["/raw/x.md"])
 
-    out = graph.export(tmp_path)
+    out = graph.export(graph.build(tmp_path))
 
     area = {p["path"]: p["area"] for p in out["pages"]}
     assert area["wiki/a/a0.md"] == area["wiki/a/a1.md"] == area["wiki/a/a2.md"]

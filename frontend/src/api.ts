@@ -202,8 +202,14 @@ export type Page = {
   sources: string[];
 };
 
-/** Pages and the links between them, as the agent wired them. Rebuilt per call. */
-export type Graph = { pages: Page[]; links: [string, string][] };
+/**
+ * Two areas that barely connect: `links` observed between them against `expected`, what
+ * random wiring with the same degrees would give. `a` and `b` are area indices.
+ */
+export type Gap = { a: number; b: number; links: number; expected: number };
+
+/** Pages, the links between them, and the gaps — as the agent is told them. Rebuilt per call. */
+export type Graph = { pages: Page[]; links: [string, string][]; gaps: Gap[] };
 
 export const graph = (bundle: string) => call<Graph>(`/bundles/${bundle}/graph`);
 

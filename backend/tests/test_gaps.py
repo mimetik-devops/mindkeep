@@ -35,6 +35,18 @@ def test_two_unlinked_areas_are_a_gap(tmp_path):
     }
 
 
+def test_pairs_carry_the_numbers_behind_a_gap(tmp_path):
+    """The graph view shows what the lint is told: which areas, and how thin."""
+    cluster(tmp_path, "cooking", ["stock", "roux", "braise"])
+    cluster(tmp_path, "tax", ["vat", "payroll", "audit"])
+
+    U = gaps.graph.build(tmp_path).to_undirected()
+    [pair] = gaps.pairs(U, gaps.graph.areas(U))
+
+    assert (pair.a, pair.b, pair.links) == (0, 1, 0)
+    assert pair.expected == 3.0  # 6 * 6 / (2 * 6): each area is a triangle of degree 2
+
+
 def test_well_linked_areas_are_not(tmp_path):
     cluster(tmp_path, "a", ["a1", "a2", "a3"])
     cluster(tmp_path, "b", ["b1", "b2", "b3"])

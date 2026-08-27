@@ -99,10 +99,9 @@ def areas(U: nx.Graph[str]) -> list[set[str]]:
     return sorted(found, key=lambda c: (-len(c), min(c)))
 
 
-def export(home: Path) -> dict[str, object]:
+def export(G: nx.DiGraph[str]) -> dict[str, object]:
     """The graph as the UI draws it: every page with its area (-1 when it belongs to none),
     the links as pairs, and the sources each page cites."""
-    G = build(home)
     area = {p: n for n, c in enumerate(areas(G.to_undirected())) for p in c}
     return {
         "pages": [

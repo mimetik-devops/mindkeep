@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { graph as fetchGraph, type Graph as Data } from "./api";
+import { graph as fetchGraph, type Gap, type Graph as Data } from "./api";
 
 /**
  * The wiki as the agent wired it: pages as dots, links as lines, coloured by the areas
  * the lint measures gaps between. It is the same graph `related` reads and the same
- * Louvain split the gap measurement uses, so what you see is what the agent is told.
+ * Louvain split the gap measurement uses, so what you see is what the agent is told —
+ * and in gaps mode, the pairs of areas it will be asked about.
  *
  * The layout is a plain force simulation run to rest before the first paint, seeded from
  * the page order — no library, and the same wiki always settles into the same shape.
@@ -122,10 +123,23 @@ export function wire(data: Data, withSources: boolean) {
   return { nodes, edges, near };
 }
 
+/** Where each area sits: the mean of its pages, which is where a gap's line ends. */
+function centres(nodes: Node[]) {
+  const sum = new Map<number, { x: number; y: number; n: number }>();
+  for (const v of nodes) {
+    if (v.area < 0) continue;
+    const c = sum.get(v.area) ?? { x: 0, y: 0, n: 0 };
+    sum.set(v.area, { x: c.x + v.x, y: c.y + v.y, n: c.n + 1 });
+  }
+  return new Map([...sum].map(([a, c]) => [a, { x: c.x / c.n, y: c.y / c.n }]));
+}
+
 export function Graph({ bundle }: { bundle: string }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState("");
   const [withSources, setWithSources] = useState(false);
+  const [showGaps, setShowGaps] = useState(false);
+  const [gapAt, setGapAt] = useState(-1);
   const [selected, setSelected] = useState("");
   const [hover, setHover] = useState("");
   const [box, setBox] = useState({ x: 0, y: 0, w: W, h: H });
@@ -134,6 +148,7 @@ export function Graph({ bundle }: { bundle: string }) {
   useEffect(() => {
     setData(null);
     setSelected("");
+    setGapAt(-1);
     setBox({ x: 0, y: 0, w: W, h: H });
     fetchGraph(bundle)
       .then(setData)
@@ -144,9 +159,21 @@ export function Graph({ bundle }: { bundle: string }) {
     () => (data ? wire(data, withSources) : { nodes: [], edges: [], near: new Map() }),
     [data, withSources],
   );
+  const middle = useMemo(() => centres(nodes), [nodes]);
+  const areaOf = useMemo(() => new Map(nodes.map((v) => [v.id, v.area])), [nodes]);
 
+  const gaps: Gap[] = showGaps ? (data?.gaps ?? []) : [];
+  const pick = gapAt >= 0 ? gaps[gapAt] : null;
   const focus = hover || selected;
-  const lit = (id: string) => !focus || id === focus || near.get(focus)?.has(id);
+  // what is lit: a hovered or selected node's neighbourhood; failing that, a chosen gap's
+  // two areas; failing that, everything
+  const lit = (id: string) => {
+    if (focus) return id === focus || near.get(focus)?.has(id);
+    if (pick) return areaOf.get(id) === pick.a || areaOf.get(id) === pick.b;
+    return true;
+  };
+  const edgeLit = (a: Node, b: Node) =>
+    focus ? a.id === focus || b.id === focus : lit(a.id) && lit(b.id);
   const colour = (v: Node) => (v.area < 0 ? NONE : AREAS[v.area % AREAS.length]);
   const radius = (v: Node) =>
     v.kind === "source" ? 3 : 3 + Math.sqrt(near.get(v.id)?.size ?? 0) * 1.4;
@@ -155,6 +182,7 @@ export function Graph({ bundle }: { bundle: string }) {
   const into = data?.links.filter(([, b]) => b === selected).map(([a]) => a) ?? [];
   const titled = (path: string) => data?.pages.find((p) => p.path === path)?.title ?? path;
   const areas = data ? new Set(data.pages.map((p) => p.area).filter((a) => a >= 0)).size : 0;
+  const size = (area: number) => data?.pages.filter((p) => p.area === area).length ?? 0;
 
   // Text in an SVG grows with the zoom, so zooming in spreads the nodes and enlarges the
   // labels at the same rate and the smear never clears. Labels are kept at screen size
@@ -200,6 +228,8 @@ export function Graph({ bundle }: { bundle: string }) {
     });
   }
 
+  const gapLine = (g: Gap) => ({ from: middle.get(g.a), to: middle.get(g.b) });
+
   return (
     <div className="graph">
       <svg
@@ -209,21 +239,50 @@ export function Graph({ bundle }: { bundle: string }) {
         onPointerMove={move}
         onPointerUp={() => setDrag(null)}
         onPointerLeave={() => setDrag(null)}
-        onClick={() => setSelected("")}
+        onClick={() => {
+          setSelected("");
+          setGapAt(-1);
+        }}
       >
-        {edges.map(([a, b], i) => {
-          const touches = nodes[a].id === focus || nodes[b].id === focus;
+        {edges.map(([a, b], i) => (
+          <line
+            key={i}
+            x1={nodes[a].x}
+            y1={nodes[a].y}
+            x2={nodes[b].x}
+            y2={nodes[b].y}
+            className={
+              (nodes[b].kind === "source" ? "source " : "") +
+              (edgeLit(nodes[a], nodes[b]) ? "" : "dim")
+            }
+          />
+        ))}
+        {gaps.map((g, i) => {
+          const { from, to } = gapLine(g);
+          if (!from || !to) return null;
           return (
-            <line
+            <g
               key={i}
-              x1={nodes[a].x}
-              y1={nodes[a].y}
-              x2={nodes[b].x}
-              y2={nodes[b].y}
-              className={
-                (nodes[b].kind === "source" ? "source " : "") + (focus && !touches ? "dim" : "")
-              }
-            />
+              className={`gap ${i === gapAt ? "picked" : ""}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelected("");
+                setGapAt(i === gapAt ? -1 : i);
+              }}
+            >
+              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} />
+              {i === gapAt && (
+                <text
+                  x={(from.x + to.x) / 2}
+                  y={(from.y + to.y) / 2 - 8 * scale}
+                  fontSize={11 * scale}
+                  textAnchor="middle"
+                >
+                  {g.links} {g.links === 1 ? "link" : "links"}, {g.expected} expected
+                </text>
+              )}
+            </g>
           );
         })}
         {nodes.map((v) => (
@@ -295,6 +354,41 @@ export function Graph({ bundle }: { bundle: string }) {
               </section>
             )}
           </>
+        ) : showGaps && data ? (
+          <>
+            <h2>{gaps.length ? `${gaps.length} ${gaps.length === 1 ? "gap" : "gaps"}` : "No gaps"}</h2>
+            <p>
+              {gaps.length
+                ? "Two areas the wiki knows about that barely connect: fewer than a third of " +
+                  "the links random wiring would give them. The lint asks about the thinnest " +
+                  "on its next pass; the rest wait their turn."
+                : "Every pair of areas is linked about as much as chance would give it. " +
+                  "Nothing here for the lint to ask about."}
+            </p>
+            <section>
+              {gaps.map((g, i) => (
+                <button
+                  key={i}
+                  className={`link ${i === gapAt ? "picked" : ""}`}
+                  onClick={() => setGapAt(i === gapAt ? -1 : i)}
+                >
+                  <span className="swatch" style={{ background: AREAS[g.a % AREAS.length] }} />
+                  Area {g.a + 1} ({size(g.a)})
+                  {" ↔ "}
+                  <span className="swatch" style={{ background: AREAS[g.b % AREAS.length] }} />
+                  Area {g.b + 1} ({size(g.b)})
+                  <span className="soft">
+                    {" "}
+                    — {g.links} of {g.expected}
+                  </span>
+                </button>
+              ))}
+            </section>
+            <label className="toggle">
+              <input type="checkbox" checked={showGaps} onChange={(e) => setShowGaps(e.target.checked)} />
+              Show gaps
+            </label>
+          </>
         ) : (
           data &&
           data.pages.length > 0 && (
@@ -315,6 +409,10 @@ export function Graph({ bundle }: { bundle: string }) {
                   onChange={(e) => setWithSources(e.target.checked)}
                 />
                 Show sources
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={showGaps} onChange={(e) => setShowGaps(e.target.checked)} />
+                Show gaps
               </label>
               <p className="soft">
                 Click a page for what links to it. Scroll to zoom — more labels appear as

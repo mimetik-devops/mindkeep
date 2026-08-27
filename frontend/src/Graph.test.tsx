@@ -2,17 +2,27 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { vi } from "vitest";
 
+import type { Graph as Data } from "./api";
 import { Graph, wire } from "./Graph";
 
 const jane = { path: "wiki/people/jane.md", title: "Jane", description: "", area: 0, sources: ["raw/a.md"] };
 const x = { path: "wiki/projects/x.md", title: "Project X", description: "about x", area: 0, sources: ["raw/a.md"] };
+const tax = ["vat", "payroll", "audit"].map((n) => ({
+  path: `wiki/tax/${n}.md`,
+  title: n,
+  description: "",
+  area: 1,
+  sources: [],
+}));
+
+let served: Data = { pages: [jane, x], links: [[jane.path, x.path]], gaps: [] };
 
 vi.mock("./api", () => ({
-  graph: vi.fn(async () => ({ pages: [jane, x], links: [[jane.path, x.path]] })),
+  graph: vi.fn(async () => served),
 }));
 
 test("the same wiki always settles into the same shape", () => {
-  const data = { pages: [jane, x], links: [[jane.path, x.path]] as [string, string][] };
+  const data: Data = { pages: [jane, x], links: [[jane.path, x.path]], gaps: [] };
   const once = wire(data, false).nodes.map((v) => [v.x, v.y]);
   const again = wire(data, false).nodes.map((v) => [v.x, v.y]);
   expect(again).toEqual(once);
@@ -20,7 +30,7 @@ test("the same wiki always settles into the same shape", () => {
 });
 
 test("sources join the graph only when asked", () => {
-  const data = { pages: [jane, x], links: [] as [string, string][] };
+  const data: Data = { pages: [jane, x], links: [], gaps: [] };
   expect(wire(data, false).nodes).toHaveLength(2);
   const { nodes, near } = wire(data, true);
   expect(nodes.map((v) => v.id)).toEqual([jane.path, x.path, "raw/a.md"]);
@@ -49,4 +59,39 @@ test("a click opens the page's connections", async () => {
   expect(host.querySelector("aside")?.textContent).toContain("Linked from");
   expect(host.querySelector("aside")?.textContent).toContain("Jane");
   expect(host.querySelector("aside")?.textContent).toContain("raw/a.md");
+});
+
+/** Gaps mode shows what the lint will be asked about: which two areas, and how thin. */
+test("gaps mode lists each gap and lights only its two areas", async () => {
+  const alone = { path: "wiki/alone.md", title: "Alone", description: "", area: -1, sources: [] };
+  served = {
+    pages: [jane, x, ...tax, alone],
+    links: [
+      [jane.path, x.path],
+      [tax[0].path, tax[1].path],
+      [tax[1].path, tax[2].path],
+    ],
+    gaps: [{ a: 0, b: 1, links: 0, expected: 3 }],
+  };
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<Graph bundle="default" />));
+
+  const toggle = [...host.querySelectorAll("label")].find((l) => l.textContent?.includes("Show gaps"));
+  await act(async () => toggle!.querySelector("input")!.click());
+
+  const aside = host.querySelector("aside")!;
+  expect(aside.textContent).toContain("1 gap");
+  expect(aside.textContent).toContain("Area 1 (2)");
+  expect(aside.textContent).toContain("Area 2 (3)");
+  expect(aside.textContent).toContain("0 of 3");
+  expect(host.querySelectorAll("g.gap")).toHaveLength(1);
+
+  await act(async () => host.querySelector("g.gap")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+  expect(host.querySelector("g.gap")?.classList.contains("picked")).toBe(true);
+  expect(host.querySelector("g.gap text")?.textContent).toBe("0 links, 3 expected");
+  const dim = [...host.querySelectorAll("g.node.dim")].map((g) => g.querySelector("title")?.textContent);
+  expect(dim).toEqual(["Alone"]); // a page in no area is outside both sides of the gap
 });

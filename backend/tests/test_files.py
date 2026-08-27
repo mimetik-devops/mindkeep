@@ -529,6 +529,23 @@ class _FakeAnthropic:
         return iter(())
 
 
+def test_the_graph_route_names_the_gaps_between_areas(client, tmp_path):
+    home = tmp_path / "alice" / "default"
+    client.get("/bundles")
+    for side in ("cooking", "tax"):
+        names = ["a", "b", "c"]
+        for name in names:
+            links = "".join(f"[{o}](/wiki/{side}/{o}.md)\n" for o in names if o != name)
+            page = home / "wiki" / side / f"{name}.md"
+            page.parent.mkdir(parents=True, exist_ok=True)
+            page.write_text(f"---\ntitle: {side} {name}\n---\n{links}", encoding="utf-8")
+
+    got = client.get(f"{B}/graph").json()
+
+    assert len(got["pages"]) == 6
+    assert got["gaps"] == [{"a": 0, "b": 1, "links": 0, "expected": 3.0}]
+
+
 def test_clean_says_what_a_name_will_be_stored_as(client):
     """One rule, on the server: the client renames a new file to this before uploading."""
     got = client.post(
