@@ -182,6 +182,15 @@ def refresh_guides(root: Path) -> int:
     return changed
 
 
+def unchanged(target: Path, request: Request) -> None:
+    """Honour If-Match. A client that names the hash it last saw is refused with 412 when
+    the file has moved on since — the half of a sync race the tree fetch cannot see. No
+    header, no check: the web UI and older clients keep last-write-wins."""
+    expected = request.headers.get("if-match", "").strip().strip('"')
+    if expected and target.is_file() and sha256(target.read_bytes()).hexdigest() != expected:
+        raise HTTPException(412, "changed since you last saw it — fetch it again first")
+
+
 def safe_path(home: Path, rel: str) -> Path:
     try:
         target = (home / rel).resolve()
@@ -328,6 +337,7 @@ async def write(path: str, request: Request, home: Bundle, _: Writer) -> dict[st
     shared = target == home / TODO  # both agents and the owner write this one
     if not user_owns(home, target) and not shared:
         raise HTTPException(409, "wiki/ belongs to the agent — add a source instead")
+    unchanged(target, request)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(await request.body())
 
@@ -612,7 +622,7 @@ def reingest(path: str, home: Bundle, _: Writer) -> dict[str, str]:
 
 
 @router.delete("/bundles/{name}/raw/{path:path}")
-def remove_raw(path: str, home: Bundle, _: Writer) -> dict[str, str]:
+def remove_raw(path: str, home: Bundle, request: Request, _: Writer) -> dict[str, str]:
     """Delete a raw source. Only ever raw/ — never a wiki page.
 
     Deleting a source orphans the pages derived from it. That is fine and expected: the
@@ -622,6 +632,7 @@ def remove_raw(path: str, home: Bundle, _: Writer) -> dict[str, str]:
     target = safe_path(home, f"raw/{path}")
     if not user_owns(home, target) or not target.is_file():
         raise HTTPException(404, "not found")
+    unchanged(target, request)  # deleting what someone has since rewritten is a conflict
     rel = target.relative_to(home).as_posix()
     target.unlink()
     prune_empty(target.parent, home / "raw")

@@ -146,6 +146,28 @@ def test_binary_files_survive_the_round_trip(client):
     assert client.get(f"{B}/files/raw/scan.pdf").content == pdf
 
 
+def test_a_save_may_name_the_version_it_saw(client):
+    """If-Match: the hash from the tree. Stale means someone else got there first."""
+    client.post(f"{B}/raw/notes.txt", content=b"one")
+    was = client.get(f"{B}/tree").json()["raw/notes.txt"]
+
+    stale = client.put(f"{B}/files/raw/notes.txt", content=b"mine", headers={"If-Match": "0" * 64})
+    assert stale.status_code == 412 and "changed since" in stale.json()["detail"]
+    assert client.get(f"{B}/files/raw/notes.txt").text == "one"
+
+    assert (
+        client.put(
+            f"{B}/files/raw/notes.txt", content=b"mine", headers={"If-Match": was}
+        ).status_code
+        == 200
+    )
+    # the delete names the old version too — the file has moved on, so it stays
+    assert client.delete(f"{B}/raw/notes.txt", headers={"If-Match": was}).status_code == 412
+    assert client.get(f"{B}/files/raw/notes.txt").text == "mine"
+    # without a header nothing changes: last write wins, as before
+    assert client.put(f"{B}/files/raw/notes.txt", content=b"theirs").status_code == 200
+
+
 def test_upload_triggers_ingest(client, ingested):
     client.post(f"{B}/raw/notes.txt", content=b"one")
     assert [c[1] for c in ingested] == ["raw/notes.txt"]
