@@ -1,0 +1,118 @@
+[project]
+name = "mindstash-client"
+version = "0.1.0"
+description = "Keeps a Mindstash bundle on your machine: a folder Claude can read, that uploads what you drop in it."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ruben Henares", email = "rhenares0@gmail.com" }]
+# the CLI is stdlib only, on purpose: `python -m mindstash` works with nothing installed
+dependencies = []
+
+[project.optional-dependencies]
+app = ["PySide6-Essentials~=6.8"]
+dev = ["pytest", "ruff", "briefcase"]
+
+[project.scripts]
+mindstash = "mindstash.cli:main"
+mindstash-app = "mindstash.app.main:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mindstash*"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+
+# --- the installers ---------------------------------------------------------------------
+# `briefcase package` builds the tray app for the OS it runs on; .github/workflows/app.yml
+# runs it on all three. Briefcase starts the module named after the app, so the app is
+# `mindstash-app` -> `mindstash_app`, a shim that calls mindstash.app.main.
+[tool.briefcase]
+project_name = "Mindstash"
+bundle = "io.mindstash"
+version = "0.1.0"
+url = "https://mindstash.io"
+author = "Ruben Henares"
+author_email = "rhenares0@gmail.com"
+
+[tool.briefcase.app.mindstash-app]
+formal_name = "Mindstash"
+description = "Keeps your Mindstash bundles on this machine and uploads what you drop in them."
+long_description = """A tray app. Pick the teams and bundles to keep here, and it mirrors
+each into a folder Claude can read, uploads whatever you add to raw/, and tells you when
+something needs a look — a conflict, an ingest that failed, a token that stopped working."""
+icon = "icons/mindstash"
+sources = ["mindstash", "mindstash_app"]
+test_sources = ["test_mindstash.py"]
+console_app = false
+requires = ["PySide6-Essentials~=6.8"]
+test_requires = ["pytest"]
+
+[tool.briefcase.app.mindstash-app.macOS]
+universal_build = true
+# PySide 6.10 enforces a macOS 13 minimum
+min_os_version = "13.0"
+requires = ["std-nslog~=2.0.0"]
+
+[tool.briefcase.app.mindstash-app.linux]
+requires = []
+
+# The .deb / .rpm route uses the distribution's own Qt, which is what BeeWare recommends
+# for PySide; the runtime packages are Briefcase's own list for PySide6.
+[tool.briefcase.app.mindstash-app.linux.system.debian]
+system_requires = []
+system_runtime_requires = [
+    "libgl1",
+    "libqt6dbus6",
+    "libqt6gui6",
+    "libxcb-cursor0",
+    "libxcb-icccm4",
+    "libxcb-keysyms1",
+    "libxcb-shape0",
+    "libxkbcommon-x11-0",
+]
+
+[tool.briefcase.app.mindstash-app.linux.system.rhel]
+system_requires = []
+system_runtime_requires = ["qt6-qtbase-gui"]
+
+[tool.briefcase.app.mindstash-app.linux.system.arch]
+system_requires = []
+system_runtime_requires = ["qt6-base"]
+
+# AppImage bundles Qt itself; these are the headers linuxdeploy needs to find the X11
+# and GL pieces. Best effort — CI ships the .deb; build this yourself if you want one.
+[tool.briefcase.app.mindstash-app.linux.appimage]
+manylinux = "manylinux_2_28"
+system_requires = [
+    "libgl1-mesa-dev",
+    "libxkbcommon-x11-dev",
+    "libxcb-cursor-dev",
+    "libxcb-icccm4-dev",
+    "libxcb-keysyms1-dev",
+    "libxcb-shape0-dev",
+]
+linuxdeploy_plugins = []
+
+[tool.briefcase.app.mindstash-app.windows]
+requires = []
+
+[tool.briefcase.app.mindstash-app.iOS]
+supported = false
+
+[tool.briefcase.app.mindstash-app.android]
+supported = false
+
+[tool.briefcase.app.mindstash-app.web]
+supported = false

@@ -1,0 +1,98 @@
+# The desktop client: tests on every push, installers on a tag.
+#
+# The installers are UNSIGNED. That means: Windows shows a SmartScreen warning ("More info"
+# -> "Run anyway"), macOS refuses to open the app until you right-click it and choose Open
+# (or run `xattr -d com.apple.quarantine`), Linux does not care. Signing needs certificates
+# we do not have; when we do, add the signing step to the package job and this note goes.
+name: Desktop client
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest ruff
+      - run: ruff check .
+      - run: pytest -q
+
+  package:
+    # installers only for a tag, or when asked for by hand: three runners a push is a lot
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            format: app
+            installer: dist/*.msi
+          - os: macos-latest
+            platform: macOS
+            format: app
+            installer: dist/*.dmg
+          - os: ubuntu-latest
+            platform: linux
+            format: system
+            installer: dist/*.deb
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install briefcase
+      # the .deb build links against the distribution's Qt, so its runtime packages
+      # must be there to be found
+      - if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libqt6dbus6 libqt6gui6 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxkbcommon-x11-0
+      - run: briefcase create ${{ matrix.platform }} ${{ matrix.format }}
+      - run: briefcase build ${{ matrix.platform }} ${{ matrix.format }}
+      # ad-hoc on macOS: the app runs, unsigned, after the right-click dance above.
+      # Everywhere else there is nothing to sign with, and Briefcase does not ask.
+      - if: matrix.platform == 'macOS'
+        run: briefcase package macOS app --adhoc-sign
+      - if: matrix.platform != 'macOS'
+        run: briefcase package ${{ matrix.platform }} ${{ matrix.format }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mindstash-${{ matrix.platform }}
+          path: client/${{ matrix.installer }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          body: |
+            Desktop client ${{ github.ref_name }}. These builds are not code-signed:
+            Windows will warn (More info → Run anyway), macOS needs a right-click → Open
+            the first time.
