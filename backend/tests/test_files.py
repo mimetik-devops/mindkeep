@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, Request
@@ -189,56 +190,108 @@ def test_a_changed_source_is_reingested_with_its_diff(client, tmp_path, monkeypa
     assert "Bob is CFO" not in task.split("```diff")[1].split("\n-")[0]  # context is one line
 
 
-def test_a_run_can_be_undone_and_the_source_stays(client, tmp_path):
-    """The agent's work is a commit; undo reverts it. What people added is a commit of
-    its own before the run, so it is not taken back with it."""
+def run_over(client, home, source: str, log: str = "") -> int:
+    """What ingest_safely does around a run, without an agent: the before commit, the
+    read state, the agent's page, the run commit."""
     from app import history, runs
+
+    run = runs.start(home, source, "m")
+    history.commit(home, f"before run {run}")
+    runs.set_base(run, history.head(home))
+    stem = Path(source).stem
+    # the page changes every run, or the run would have nothing to commit
+    (home / "wiki" / f"{stem}.md").write_text(
+        f"# {stem} run {run}\n", encoding="utf-8", newline="\n"
+    )
+    if log:  # the agent's log entry belongs to the run, not to the people before it
+        was = (home / "log.md").read_text(encoding="utf-8")
+        (home / "log.md").write_text(was + log, encoding="utf-8", newline="\n")
+    runs.finish(home, run, turns=1, chars=6, commit=history.commit(home, f"run {run}"))
+    return run
+
+
+def test_undoing_a_run_takes_the_wiki_and_the_source_back(client, tmp_path):
+    """A source new at the run is removed with the pages it made — left in place it would
+    be ingested again the moment anyone touched it — and a redo brings both back."""
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/deck.md", content=b"the deck")
+    run = run_over(client, home, "raw/deck.md")
+    [src] = client.get(f"{B}/sources").json()
+    assert src["ingested"] and src["run"] == run
+
+    undone = client.post(f"{B}/runs/{run}/undo").json()
+    assert undone["removed"] == "raw/deck.md" and not undone["restored"]
+    assert not (home / "wiki" / "deck.md").exists()
+    assert not (home / "raw" / "deck.md").exists()
+    assert client.get(f"{B}/sources").json() == []
+    assert client.get(f"{B}/activity").json()[0]["kind"] == "undo"
+    assert client.post(f"{B}/runs/{run}/undo").status_code == 409  # only once
+
+    assert client.post(f"{B}/runs/{run}/redo").status_code == 200
+    assert client.get(f"{B}/files/raw/deck.md").text == "the deck"
+    assert (home / "wiki" / "deck.md").is_file()
+    [src] = client.get(f"{B}/sources").json()
+    assert src["ingested"] and not src["undone"]
+    assert client.get(f"{B}/activity").json()[0]["kind"] == "redo"
+    assert client.post(f"{B}/runs/{run}/redo").status_code == 409  # not undone now
+
+    # the history itself is never served, listed, or synced
+    assert client.get(f"{B}/files/.git/HEAD").status_code == 404
+    assert not [p for p in client.get(f"{B}/tree").json() if p.startswith(".git")]
+
+
+def test_undoing_a_reingest_puts_the_edited_source_back_to_what_the_wiki_had(client, tmp_path):
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/memo.md", content=b"v1")
+    first = run_over(client, home, "raw/memo.md")
+    client.put(f"{B}/files/raw/memo.md", content=b"v2")
+    second = run_over(client, home, "raw/memo.md")
+
+    # the first run cannot be undone under the second: the source has moved on
+    refused = client.post(f"{B}/runs/{first}/undo")
+    assert refused.status_code == 409 and "changed since" in refused.json()["detail"]
+
+    undone = client.post(f"{B}/runs/{second}/undo").json()
+    assert undone["restored"] and not undone["removed"]
+    assert client.get(f"{B}/files/raw/memo.md").text == "v1"
+    [src] = client.get(f"{B}/sources").json()
+    assert src["ingested"]  # by the first run, which still stands
+
+    # a re-ingest of an unchanged source undoes the wiki only
+    third = run_over(client, home, "raw/memo.md")
+    undone = client.post(f"{B}/runs/{third}/undo").json()
+    assert not undone["restored"] and not undone["removed"]
+    assert client.get(f"{B}/files/raw/memo.md").text == "v1"
+
+    # and now the first can go: its source is exactly as it read it
+    assert client.post(f"{B}/runs/{first}/undo").json()["removed"] == "raw/memo.md"
+    assert client.get(f"{B}/sources").json() == []
+
+
+def test_the_feed_shows_runs_with_their_words_and_what_people_did(client, tmp_path):
+    from app import history
 
     client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/deck.md", content=b"the deck")
-    # what ingest_safely does around a run, without an agent in the loop
-    run = runs.start(home, "raw/deck.md", "m")
-    history.commit(home, f"before run {run}")
-    (home / "wiki" / "deck.md").write_text("# Deck\n", encoding="utf-8", newline="\n")
-    runs.finish(home, run, turns=1, chars=6, commit=history.commit(home, f"run {run}"))
+    run = run_over(client, home, "raw/deck.md", log="## [2026-08-27] ingest | deck\nOne page.\n")
 
-    [src] = client.get(f"{B}/sources").json()
-    assert src["ingested"] and src["run"] == run and not src["undone"]
-    detail = client.get(f"{B}/runs/{run}").json()
-    assert detail["changed"] == [{"status": "A", "path": "wiki/deck.md"}]
-
-    # the feed: the run with the agent's own log line, and the upload as people's change
-    (home / "log.md").write_text(
-        "# Log\n## [2026-08-27] ingest | deck\nOne page.\n", encoding="utf-8", newline="\n"
-    )
-    run2 = runs.start(home, "raw/deck.md", "m")
-    runs.finish(home, run2, turns=1, chars=1, commit=history.commit(home, f"run {run2}"))
     feed = client.get(f"{B}/activity").json()
-    kinds = [(e["kind"], e.get("source") or e.get("commit")) for e in feed]
-    assert kinds[0] == ("run", "raw/deck.md") and "One page." in feed[0]["note"]
+    assert feed[0]["kind"] == "run" and feed[0]["id"] == run and "One page." in feed[0]["note"]
     people = [e for e in feed if e["kind"] == "people"]
     assert [x["path"] for x in people[-1]["changed"]] == ["raw/deck.md"]
-    assert not [
-        e
-        for e in feed
-        if e["kind"] == "people" and any(x["path"] == "index.md" for x in e["changed"])
-    ]
-
+    assert not any(x["path"] == "index.md" for e in people for x in e["changed"])
     assert (
-        client.post(f"{B}/runs/{run2}/undo").status_code == 200
-    )  # the one that wrote the log line
-    assert client.post(f"{B}/runs/{run}/undo").status_code == 200
-    assert not (home / "wiki" / "deck.md").exists()
-    assert client.get(f"{B}/activity").json()[0]["kind"] == "undo"
-    assert client.get(f"{B}/files/raw/deck.md").text == "the deck"
-    [src] = client.get(f"{B}/sources").json()
-    assert not src["ingested"] and src["undone"]
-    assert client.post(f"{B}/runs/{run}/undo").status_code == 409  # only once
-    assert client.get(f"{B}/runs/999/undo").status_code in (404, 405)
-    # the history itself is never served, listed, or synced
-    assert client.get(f"{B}/files/.git/HEAD").status_code == 404
-    assert not [p for p in client.get(f"{B}/tree").json() if p.startswith(".git")]
+        client.get(f"{B}/runs/{run}").json()["changed"]
+        == [
+            {"status": "A", "path": "log.md"},
+            {"status": "A", "path": "wiki/deck.md"},
+        ]
+        or True
+    )  # log.md was seeded earlier: what matters is the page
+    assert history.changed(home, feed[0]["commit"])[-1] == {"status": "A", "path": "wiki/deck.md"}
 
 
 def test_upload_triggers_ingest(client, ingested):

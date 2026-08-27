@@ -8,7 +8,7 @@ import zipfile
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
@@ -522,10 +522,10 @@ def activity(home: Bundle) -> list[dict[str, object]]:
         if sha in by_commit:
             # what it changed is fetched on demand
             feed.append(run_entry(by_commit[sha], None, at=str(c["at"])))
-        elif subject.startswith("undo run"):
+        elif subject.startswith(("undo run", "redo run")):
             feed.append(
                 {
-                    "kind": "undo",
+                    "kind": "undo" if subject.startswith("undo") else "redo",
                     "at": c["at"],
                     "commit": sha,
                     "subject": subject,
@@ -533,7 +533,7 @@ def activity(home: Bundle) -> list[dict[str, object]]:
                 }
             )
         else:
-            people = [x for x in c["changed"] if by_people(x)]  # type: ignore[union-attr]
+            people = [x for x in cast(list[dict[str, str]], c["changed"]) if by_people(x)]
             if people:
                 feed.append({"kind": "people", "at": c["at"], "commit": sha, "changed": people})
     # runs with no commit — still running, or read and wrote nothing — are history too
@@ -563,10 +563,17 @@ def run_detail(run_id: int, home: Bundle) -> dict[str, object]:
 
 @router.post("/bundles/{name}/runs/{run_id}/undo")
 def undo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
-    """Put the wiki back the way it was before this run — a revert of the run's commit.
-    The source people added stays; what the agent wrote goes; the undo is itself in the
-    history. Refused while an ingest is running, and when a later run changed the same
-    lines, which has to be taken back first."""
+    """Put the wiki — and the source this run read — back to what the wiki reflected
+    before it. A source that was new at this run is removed; one that was edited goes
+    back to the version the previous run read; one that had not changed is left alone.
+    All in one revert commit, so the undo can be redone. Refused while an ingest runs,
+    when a later run changed the same lines, and when the source has changed since —
+    that later run is the one to undo first. A lint has no source: the wiki only.
+
+    Taking the source back is the point: a bad source left in place would be ingested
+    again the moment anyone touched it. Mirrors follow the server, and history keeps
+    the file — nothing is lost that a redo cannot bring back.
+    """
     run = runs.get(home, run_id)
     if run is None:
         raise HTTPException(404, "not found")
@@ -576,14 +583,61 @@ def undo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
         raise HTTPException(409, "already undone")
     if busy(home):
         raise HTTPException(409, "an ingest is running — undo when it has finished")
+
+    restore: tuple[str, str] | None = None
+    remove = ""
+    if run.source != LINT and run.based_on:
+        read = history.blob(home, run.based_on, run.source)  # what this run read
+        if history.blob(home, "HEAD", run.source) != read:
+            raise HTTPException(
+                409, "the source has changed since this run — undo the later run first"
+            )
+        before = runs.read_before(home, run)
+        was = history.blob(home, before.based_on, run.source) if before and before.based_on else ""
+        if was != read:
+            if was:
+                restore = (before.based_on, run.source)  # type: ignore[union-attr]
+            else:
+                remove = run.source  # new at this run, or read from before history began
     with lock_for(home):
         try:
-            sha = history.undo(home, run.commit, f"undo run {run_id}: {run.source}")
+            sha = history.take_back(
+                home, run.commit, f"undo run {run_id}: {run.source}", restore, remove
+            )
         except history.Conflict as e:
             raise HTTPException(409, str(e)) from None
+    if remove:
+        prune_empty((home / remove).parent, home / "raw")
+        runs.forget_moves(home, remove)
     runs.mark_undone(run_id)
     log.info("undid run %d (%s) in %s", run_id, run.source, home)
-    return {"undone": run_id, "commit": sha}
+    return {"undone": run_id, "commit": sha, "restored": bool(restore), "removed": remove}
+
+
+@router.post("/bundles/{name}/runs/{run_id}/redo")
+def redo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
+    """Revert the undo: the wiki and the source come back, and the run counts again."""
+    run = runs.get(home, run_id)
+    if run is None:
+        raise HTTPException(404, "not found")
+    if run.undone_at is None:
+        raise HTTPException(409, "this run has not been undone")
+    if busy(home):
+        raise HTTPException(409, "an ingest is running — redo when it has finished")
+    undo = next(
+        (c for c in history.commits(home) if str(c["subject"]).startswith(f"undo run {run_id}:")),
+        None,
+    )
+    if undo is None:
+        raise HTTPException(409, "the undo is not in the history")
+    with lock_for(home):
+        try:
+            sha = history.undo(home, str(undo["sha"]), f"redo run {run_id}: {run.source}")
+        except history.Conflict as e:
+            raise HTTPException(409, str(e)) from None
+    runs.mark_redone(run_id)
+    log.info("redid run %d (%s) in %s", run_id, run.source, home)
+    return {"redone": run_id, "commit": sha}
 
 
 @router.get("/bundles/{name}/todos")

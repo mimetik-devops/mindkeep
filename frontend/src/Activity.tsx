@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { activity, can, type Entry, runDetail, type Team, tree, undoRun } from "./api";
+import { activity, can, type Entry, redoRun, runDetail, type Team, tree, undoRun } from "./api";
 import { render } from "./okf";
 import { elapsed, took, useLint, useSources, when } from "./useSources";
 
@@ -77,13 +77,31 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
 
   async function undo(e: Entry) {
     if (!e.id) return;
-    const what = e.source === "(lint)" ? "this lint" : `the ingest of ${e.source}`;
-    if (!confirm(`Undo ${what}? The wiki goes back to how it was before; the sources stay.`))
-      return;
+    const what =
+      e.source === "(lint)"
+        ? "Undo this lint? The wiki goes back to how it was before."
+        : `Undo the ingest of ${e.source}? The wiki goes back to how it was before, and so ` +
+          "does the source — a file new at this run is removed. Both stay in the history, " +
+          "and the undo can be redone.";
+    if (!confirm(what)) return;
     setBusy(e.id);
     setError("");
     try {
       await undoRun(bundle, e.id);
+      await refresh();
+    } catch (err) {
+      setError(String(err).replace(/^Error: \d{3} /, ""));
+    } finally {
+      setBusy(0);
+    }
+  }
+
+  async function redo(e: Entry) {
+    if (!e.id) return;
+    setBusy(e.id);
+    setError("");
+    try {
+      await redoRun(bundle, e.id);
       await refresh();
     } catch (err) {
       setError(String(err).replace(/^Error: \d{3} /, ""));
@@ -183,9 +201,10 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
                       {e.seconds ? <span className="state"> {took(e.seconds)}</span> : null}
                       {state && <span className="state"> · {state}</span>}
                     </>
-                  ) : e.kind === "undo" ? (
+                  ) : e.kind === "undo" || e.kind === "redo" ? (
                     <>
-                      undo<span className="soft"> · {e.subject}</span>
+                      {e.kind}
+                      <span className="soft"> · {e.subject}</span>
                     </>
                   ) : (
                     <>
@@ -215,6 +234,11 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
                 {isRun && mayUndo && e.commit && !e.undone && e.finished_at && (
                   <button className="more" disabled={busy === e.id} onClick={() => undo(e)}>
                     {busy === e.id ? "undoing…" : "undo"}
+                  </button>
+                )}
+                {isRun && mayUndo && e.undone && (
+                  <button className="more" disabled={busy === e.id} onClick={() => redo(e)}>
+                    {busy === e.id ? "redoing…" : "redo"}
                   </button>
                 )}
               </div>

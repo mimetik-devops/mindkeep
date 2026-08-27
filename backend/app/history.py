@@ -64,6 +64,41 @@ def commit(home: Path, message: str) -> str:
     return _git(home, "rev-parse", "--short", "HEAD").stdout.strip()
 
 
+def blob(home: Path, ref: str, path: str) -> str:
+    """The id of a file's content at a commit, or "" when it was not there."""
+    out = _git(home, "rev-parse", "--verify", "-q", f"{ref}:{path}")
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def take_back(
+    home: Path, sha: str, message: str, restore: tuple[str, str] | None = None, remove: str = ""
+) -> str:
+    """Revert a run's commit and, in the same new commit, put its source back: to the
+    version at `restore` (a ref and a path), or remove it. History is kept, so this can
+    itself be reverted. Left exactly as it was on any failure."""
+    out = _git(home, "revert", "--no-commit", sha)
+    if out.returncode:
+        _git(home, "revert", "--abort")
+        raise Conflict("later runs changed the same lines — undo those first")
+    try:
+        if restore:
+            ref, path = restore
+            out = _git(home, "checkout", ref, "--", path)
+            if out.returncode:
+                raise RuntimeError(out.stderr.strip())
+        if remove:
+            out = _git(home, "rm", "-q", "--", remove)
+            if out.returncode:
+                raise RuntimeError(out.stderr.strip())
+        out = _git(home, "commit", "-q", "-m", message)
+        if out.returncode:
+            raise RuntimeError(out.stderr.strip())
+    except Exception:
+        _git(home, "reset", "-q", "--hard", "HEAD")
+        raise
+    return _git(home, "rev-parse", "--short", "HEAD").stdout.strip()
+
+
 def undo(home: Path, sha: str, message: str) -> str:
     """Revert one commit as a new one. History is kept, so an undo can itself be undone."""
     out = _git(home, "revert", "--no-edit", sha)

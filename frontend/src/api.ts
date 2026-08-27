@@ -107,7 +107,7 @@ export type Source = {
  * changes by people between runs, or an undo. From the bundle's history.
  */
 export type Entry = {
-  kind: "run" | "people" | "undo";
+  kind: "run" | "people" | "undo" | "redo";
   at: string;
   commit: string;
   changed: { status: string; path: string }[];
@@ -125,7 +125,11 @@ export const activity = (bundle: string) => call<Entry[]>(`${at(bundle)}/activit
 export const runDetail = (bundle: string, run: number) =>
   call<{ changed: { status: string; path: string }[] }>(`${at(bundle)}/runs/${run}`);
 
-/** Put the wiki back the way it was before this run. The source stays. `history`. */
+/** Revert the undo of a run: the wiki and the source come back. `history`. */
+export const redoRun = (bundle: string, run: number) =>
+  call<{ redone: number; commit: string }>(`${at(bundle)}/runs/${run}/redo`, { method: "POST" });
+
+/** The wiki and this run's source back to before it. `history`. */
 export const undoRun = (bundle: string, run: number) =>
   call<{ undone: number; commit: string }>(`${at(bundle)}/runs/${run}/undo`, { method: "POST" });
 

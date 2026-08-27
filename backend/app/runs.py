@@ -162,6 +162,35 @@ def last_read(home: Path, source: str) -> IngestRun | None:
         )
 
 
+def read_before(home: Path, run: IngestRun) -> IngestRun | None:
+    """The clean, un-undone run of the same source before this one — the state the wiki
+    reflected before this run, and what an undo of it goes back to."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        return s.scalar(
+            select(IngestRun)
+            .where(
+                IngestRun.tenant == tenant,
+                IngestRun.bundle == bundle,
+                IngestRun.source == run.source,
+                IngestRun.id != run.id,
+                IngestRun.started_at < run.started_at,
+                IngestRun.finished_at.is_not(None),
+                IngestRun.error == "",
+                IngestRun.undone_at.is_(None),
+            )
+            .order_by(IngestRun.started_at.desc())
+        )
+
+
+def mark_redone(run_id: int) -> None:
+    with session() as s:
+        run = s.get(IngestRun, run_id)
+        if run is not None:
+            run.undone_at = None
+            s.commit()
+
+
 def mark_undone(run_id: int) -> None:
     with session() as s:
         run = s.get(IngestRun, run_id)
