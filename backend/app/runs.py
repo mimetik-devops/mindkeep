@@ -99,15 +99,33 @@ def progress(home: Path, run_id: int, note: str = "", turns: int | None = None) 
         s.commit()
 
 
-def finish(home: Path, run_id: int, turns: int, chars: int, error: str = "") -> None:
+def finish(
+    home: Path, run_id: int, turns: int, chars: int, error: str = "", commit: str = ""
+) -> None:
     with session() as s:
         run = s.get(IngestRun, run_id)
         if run is None:
             return
         run.finished_at = now()
         run.seconds = int((run.finished_at - utc(run.started_at)).total_seconds())
-        run.turns, run.chars, run.error = turns, chars, error
+        run.turns, run.chars, run.error, run.commit = turns, chars, error, commit
         s.commit()
+
+
+def get(home: Path, run_id: int) -> IngestRun | None:
+    """One run — of this bundle, or None. A run id from another bundle is not a fact."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        run = s.get(IngestRun, run_id)
+        return run if run and (run.tenant, run.bundle) == (tenant, bundle) else None
+
+
+def mark_undone(run_id: int) -> None:
+    with session() as s:
+        run = s.get(IngestRun, run_id)
+        if run is not None:
+            run.undone_at = now()
+            s.commit()
 
 
 def latest(home: Path) -> dict[str, IngestRun]:
@@ -297,6 +315,7 @@ def ingested_sources(home: Path) -> set[str]:
                     IngestRun.bundle == bundle,
                     IngestRun.finished_at.is_not(None),
                     IngestRun.error == "",
+                    IngestRun.undone_at.is_(None),  # taken back is not ingested
                 )
             ).all()
         )

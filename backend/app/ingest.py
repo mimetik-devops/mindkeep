@@ -7,7 +7,7 @@ from pathlib import Path
 import anthropic
 from anthropic import beta_tool
 
-from app import gaps, graph, runs
+from app import gaps, graph, history, runs
 
 log = logging.getLogger(__name__)
 
@@ -221,7 +221,12 @@ def ingest(
     def list_files() -> str:
         """List every file in the knowledge base."""
         step("listing the knowledge base")
-        paths = (p for p in home.rglob("*") if p.is_file())
+        # dot directories are the bundle's own business (its history, for one), not content
+        paths = (
+            p
+            for p in home.rglob("*")
+            if p.is_file() and not any(s.startswith(".") for s in p.relative_to(home).parts)
+        )
         return "\n".join(sorted(p.relative_to(home).as_posix() for p in paths))
 
     def related(path: str) -> str:
@@ -340,6 +345,16 @@ def _worker(home: Path, pending: "queue.Queue[str]") -> None:
             log.exception("ingest worker survived a failure on %s", source)
 
 
+def snapshot(home: Path, message: str) -> str:
+    """A commit, or "" — and never a failed run: history is a convenience the ingest must
+    not depend on, so a missing git binary is logged and the run goes on without it."""
+    try:
+        return history.commit(home, message)
+    except Exception:
+        log.exception("could not commit %s in %s", message, home)
+        return ""
+
+
 def ingest_safely(home: Path, source: str) -> None:
     """Background entry point: a failed ingest must not lose the source that triggered it.
 
@@ -353,6 +368,9 @@ def ingest_safely(home: Path, source: str) -> None:
     # so nothing changes the wiki between here and the lint reading the hint
     thin = gaps.find(home) if source == LINT else []
     run_id = runs.start(home, source, MODEL)
+    # What people changed since the last run — uploads, answers — is committed on its own
+    # first, so undoing this run takes back only what the agent wrote.
+    snapshot(home, f"before run {run_id}")
     turns = written = 0
     error = ""
     try:
@@ -364,6 +382,9 @@ def ingest_safely(home: Path, source: str) -> None:
         message = (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
         error = (message or str(e) or type(e).__name__)[:300]
     finally:
-        runs.finish(home, run_id, turns, written, error)
+        # committed even when the run failed: half a run is exactly what someone wants to undo
+        runs.finish(
+            home, run_id, turns, written, error, commit=snapshot(home, f"run {run_id}: {source}")
+        )
         if not error:
             runs.settle_moves([move_id for move_id, _, _ in moves])

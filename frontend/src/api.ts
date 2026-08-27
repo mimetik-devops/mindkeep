@@ -96,7 +96,15 @@ export type Source = {
   ingested: boolean;
   /** Moved since the last lint, so the pages citing it still name the old path. */
   moved: boolean;
+  /** The latest run's id when it wrote something, else 0 — what Undo takes back. */
+  run: number;
+  /** That run has been taken back; the source reads as not ingested until run again. */
+  undone: boolean;
 };
+
+/** Put the wiki back the way it was before this run. The source stays. */
+export const undoRun = (bundle: string, run: number) =>
+  call<{ undone: number; commit: string }>(`${at(bundle)}/runs/${run}/undo`, { method: "POST" });
 
 /** Every raw source and whether the agent has folded it in yet. */
 export const sources = (bundle: string) => call<Source[]>(`${at(bundle)}/sources`);

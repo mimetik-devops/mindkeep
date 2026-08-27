@@ -12,7 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
-from app import assist, gaps, graph, runs, schedule, teams, todos
+from app import assist, gaps, graph, history, runs, schedule, teams, todos
 from app.auth import CurrentIdentity, CurrentProfile, CurrentUser
 from app.db import LINT_OFF
 from app.ingest import LINT, agent_owns, busy, enqueue, lock_for, pages_citing, user_owns
@@ -198,6 +198,9 @@ def safe_path(home: Path, rel: str) -> Path:
         raise HTTPException(400, "bad path") from None
     if not target.is_relative_to(home):
         raise HTTPException(400, "bad path")
+    # dot directories — the bundle's history, for one — are not files anyone is served
+    if any(part.startswith(".") for part in target.relative_to(home).parts):
+        raise HTTPException(404, "not found")
     return target
 
 
@@ -320,7 +323,11 @@ def tree(home: Bundle) -> dict[str, str]:
 
     ponytail: hashes every file per call. Fine for a wiki; cache by mtime if it ever bites.
     """
-    files = (p for p in home.rglob("*") if p.is_file() and not p.name.startswith("."))
+    files = (
+        p
+        for p in home.rglob("*")
+        if p.is_file() and not any(s.startswith(".") for s in p.relative_to(home).parts)
+    )
     # as_posix: these round-trip into URLs, so they are always forward-slashed.
     return {p.relative_to(home).as_posix(): sha256(p.read_bytes()).hexdigest() for p in files}
 
@@ -432,6 +439,8 @@ def sources(home: Bundle) -> list[dict[str, str | int | bool]]:
         run = last.get(rel)
         if run is None:  # never attempted
             return {"ingesting": False, "seconds": 0, "error": "", "took": 0, "note": ""}
+        # the latest run, so the UI can offer to take it back — and say when it has been
+        undoable = {"run": run.id if run.commit else 0, "undone": run.undone_at is not None}
         if run.finished_at is None:
             return {
                 "ingesting": True,
@@ -439,14 +448,14 @@ def sources(home: Bundle) -> list[dict[str, str | int | bool]]:
                 "error": "",
                 "took": 0,
                 "note": run.note,  # the last thing the agent did, for the live card
-            }
+            } | undoable
         return {
             "ingesting": False,
             "seconds": 0,
             "error": run.error,
             "took": run.seconds or 0,
             "note": "",
-        }
+        } | undoable
 
     return [
         {
@@ -462,6 +471,46 @@ def sources(home: Bundle) -> list[dict[str, str | int | bool]]:
         for p in sorted((home / "raw").rglob("*"))
         if p.is_file()
     ]
+
+
+@router.get("/bundles/{name}/runs/{run_id}")
+def run_detail(run_id: int, home: Bundle) -> dict[str, object]:
+    """One run: what it touched, and whether it has been taken back."""
+    run = runs.get(home, run_id)
+    if run is None:
+        raise HTTPException(404, "not found")
+    return {
+        "id": run.id,
+        "source": run.source,
+        "commit": run.commit,
+        "undone": run.undone_at is not None,
+        "changed": history.changed(home, run.commit) if run.commit else [],
+    }
+
+
+@router.post("/bundles/{name}/runs/{run_id}/undo")
+def undo_run(run_id: int, home: Bundle, _: Writer) -> dict[str, object]:
+    """Put the wiki back the way it was before this run — a revert of the run's commit.
+    The source people added stays; what the agent wrote goes; the undo is itself in the
+    history. Refused while an ingest is running, and when a later run changed the same
+    lines, which has to be taken back first."""
+    run = runs.get(home, run_id)
+    if run is None:
+        raise HTTPException(404, "not found")
+    if not run.commit:
+        raise HTTPException(409, "this run wrote nothing, so there is nothing to undo")
+    if run.undone_at is not None:
+        raise HTTPException(409, "already undone")
+    if busy(home):
+        raise HTTPException(409, "an ingest is running — undo when it has finished")
+    with lock_for(home):
+        try:
+            sha = history.undo(home, run.commit, f"undo run {run_id}: {run.source}")
+        except history.Conflict as e:
+            raise HTTPException(409, str(e)) from None
+    runs.mark_undone(run_id)
+    log.info("undid run %d (%s) in %s", run_id, run.source, home)
+    return {"undone": run_id, "commit": sha}
 
 
 @router.get("/bundles/{name}/todos")

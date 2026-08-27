@@ -8,6 +8,7 @@ import {
   readAsText,
   readFile,
   removeRaw,
+  undoRun,
   tree,
   verifyPage,
 } from "./api";
@@ -111,6 +112,16 @@ export function Library({ bundle }: { bundle: string }) {
       setRaw(await readFile(bundle, selected));
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  async function undoIngest() {
+    if (!status?.run) return;
+    try {
+      await undoRun(bundle, status.run);
+      refresh();
+    } catch (e) {
+      setError(String(e).replace(/^Error: \d{3} /, ""));
     }
   }
 
@@ -241,7 +252,9 @@ export function Library({ bundle }: { bundle: string }) {
             {meta.type && <span className="tag strong">{meta.type}</span>}
             <span className="tag">{meta.status ?? "stable"}</span>
             {(meta.tags ?? []).map((t) => (
-              <span className="tag" key={t}>{t}</span>
+              <span className="tag" key={t}>
+                {t}
+              </span>
             ))}
           </div>
         )}
@@ -250,8 +263,8 @@ export function Library({ bundle }: { bundle: string }) {
           <div className="prose" dangerouslySetInnerHTML={{ __html: render(body) }} />
         ) : unreadable ? (
           <p className="empty">
-            {unreadable}. It is stored and synced, but nothing has read it — including the
-            agent, which is why no page cites it.
+            {unreadable}. It is stored and synced, but nothing has read it — including the agent,
+            which is why no page cites it.
           </p>
         ) : (
           <>
@@ -299,6 +312,18 @@ export function Library({ bundle }: { bundle: string }) {
               )}
             </div>
             {status?.ingesting && status.note && <div className="step">{status.note}</div>}
+            {status?.undone && (
+              <div className="step">Its last ingest was undone. Ingest it again when ready.</div>
+            )}
+            {status && status.run > 0 && !status.ingesting && !status.undone && (
+              <button
+                className="primary"
+                title="Put the wiki back the way it was before this source was ingested"
+                onClick={undoIngest}
+              >
+                Undo ingest
+              </button>
+            )}
             <button className="primary danger" onClick={remove}>
               <Trash /> Delete source
             </button>
@@ -340,4 +365,3 @@ export function Library({ bundle }: { bundle: string }) {
     </div>
   );
 }
-

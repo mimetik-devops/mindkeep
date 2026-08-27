@@ -168,6 +168,37 @@ def test_a_save_may_name_the_version_it_saw(client):
     assert client.put(f"{B}/files/raw/notes.txt", content=b"theirs").status_code == 200
 
 
+def test_a_run_can_be_undone_and_the_source_stays(client, tmp_path):
+    """The agent's work is a commit; undo reverts it. What people added is a commit of
+    its own before the run, so it is not taken back with it."""
+    from app import history, runs
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/deck.md", content=b"the deck")
+    # what ingest_safely does around a run, without an agent in the loop
+    run = runs.start(home, "raw/deck.md", "m")
+    history.commit(home, f"before run {run}")
+    (home / "wiki" / "deck.md").write_text("# Deck\n", encoding="utf-8", newline="\n")
+    runs.finish(home, run, turns=1, chars=6, commit=history.commit(home, f"run {run}"))
+
+    [src] = client.get(f"{B}/sources").json()
+    assert src["ingested"] and src["run"] == run and not src["undone"]
+    detail = client.get(f"{B}/runs/{run}").json()
+    assert detail["changed"] == [{"status": "A", "path": "wiki/deck.md"}]
+
+    assert client.post(f"{B}/runs/{run}/undo").status_code == 200
+    assert not (home / "wiki" / "deck.md").exists()
+    assert client.get(f"{B}/files/raw/deck.md").text == "the deck"
+    [src] = client.get(f"{B}/sources").json()
+    assert not src["ingested"] and src["undone"]
+    assert client.post(f"{B}/runs/{run}/undo").status_code == 409  # only once
+    assert client.get(f"{B}/runs/999/undo").status_code in (404, 405)
+    # the history itself is never served, listed, or synced
+    assert client.get(f"{B}/files/.git/HEAD").status_code == 404
+    assert not [p for p in client.get(f"{B}/tree").json() if p.startswith(".git")]
+
+
 def test_upload_triggers_ingest(client, ingested):
     client.post(f"{B}/raw/notes.txt", content=b"one")
     assert [c[1] for c in ingested] == ["raw/notes.txt"]
