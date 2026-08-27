@@ -2,35 +2,11 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt, QUrl, Signal
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-from mindstash.app import autostart
-
-CLAY = "#c0603d"
-CREAM = "#f6f1e9"
-
-
-def icon() -> QIcon:
-    """Drawn here rather than shipped: a clay square with the wordmark's M."""
-    result = QIcon()
-    for size in (16, 32, 64):
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(CLAY))
-        painter.drawRoundedRect(QRectF(0, 0, size, size), size * 0.22, size * 0.22)
-        painter.setPen(QColor(CREAM))
-        font = QFont("Arial", int(size * 0.55))
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(QRectF(0, 0, size, size * 1.02), Qt.AlignmentFlag.AlignCenter, "M")
-        painter.end()
-        result.addPixmap(pixmap)
-    return result
+from mindstash.app import autostart, mark
 
 
 class Tray(QSystemTrayIcon):
@@ -41,7 +17,7 @@ class Tray(QSystemTrayIcon):
     quit = Signal()
 
     def __init__(self) -> None:
-        super().__init__(icon())
+        super().__init__(mark.icon())
         self.setToolTip("Mindstash")
         self.menu = QMenu()
         self.status = self.menu.addAction("Starting…")

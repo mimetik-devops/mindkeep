@@ -7,7 +7,7 @@ import sys
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
-from mindstash.app import config
+from mindstash.app import config, mark
 from mindstash.app.log import Log
 from mindstash.app.settings import Settings
 from mindstash.app.tray import Tray
@@ -121,8 +121,15 @@ class App:
 
 
 def main() -> None:
+    if sys.platform == "win32":
+        # Without its own application id the taskbar files these windows under
+        # python.exe — its icon, its grouping. Set before any window exists.
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(INSTANCE)
     qt = QApplication(sys.argv)
     qt.setApplicationName("Mindstash")
+    qt.setWindowIcon(mark.icon())  # every window's title bar and taskbar entry
     qt.setQuitOnLastWindowClosed(False)
     if already_running():
         print("Mindstash is already running; its settings are open.", flush=True)

@@ -2,49 +2,28 @@
 
     python icons/make.py        (from client/, with PySide6 installed)
 
-A rounded clay square with the wordmark's tray glyph in white. The PNGs are the Linux
-sizes, `mindstash.ico` is Windows, `mindstash.icns` is macOS — the last two are just
-containers around the same PNGs, so no image library is needed beyond Qt. Checked in
-so a build never depends on this script; rerun it when the mark changes.
+The drawing is `mindstash.app.mark.paint` — the same one the tray and the windows
+use. The PNGs are the Linux sizes, `mindstash.ico` is Windows, `mindstash.icns` is
+macOS — the last two are just containers around the same PNGs, so no image library is
+needed beyond Qt. Checked in so a build never depends on this script; rerun it when
+the mark changes.
 """
 
 import struct
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QGuiApplication, QImage
 
 HERE = Path(__file__).parent
-CLAY = QColor("#c0603d")
-CREAM = QColor("#f6f1e9")
+sys.path.insert(0, str(HERE.parent))  # the package beside this folder, without installing it
+from mindstash.app.mark import paint  # noqa: E402
+
 SIZES = (16, 32, 48, 64, 128, 256, 512, 1024)
 
 
 def draw(size: int) -> bytes:
-    image = QImage(size, size, QImage.Format.Format_ARGB32)
-    image.fill(Qt.GlobalColor.transparent)
-    p = QPainter(image)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    s = float(size)
-    tile = QPainterPath()
-    tile.addRoundedRect(QRectF(0, 0, s, s), s * 0.22, s * 0.22)
-    p.fillPath(tile, CLAY)
-    # the mark: an open tray with a thing dropping into it
-    pen = QPen(CREAM, max(1.0, s * 0.085), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    p.setPen(pen)
-    tray = QPainterPath()
-    tray.moveTo(s * 0.24, s * 0.52)
-    tray.lineTo(s * 0.24, s * 0.74)
-    tray.lineTo(s * 0.76, s * 0.74)
-    tray.lineTo(s * 0.76, s * 0.52)
-    p.drawPath(tray)
-    p.drawLine(QPointF(s * 0.5, s * 0.24), QPointF(s * 0.5, s * 0.58))
-    p.drawLine(QPointF(s * 0.38, s * 0.47), QPointF(s * 0.5, s * 0.59))
-    p.drawLine(QPointF(s * 0.62, s * 0.47), QPointF(s * 0.5, s * 0.59))
-    p.end()
-    return _png(image)
+    return _png(paint(size))
 
 
 def _png(image: QImage) -> bytes:
