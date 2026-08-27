@@ -63,6 +63,22 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* account menu ----------------------------------------------------------- */
 
 .account { position: relative; display: flex; }
+
+.bundles { position: relative; display: flex; }
+.bundlemenu {
+  position: absolute; top: calc(100% + 9px); left: 0; z-index: 20;
+  display: flex; flex-direction: column; min-width: 220px; padding: 6px;
+  background: var(--cream); border: 1px solid var(--line); border-radius: 13px;
+  box-shadow: 0 12px 30px rgba(40, 32, 24, 0.14);
+}
+.bundlemenu .menuitem[aria-checked="true"]::after { content: " ✓"; color: var(--clay); }
+.newbundle { display: flex; gap: 4px; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
+.newbundle input {
+  flex-grow: 1; min-width: 0; padding: 7px 9px; font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--bone); color: var(--ink);
+}
+.newbundle .menuitem:disabled { opacity: 0.45; cursor: default; }
+.bundlemenu .error { padding: 4px 10px 6px; font-size: 12px; }
 .facebutton { padding: 0; border: none; background: none; border-radius: 999px; }
 .facebutton[aria-expanded="true"] .face { box-shadow: 0 0 0 2px var(--ink); }
 

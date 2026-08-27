@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 
 import { listBundles, type Profile as Person } from "./api";
+import { Bundles } from "./Bundles";
 import { Console } from "./Console";
 import { Graph } from "./Graph";
-import { Chevron, Mark } from "./icons";
+import { Mark } from "./icons";
 import { Library } from "./Library";
 import { Profile } from "./Profile";
 import { Settings } from "./Settings";
@@ -42,15 +43,15 @@ export function App({ user }: { user: User }) {
           Mindstash
         </div>
 
-        <button
-          className="pill"
-          title="Switch bundle"
-          disabled={bundles.length < 2}
-          onClick={() => setBundle(bundles[(bundles.indexOf(bundle) + 1) % bundles.length])}
-        >
-          {bundle}
-          <Chevron />
-        </button>
+        <Bundles
+          bundles={bundles}
+          current={bundle}
+          onPick={setBundle}
+          onCreate={(name) => {
+            setBundles((b) => [...b, name].sort());
+            setBundle(name);
+          }}
+        />
 
         <nav className="tabs">
           {TABS.map((t) => (
