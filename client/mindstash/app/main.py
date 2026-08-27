@@ -8,6 +8,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from mindstash.app import config
+from mindstash.app.log import Log
 from mindstash.app.settings import Settings
 from mindstash.app.tray import Tray
 from mindstash.app.worker import Worker
@@ -31,10 +32,12 @@ class App:
     def __init__(self, qt: QApplication) -> None:
         self.qt = qt
         self.settings: Settings | None = None
+        self.log = Log()
+        self.last_status = ""
         self.worker = Worker()
         self.tray = Tray() if QSystemTrayIcon.isSystemTrayAvailable() else None
 
-        self.worker.said.connect(lambda line: print(line, flush=True))
+        self.worker.said.connect(self.on_said)
         self.worker.status.connect(self.on_status)
         self.worker.alert.connect(self.on_alert)
         self.worker.signed_out.connect(self.open_settings)
@@ -42,6 +45,7 @@ class App:
             self.tray.sync_now.connect(self.worker.sync_now)
             self.tray.paused.connect(self.on_pause)
             self.tray.settings.connect(self.open_settings)
+            self.tray.log.connect(self.open_log)
             self.tray.quit.connect(self.quit)
             self.tray.set_folders(config.load()["watch"])
             self.tray.show()
@@ -60,15 +64,26 @@ class App:
             self.open_settings()
         self.worker.start()
 
+    def on_said(self, text: str) -> None:
+        print(text, flush=True)
+        line = self.log.add(text)
+        if self.settings:
+            self.settings.append(line)
+
     def on_status(self, text: str) -> None:
         if self.tray:
             self.tray.set_status(text)
+        # a status is logged when it changes: "Watching 2 bundles" every 30 s is noise
+        if text != self.last_status:
+            self.last_status = text
+            self.on_said(text)
 
     def on_alert(self, title: str, text: str) -> None:
         if self.tray:
             self.tray.notify(title, text)
         else:
             print(f"{title}: {text}", flush=True)
+        self.on_said(f"! {title}: {text}")
 
     def on_pause(self, paused: bool) -> None:
         self.worker.paused = paused
@@ -78,12 +93,17 @@ class App:
 
     def open_settings(self) -> None:
         if self.settings is None:
-            self.settings = Settings()
+            self.settings = Settings(self.log)
             self.settings.saved.connect(self.on_saved)
             self.settings.finished.connect(self.on_closed)
         self.settings.show()
         self.settings.raise_()
         self.settings.activateWindow()
+
+    def open_log(self) -> None:
+        self.open_settings()
+        assert self.settings
+        self.settings.show_log()
 
     def on_saved(self) -> None:
         if self.tray:

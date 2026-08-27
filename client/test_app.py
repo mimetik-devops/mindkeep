@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mindstash import sync as engine
 from mindstash.app import alerts, autostart, config
+from mindstash.app.log import Log
 
 
 def test_config_is_saved_where_it_is_loaded_from_and_survives_a_damaged_file(tmp_path):
@@ -111,3 +112,15 @@ def test_the_engine_reports_through_hooks_the_app_can_replace(tmp_path, monkeypa
         "b",
         "raw/deck.md: changed over there too. Yours is kept in .conflicts/raw/deck.md.",
     )
+
+
+def test_the_log_keeps_the_last_lines_stamped_with_the_time():
+    from datetime import datetime
+
+    log = Log(keep=3)
+    assert log.add("got wiki/a.md", datetime(2026, 8, 28, 9, 5, 7)) == "09:05:07  got wiki/a.md"
+    for n in range(4):
+        log.add(f"line {n}")
+    assert log.text().count("\n") == 2 and "line 1" in log.text() and "got" not in log.text()
+    log.clear()
+    assert log.text() == ""

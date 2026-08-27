@@ -1,11 +1,13 @@
-"""The settings window: where the server is, who you are, where the folders go, and
-which bundles to watch. Network work — signing in, listing teams — runs off the UI
-thread so the window never freezes on a slow server."""
+"""The app's window: a Settings tab — where the server is, who you are, where the
+folders go, which bundles to watch — and a Log tab showing what the sync is doing.
+Network work — signing in, listing teams — runs off the UI thread so the window never
+freezes on a slow server."""
 
 import urllib.error
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -14,15 +16,19 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
+    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from mindstash import connect
 from mindstash import sync as engine
 from mindstash.app import config
+from mindstash.app.log import Log
 
 
 class Task(QThread):
@@ -56,11 +62,12 @@ def teams_and_bundles(server: str, token: str) -> list[dict]:
 class Settings(QDialog):
     saved = Signal()
 
-    def __init__(self) -> None:
+    def __init__(self, log: Log) -> None:
         super().__init__()
-        self.setWindowTitle("Mindstash settings")
-        self.setMinimumWidth(480)
+        self.setWindowTitle("Mindstash")
+        self.setMinimumSize(520, 460)
         self.cfg = config.load()
+        self.log = log
         self.task: Task | None = None
 
         self.server = QLineEdit(self.cfg["server"])
@@ -96,20 +103,58 @@ class Settings(QDialog):
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.reject)
 
-        layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(self.note)
+        settings = QWidget()
+        page = QVBoxLayout(settings)
+        page.addLayout(form)
+        page.addWidget(self.note)
         head = QHBoxLayout()
         head.addStretch()
         head.addWidget(self.refresh)
-        layout.addLayout(head)
-        layout.addWidget(self.tree)
+        page.addLayout(head)
+        page.addWidget(self.tree)
+
+        # the log: what the worker said, from before this window opened
+        self.lines = QPlainTextEdit(self.log.text())
+        self.lines.setReadOnly(True)
+        self.lines.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.lines.moveCursor(self.lines.textCursor().MoveOperation.End)
+        clear = QPushButton("Clear")
+        clear.clicked.connect(self.clear_log)
+        copy = QPushButton("Copy")
+        copy.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.log.text()))
+        logpage = QWidget()
+        logs = QVBoxLayout(logpage)
+        logs.addWidget(self.lines)
+        tools = QHBoxLayout()
+        tools.addStretch()
+        tools.addWidget(copy)
+        tools.addWidget(clear)
+        logs.addLayout(tools)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(settings, "Settings")
+        self.tabs.addTab(logpage, "Log")
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.tabs)
         layout.addWidget(buttons)
 
         if self.cfg["token"]:
             self.load_teams()
         else:
             self.note.setText("Sign in to see your teams and bundles.")
+
+    # --- the log ---------------------------------------------------------------------------------
+    def show_log(self) -> None:
+        self.tabs.setCurrentIndex(1)
+
+    def append(self, line: str) -> None:
+        """A line the worker just said; the buffer already has it."""
+        self.lines.appendPlainText(line)
+
+    def clear_log(self) -> None:
+        self.log.clear()
+        self.lines.clear()
 
     # --- signing in --------------------------------------------------------------------------
     def start_sign_in(self) -> None:

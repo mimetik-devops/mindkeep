@@ -37,6 +37,7 @@ class Tray(QSystemTrayIcon):
     sync_now = Signal()
     paused = Signal(bool)
     settings = Signal()
+    log = Signal()
     quit = Signal()
 
     def __init__(self) -> None:
@@ -54,6 +55,7 @@ class Tray(QSystemTrayIcon):
         self.folders = self.menu.addMenu("Open folder")
         self.menu.addSeparator()
         self.menu.addAction("Settings…", self.settings.emit)
+        self.menu.addAction("Log…", self.log.emit)
         self.login = QAction("Start at login", self.menu)
         self.login.setCheckable(True)
         self.login.setChecked(autostart.enabled())
