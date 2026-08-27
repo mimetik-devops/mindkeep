@@ -65,6 +65,24 @@ def test_sources_resolve_to_bundle_paths(tmp_path):
     assert G.nodes["wiki/projects/y.md"]["sources"] == frozenset()
 
 
+def test_export_gives_pages_an_area_and_lists_links(tmp_path):
+    for side in "ab":
+        for n in range(3):
+            others = [f"/wiki/{side}/{side}{o}.md" for o in range(3) if o != n]
+            page(tmp_path, f"wiki/{side}/{side}{n}.md", f"{side}{n}", others)
+    page(tmp_path, "wiki/alone.md", "Alone", sources=["/raw/x.md"])
+
+    out = graph.export(tmp_path)
+
+    area = {p["path"]: p["area"] for p in out["pages"]}
+    assert area["wiki/a/a0.md"] == area["wiki/a/a1.md"] == area["wiki/a/a2.md"]
+    assert area["wiki/b/b0.md"] != area["wiki/a/a0.md"]
+    assert area["wiki/alone.md"] == -1  # a page in no area, not an area of one
+    assert ["wiki/a/a0.md", "wiki/a/a1.md"] in out["links"]
+    alone = next(p for p in out["pages"] if p["path"] == "wiki/alone.md")
+    assert alone["sources"] == ["raw/x.md"]
+
+
 def test_related_names_links_both_ways_and_shared_sources(tmp_path):
     page(tmp_path, "wiki/a.md", "A", ["/wiki/b.md"], ["/raw/deck.md"], "about a")
     page(tmp_path, "wiki/b.md", "B", [], ["/raw/other.md"], "about b")

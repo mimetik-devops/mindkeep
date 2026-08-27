@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 
 import { listBundles, type Profile as Person } from "./api";
 import { Console } from "./Console";
+import { Graph } from "./Graph";
 import { Chevron, Mark } from "./icons";
 import { Library } from "./Library";
 import { Profile } from "./Profile";
 import { Settings } from "./Settings";
 import { Todo } from "./Todo";
 
-const TABS = ["Library", "Todo", "Console"] as const;
+const TABS = ["Library", "Graph", "Todo", "Console"] as const;
 // Settings is a page but not a tab — the account menu is its only entry point.
 type Tab = (typeof TABS)[number] | "Settings";
 
@@ -69,6 +70,7 @@ export function App({ user }: { user: User }) {
       </header>
 
       {tab === "Library" && <Library bundle={bundle} />}
+      {tab === "Graph" && <Graph bundle={bundle} />}
       {tab === "Todo" && <Todo bundle={bundle} />}
       {tab === "Console" && <Console bundle={bundle} />}
       {tab === "Settings" && <Settings bundle={bundle} />}

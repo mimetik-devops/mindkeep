@@ -450,3 +450,33 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--cream); border: 1px solid var(--line); border-radius: 12px;
   font-family: var(--mono); font-size: 11px; line-height: 1.7; color: var(--slate);
 }
+
+/* graph ------------------------------------------------------------------ */
+
+.graph { display: flex; flex-grow: 1; min-height: 0; }
+.graph svg {
+  flex-grow: 1; min-width: 0; height: 100%;
+  background: var(--cream); cursor: grab; touch-action: none;
+}
+.graph svg:active { cursor: grabbing; }
+.graph line { stroke: var(--soft); stroke-width: 1; }
+.graph line.source { stroke-dasharray: 3 3; }
+.graph line.dim, .graph g.dim { opacity: 0.12; }
+.graph g.node { cursor: pointer; }
+.graph g.node text { font-size: 10px; fill: var(--muted); pointer-events: none; }
+.graph g.node.selected circle { stroke: var(--ink); stroke-width: 2; }
+.graph g.node:hover text { fill: var(--ink); font-weight: 600; }
+
+.graph .side {
+  width: 320px; flex-shrink: 0; padding: 22px 24px; overflow-y: auto;
+  border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px;
+}
+.graph .side h2 { margin: 0; font-family: var(--serif); font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.graph .side h3 { margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.graph .side p { margin: 0; font-family: var(--serif); font-size: 14px; line-height: 1.5; color: var(--slate); }
+.graph .side .soft { font-size: 13px; color: var(--faint); }
+.graph .side .path { font-family: var(--mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+.graph .side section { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.graph .side .link { background: none; border: 0; padding: 0; text-align: left; color: var(--clay-ink); font-size: 13px; }
+.graph .side .link:hover { color: #8f4426; }
+.graph .side .toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; }

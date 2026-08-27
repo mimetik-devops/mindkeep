@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
-from app import assist, runs, schedule, todos
+from app import assist, graph, runs, schedule, todos
 from app.auth import CurrentUser
 from app.db import LINT_OFF
 from app.ingest import LINT, agent_owns, enqueue, lock_for, pages_citing, user_owns
@@ -175,6 +175,13 @@ def tree(home: Bundle) -> dict[str, str]:
     files = (p for p in home.rglob("*") if p.is_file() and not p.name.startswith("."))
     # as_posix: these round-trip into URLs, so they are always forward-slashed.
     return {p.relative_to(home).as_posix(): sha256(p.read_bytes()).hexdigest() for p in files}
+
+
+@router.get("/bundles/{name}/graph")
+def link_graph(home: Bundle) -> dict[str, object]:
+    """The wiki as pages and links, for the graph view. Rebuilt from the files on every
+    call — the same graph `related` and the gap measurement read, never a stored copy."""
+    return graph.export(home)
 
 
 @router.get("/bundles/{name}/files/{path:path}")

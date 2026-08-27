@@ -193,4 +193,18 @@ export const ask = (bundle: string, question: string, messages: Said[]) =>
     body: JSON.stringify({ question, messages }),
   });
 
+/** A wiki page as the graph view draws it. `area` is -1 for a page in no area. */
+export type Page = {
+  path: string;
+  title: string;
+  description: string;
+  area: number;
+  sources: string[];
+};
+
+/** Pages and the links between them, as the agent wired them. Rebuilt per call. */
+export type Graph = { pages: Page[]; links: [string, string][] };
+
+export const graph = (bundle: string) => call<Graph>(`/bundles/${bundle}/graph`);
+
 export const deviceToken = () => call<{ token: string }>("/device-token");

@@ -23,6 +23,8 @@ LINK = re.compile(r"\]\(([^)\s]+?\.md)(?:#[^)]*)?\)")
 # a bundle-absolute path on its own, which is how the manual tells the agent to link
 BARE = re.compile(r"(?<![\w/(])/wiki/[^\s)\]>\"'`#]+\.md")
 
+MIN_PAGES = 3  # fewer than this is a page, not an area
+
 
 def frontmatter(text: str) -> dict[str, object]:
     from app.files import FRONTMATTER  # local import: files.py imports ingest, which imports this
@@ -86,6 +88,35 @@ def build(home: Path) -> nx.DiGraph[str]:
             if linked in pages and linked != full:
                 G.add_edge(rel, pages[linked][0])
     return G
+
+
+def areas(U: nx.Graph[str]) -> list[set[str]]:
+    """Louvain communities of MIN_PAGES pages or more, largest first. Seeded, so the same
+    wiki always falls into the same areas — the lint and the graph view must agree."""
+    if U.number_of_edges() == 0:
+        return []
+    found = [c for c in nx.community.louvain_communities(U, seed=0) if len(c) >= MIN_PAGES]
+    return sorted(found, key=lambda c: (-len(c), min(c)))
+
+
+def export(home: Path) -> dict[str, object]:
+    """The graph as the UI draws it: every page with its area (-1 when it belongs to none),
+    the links as pairs, and the sources each page cites."""
+    G = build(home)
+    area = {p: n for n, c in enumerate(areas(G.to_undirected())) for p in c}
+    return {
+        "pages": [
+            {
+                "path": p,
+                "title": G.nodes[p]["title"],
+                "description": G.nodes[p]["description"],
+                "area": area.get(p, -1),
+                "sources": sorted(G.nodes[p]["sources"]),
+            }
+            for p in sorted(G)
+        ],
+        "links": [list(e) for e in sorted(G.edges)],
+    }
 
 
 def line(G: nx.DiGraph[str], node: str) -> str:

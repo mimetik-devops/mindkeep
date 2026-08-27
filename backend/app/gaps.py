@@ -22,7 +22,6 @@ from app import graph
 
 log = logging.getLogger(__name__)
 
-MIN_PAGES = 3  # fewer than this is a page, not an area
 MAX_GAPS = 3  # per lint: todo.md is a list for a person, not a dump
 HUBS = 4  # pages named per side, most central first
 # A gap is a pair with under this share of the links random wiring would give them.
@@ -56,7 +55,7 @@ def find(home: Path) -> list[Gap]:
     m = G.number_of_edges()
     if m == 0:
         return []
-    areas = [c for c in nx.community.louvain_communities(G, seed=0) if len(c) >= MIN_PAGES]
+    areas = graph.areas(G)
     central = nx.betweenness_centrality(G)
 
     def hubs(area: set[str]) -> list[Page]:
