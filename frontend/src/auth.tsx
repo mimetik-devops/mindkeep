@@ -1,6 +1,7 @@
 import { setTokenSource } from "./api";
 import { App } from "./App";
 import { Mark } from "./icons";
+import { pending, remember } from "./invites";
 import { kinde } from "./providers/kinde";
 import { oidc } from "./providers/oidc";
 import type { Adapter } from "./providers/session";
@@ -25,11 +26,17 @@ function Session({ adapter }: { adapter: Adapter }) {
   if (session.loading) return <div className="login" />;
 
   if (!session.signedIn) {
+    // the address may carry an invite; keep it across the provider's round trip
+    remember();
     return (
       <div className="login">
         <Mark size={64} />
         <h1>Mindstash</h1>
-        <p>A second brain that reads what you feed it.</p>
+        <p>
+          {pending()
+            ? "You have been invited to a team. Sign in, or register, to join it."
+            : "A second brain that reads what you feed it."}
+        </p>
         <button className="primary" onClick={session.login}>
           Sign in
         </button>

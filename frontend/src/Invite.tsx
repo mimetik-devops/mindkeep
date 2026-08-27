@@ -8,7 +8,16 @@ import { Mark } from "./icons";
  * path, so it needs nothing from whatever serves the app. Says what the link is for,
  * joins on a click, and hands the team back so the app can open it.
  */
-export function Invite({ token, onJoined }: { token: string; onJoined: (team: Team) => void }) {
+export function Invite({
+  token,
+  onJoined,
+  onDismiss,
+}: {
+  token: string;
+  onJoined: (team: Team) => void;
+  /** The link was spent or expired — on to the app without it. */
+  onDismiss: () => void;
+}) {
   const [offer, setOffer] = useState<{ team: { id: string; name: string }; role: string } | null>(
     null,
   );
@@ -36,7 +45,12 @@ export function Invite({ token, onJoined }: { token: string; onJoined: (team: Te
       <Mark size={64} />
       <h1>Mindstash</h1>
       {error ? (
-        <p>{error}</p>
+        <>
+          <p>{error}</p>
+          <button className="primary" onClick={onDismiss}>
+            Continue
+          </button>
+        </>
       ) : offer ? (
         <>
           <p>

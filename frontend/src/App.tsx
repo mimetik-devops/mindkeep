@@ -5,6 +5,7 @@ import { Bundles } from "./Bundles";
 import { Console } from "./Console";
 import { Graph } from "./Graph";
 import { Invite } from "./Invite";
+import { forget, pending } from "./invites";
 import { Mark } from "./icons";
 import { Library } from "./Library";
 import { Picker } from "./Picker";
@@ -22,18 +23,14 @@ export type User = {
   claims: Partial<Person>;
 };
 
-/** The invite token in the address, if this visit is one. Cleared once it is used. */
-function invitedWith(): string {
-  return new URLSearchParams(window.location.search).get("invite") ?? "";
-}
-
 export function App({ user }: { user: User }) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [team, setCurrentTeam] = useState<Team | null>(null);
   const [bundles, setBundles] = useState<string[]>([]);
   const [bundle, setBundle] = useState("default");
   const [tab, setTab] = useState<Tab>("Library");
-  const [invite, setInvite] = useState(invitedWith);
+  // from the address, or kept across a sign-in that started from an invite link
+  const [invite, setInvite] = useState(pending);
   const [error, setError] = useState("");
 
   // The team comes first: every bundle URL carries it, so nothing loads until one is chosen.
@@ -68,10 +65,15 @@ export function App({ user }: { user: User }) {
       <Invite
         token={invite}
         onJoined={(joined) => {
-          window.history.replaceState({}, document.title, window.location.pathname);
+          forget();
           setInvite("");
           setTeams((all) => (all.some((t) => t.id === joined.id) ? all : [...all, joined]));
           choose(joined);
+        }}
+        onDismiss={() => {
+          forget();
+          setInvite("");
+          if (teams.length) choose(teams[0]);
         }}
       />
     );

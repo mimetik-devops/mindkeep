@@ -17,8 +17,13 @@ async function mount(token: string) {
   const host = document.createElement("div");
   document.body.append(host);
   const joined: unknown[] = [];
-  await act(async () => createRoot(host).render(<Invite token={token} onJoined={(t) => joined.push(t)} />));
-  return { host, joined };
+  const dismissed: number[] = [];
+  await act(async () =>
+    createRoot(host).render(
+      <Invite token={token} onJoined={(t) => joined.push(t)} onDismiss={() => dismissed.push(1)} />,
+    ),
+  );
+  return { host, joined, dismissed };
 }
 
 test("says what the link is for, then joins on a click", async () => {
@@ -28,8 +33,9 @@ test("says what the link is for, then joins on a click", async () => {
   expect(joined).toEqual([acme]);
 });
 
-test("a spent or expired link says so, in the server's words", async () => {
-  const { host } = await mount("spent");
+test("a spent or expired link says so, in the server's words, and lets you carry on", async () => {
+  const { host, dismissed } = await mount("spent");
   expect(host.textContent).toContain("this invite is not open");
-  expect(host.querySelector("button")).toBeNull();
+  await act(async () => host.querySelector("button")!.click());
+  expect(dismissed).toEqual([1]);
 });
