@@ -70,6 +70,17 @@ briefcase create macOS app && briefcase build macOS app && briefcase package mac
 briefcase create linux system && briefcase build linux system && briefcase package linux system   # .deb / .rpm
 ```
 
+## Releasing
+
+1. Bump `version` in `pyproject.toml` — it is there twice, under `[project]` and
+   `[tool.briefcase]`, and they must agree.
+2. Write the entry in `CHANGELOG.md` under `## <version>`.
+3. Commit, then tag and push the tag: `git tag -a v0.2.0 -m "0.2.0" && git push origin v0.2.0`.
+
+The workflow checks all three before it builds anything, then attaches the installers
+to a GitHub release with generated notes. *Run workflow* on the Actions page builds the
+installers without a tag, as artifacts — the way to try a change to the workflow itself.
+
 `briefcase dev` runs the app straight from the source tree. The icons come from
 `icons/make.py` and are checked in; rerun it if the mark changes.
 
