@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { LINT_OFF, setLintHour, startLint } from "./api";
+import { deviceToken, LINT_OFF, setLintHour, startLint } from "./api";
+import { Copy } from "./icons";
 import { took, useLint, when } from "./useSources";
 
 /**
@@ -29,6 +30,12 @@ const HOURS = localHours();
 export function Settings({ bundle }: { bundle: string }) {
   const { lint, refresh } = useLint(bundle);
   const [error, setError] = useState("");
+  const [token, setToken] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    deviceToken().then((r) => setToken(r.token));
+  }, []);
 
   const act = (work: Promise<unknown>) => {
     setError("");
@@ -92,6 +99,29 @@ export function Settings({ bundle }: { bundle: string }) {
             {lint.error && ` It ended badly: ${lint.error}`}
           </p>
         )}
+      </section>
+
+      <section className="card">
+        <h2>On your machine</h2>
+        <p>
+          The desktop client keeps a copy of a bundle that Claude can read directly, and
+          uploads whatever you drop in its raw folder. It signs in with your device token —
+          yours, not the bundle's, so one login covers every bundle.
+        </p>
+        <div className="command">
+          <code>python mindstash.py login</code>
+          <button
+            disabled={!token}
+            onClick={() => {
+              navigator.clipboard.writeText(token);
+              setCopied(true);
+            }}
+            title="Copy your device token"
+          >
+            {copied ? "copied" : <Copy />}
+          </button>
+        </div>
+        <p className="soft">Paste the token when the login asks for it.</p>
       </section>
     </div>
   );

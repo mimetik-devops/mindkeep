@@ -152,7 +152,7 @@ def remember(cfg: dict, tree: dict[str, str], dirs: set[str] | None = None) -> N
 def login() -> None:
     default_folder = Path.home() / "Mindstash"
     server = input("API address [http://localhost:8001]: ").strip() or "http://localhost:8001"
-    token = input("Device token (copy it from your account page): ").strip()
+    token = input("Device token (copy it from Settings): ").strip()
     folder = input(f"Save the wiki in [{default_folder}]: ").strip() or str(default_folder)
     bundle = input("Bundle [default]: ").strip() or "default"
 

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { deviceToken, readFile, tree } from "./api";
-import { Copy } from "./icons";
+import { readFile, tree } from "./api";
 import { render } from "./okf";
 import { elapsed, took, useLint, useSources } from "./useSources";
 
@@ -90,15 +89,9 @@ function Entry({ event, seconds }: { event: Event; seconds?: number }) {
 export function Console({ bundle }: { bundle: string }) {
   const [events, setEvents] = useState<Event[]>([]);
   const [paths, setPaths] = useState<string[]>([]);
-  const [token, setToken] = useState("");
-  const [copied, setCopied] = useState(false);
   const [filter, setFilter] = useState<Filter>("All");
   const { sources, version } = useSources(bundle);
   const { lint } = useLint(bundle);
-
-  useEffect(() => {
-    deviceToken().then((r) => setToken(r.token));
-  }, []);
 
   // reload whenever an ingest or a lint finishes — the log and the page count both changed
   useEffect(() => {
@@ -220,23 +213,6 @@ export function Console({ bundle }: { bundle: string }) {
           <div className="stat">
             <b>{wiki}</b>
             <span>{wiki === 1 ? "wiki page" : "wiki pages"}</span>
-          </div>
-        </section>
-
-        <section>
-          <h2>On your machine</h2>
-          <p>A copy Claude can read directly. Drop files in its raw folder to upload them.</p>
-          <div className="command">
-            <code>python mindstash.py login</code>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(token);
-                setCopied(true);
-              }}
-              title="Copy your device token"
-            >
-              {copied ? "copied" : <Copy />}
-            </button>
           </div>
         </section>
       </aside>
