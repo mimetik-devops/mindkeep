@@ -154,15 +154,32 @@ def login() -> None:
     server = input("API address [http://localhost:8001]: ").strip() or "http://localhost:8001"
     token = input("Device token (copy it from Settings): ").strip()
     folder = input(f"Save the wiki in [{default_folder}]: ").strip() or str(default_folder)
-    bundle = input("Bundle [default]: ").strip() or "default"
 
-    cfg = {"server": server, "token": token, "folder": folder, "bundle": bundle}
+    # The teams you belong to, personal first — the server makes the personal one on
+    # first sight, so there is always at least one to pick.
+    probe = {"server": server, "token": token}
     try:
-        call_json(cfg, f"bundles/{bundle}/tree")
+        teams = call_json(probe, "teams")
     except urllib.error.HTTPError as e:
-        sys.exit(f"That did not work ({e.code}). Check the token and the bundle name.")
+        sys.exit(f"That did not work ({e.code}). Check the token.")
     except (urllib.error.URLError, Unreachable) as e:
         sys.exit(f"Could not reach the API: {e}")
+    for n, t in enumerate(teams, 1):
+        print(f"  {n}. {t['name']}{' (personal)' if t['personal'] else ''}")
+    picked = input("Team [1]: ").strip() or "1"
+    chosen = next(
+        (t for n, t in enumerate(teams, 1) if picked in (str(n), t["id"], t["name"])), None
+    )
+    if chosen is None:
+        sys.exit("That is not one of your teams.")
+    team = chosen["id"]
+
+    bundle = input("Bundle [default]: ").strip() or "default"
+    cfg = {"server": server, "token": token, "folder": folder, "team": team, "bundle": bundle}
+    try:
+        call_json(cfg, f"teams/{team}/bundles/{bundle}/tree")
+    except urllib.error.HTTPError as e:
+        sys.exit(f"That did not work ({e.code}). Check the bundle name.")
 
     for name in LAYOUT:
         (Path(folder) / name).mkdir(parents=True, exist_ok=True)
@@ -172,7 +189,8 @@ def login() -> None:
 
 def sync(cfg: dict) -> None:
     root, bundle = Path(cfg["folder"]), cfg["bundle"]
-    remote: dict[str, str] = call_json(cfg, f"bundles/{bundle}/tree")
+    base = f"teams/{cfg['team']}/bundles/{bundle}"  # every bundle lives in a team
+    remote: dict[str, str] = call_json(cfg, f"{base}/tree")
     seen = known(cfg)
     # before anything is compared, so a moved file is paired under its final name too
     rename_new(cfg, root, remote, seen)
@@ -206,7 +224,7 @@ def sync(cfg: dict) -> None:
             continue
         call(
             cfg,
-            f"bundles/{bundle}/move",
+            f"{base}/move",
             json.dumps({"source": rel, "target": landed}).encode(),
             kind="application/json",
         )
@@ -234,7 +252,7 @@ def sync(cfg: dict) -> None:
     elif everything:
         print(f"deleting all {len(gone)} sources - the rest of {root.name} is still here")
     for rel in gone:
-        call(cfg, f"bundles/{bundle}/{rel}", method="DELETE")
+        call(cfg, f"{base}/{rel}", method="DELETE")
         print("deleted", rel)
         remote.pop(rel, None)
 
@@ -253,21 +271,21 @@ def sync(cfg: dict) -> None:
         if rel not in remote and rel in seen:
             continue  # deleted on the server since last sync; the sweep below removes it
         if rel in remote:
-            call(cfg, f"bundles/{bundle}/files/{rel}", local.read_bytes(), method="PUT")
+            call(cfg, f"{base}/files/{rel}", local.read_bytes(), method="PUT")
             print("updated", rel)
         else:
-            call(cfg, f"bundles/{bundle}/{rel}", local.read_bytes())
+            call(cfg, f"{base}/{rel}", local.read_bytes())
             print("sent", rel)
         sent = True
     if sent:
-        remote = call_json(cfg, f"bundles/{bundle}/tree")
+        remote = call_json(cfg, f"{base}/tree")
 
     # todo.md is yours as much as theirs, so an answer written here goes up like a source
     # would — except that it starts no ingest, being a note about the wiki rather than in it.
     shared = root / SHARED
     if shared.is_file() and (here := digest(shared)) != remote.get(SHARED):
         if here != seen.get(SHARED):  # changed here, not merely changed over there
-            call(cfg, f"bundles/{bundle}/files/{SHARED}", shared.read_bytes(), method="PUT")
+            call(cfg, f"{base}/files/{SHARED}", shared.read_bytes(), method="PUT")
             print("sent", SHARED)
             remote[SHARED] = here
             sent = True
@@ -279,13 +297,13 @@ def sync(cfg: dict) -> None:
         if local.is_file() and digest(local) == want:
             continue
         local.parent.mkdir(parents=True, exist_ok=True)
-        local.write_bytes(call(cfg, f"bundles/{bundle}/files/{path}"))
+        local.write_bytes(call(cfg, f"{base}/files/{path}"))
         print("got", path)
 
     # Folders, which files cannot carry: an empty one has no file to arrive with, and
     # a folder made to be filled later is empty by definition. Read after the file work
     # above, so a move that created one is already reflected.
-    dirs: set[str] = set(call_json(cfg, f"bundles/{bundle}/folders"))
+    dirs: set[str] = set(call_json(cfg, f"{base}/folders"))
     here = {
         p.relative_to(root / "raw").as_posix()
         for p in (root / "raw").rglob("*")
@@ -298,13 +316,13 @@ def sync(cfg: dict) -> None:
             continue  # deleted on the server since the last sync; the sweep removes it
         if any(p.is_file() for p in (root / "raw" / rel).rglob("*")):
             continue  # its files were uploaded above, and they brought the folder with them
-        call(cfg, f"bundles/{bundle}/folders/{rel}")
+        call(cfg, f"{base}/folders/{rel}")
         print("made", f"raw/{rel}")
         dirs.add(rel)
     # deepest first, so a folder tree deleted here goes from the inside out
     for rel in sorted(before & dirs - here, reverse=True):
         try:
-            call(cfg, f"bundles/{bundle}/folders/{rel}", method="DELETE")
+            call(cfg, f"{base}/folders/{rel}", method="DELETE")
             print("removed", f"raw/{rel}")
         except urllib.error.HTTPError as e:
             if e.code not in (404, 409):  # already pruned with its last file, or refilled
@@ -332,6 +350,11 @@ def sync(cfg: dict) -> None:
     remember(cfg, remote, dirs)
 
 
+def needs_team(cfg: dict) -> None:
+    if "team" not in cfg:
+        sys.exit("Bundles now live in teams: run `mindstash login` once more to pick yours.")
+
+
 def main() -> None:
     command = sys.argv[1] if len(sys.argv) > 1 else "sync"
     if command == "login":
@@ -339,6 +362,7 @@ def main() -> None:
     if not CONFIG.exists():
         sys.exit("Run `mindstash login` first.")
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+    needs_team(cfg)
 
     if command == "sync":
         sync(cfg)

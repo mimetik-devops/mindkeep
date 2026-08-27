@@ -35,6 +35,7 @@ def fake_server(monkeypatch, tmp_path, tree: dict[str, str], dirs: list[str] | N
         "server": "http://x",
         "token": "t",
         "folder": str(tmp_path / "mirror"),
+        "team": "T",
         "bundle": "default",
     }
 
@@ -85,8 +86,8 @@ def test_folders_you_make_in_raw_are_uploaded_as_you_made_them(tmp_path, monkeyp
     mindstash.sync(cfg)
 
     assert sorted(c for c in sent if c != "POST clean") == [
-        "POST bundles/default/raw/loose.md",
-        "POST bundles/default/raw/papers/2026/synthetic users.md",
+        "POST teams/T/bundles/default/raw/loose.md",
+        "POST teams/T/bundles/default/raw/papers/2026/synthetic users.md",
     ]
 
 
@@ -107,7 +108,7 @@ def test_a_local_rename_is_sent_as_a_move(tmp_path, monkeypatch):
 
     mindstash.sync(cfg)
 
-    assert "POST bundles/default/move" in calls
+    assert "POST teams/T/bundles/default/move" in calls
     assert not [c for c in calls if c.startswith("DELETE")]
     assert not [c for c in calls if c.endswith("raw/papers/note.md")]  # not re-uploaded
 
@@ -130,7 +131,7 @@ def test_reorganising_everything_is_not_mistaken_for_losing_everything(tmp_path,
 
     mindstash.sync(cfg)
 
-    assert calls.count("POST bundles/default/move") == 2
+    assert calls.count("POST teams/T/bundles/default/move") == 2
     assert not [c for c in calls if c.startswith("DELETE")]
 
 
@@ -163,7 +164,7 @@ def test_an_empty_folder_made_on_disk_is_sent(tmp_path, monkeypatch):
     (tmp_path / "mirror" / "raw" / "essays").mkdir(parents=True)
     mindstash.sync(cfg)
 
-    assert "POST bundles/default/folders/essays" in calls
+    assert "POST teams/T/bundles/default/folders/essays" in calls
 
 
 def test_a_folder_deleted_on_disk_is_deleted_on_the_server(tmp_path, monkeypatch):
@@ -177,7 +178,7 @@ def test_a_folder_deleted_on_disk_is_deleted_on_the_server(tmp_path, monkeypatch
     calls_from(monkeypatch, calls)
     mindstash.sync(cfg)
 
-    assert "DELETE bundles/default/folders/essays" in calls
+    assert "DELETE teams/T/bundles/default/folders/essays" in calls
 
 
 def test_a_folder_deleted_on_the_server_is_not_resurrected(tmp_path, monkeypatch):
@@ -209,8 +210,8 @@ def test_emptying_raw_on_purpose_empties_it_on_the_server(tmp_path, monkeypatch)
     mindstash.sync(cfg)
 
     assert sorted(c for c in calls if c.startswith("DELETE")) == [
-        "DELETE bundles/default/raw/a.md",
-        "DELETE bundles/default/raw/b.md",
+        "DELETE teams/T/bundles/default/raw/a.md",
+        "DELETE teams/T/bundles/default/raw/b.md",
     ]
 
 
@@ -241,7 +242,7 @@ def test_answers_written_into_todo_md_go_back_up(tmp_path, monkeypatch):
     calls_from(monkeypatch, calls)
     mindstash.sync(cfg)
 
-    assert "PUT bundles/default/files/todo.md" in calls
+    assert "PUT teams/T/bundles/default/files/todo.md" in calls
 
 
 def test_a_todo_only_the_server_changed_is_not_pushed_back(tmp_path, monkeypatch):
@@ -268,8 +269,8 @@ def uploads_into(monkeypatch, tree: dict[str, str], sink: list[str]) -> None:
         sink.append(f"{method or 'POST'} {path}")
         if path == "clean":
             return cleaned(body)
-        if body is not None and path.startswith("bundles/default/raw/"):
-            tree[path.removeprefix("bundles/default/")] = hashlib.sha256(body).hexdigest()
+        if body is not None and path.startswith("teams/T/bundles/default/raw/"):
+            tree[path.removeprefix("teams/T/bundles/default/")] = hashlib.sha256(body).hexdigest()
         return b"{}"
 
     monkeypatch.setattr(mindstash, "call", fake)
@@ -288,7 +289,8 @@ def test_a_new_file_is_renamed_the_way_the_server_would_before_it_goes_up(tmp_pa
 
     mindstash.sync(cfg)
 
-    assert "POST bundles/default/raw/Futuros - how it works (architecture- stack).md" in calls
+    clean = "Futuros - how it works (architecture- stack).md"
+    assert f"POST teams/T/bundles/default/raw/{clean}" in calls
     assert not (raw / "Futuros — how it works (architecture, stack).md").exists()
     assert (raw / "Futuros - how it works (architecture- stack).md").read_bytes() == b"a"
 
@@ -307,11 +309,11 @@ def test_a_twin_already_spelt_the_servers_way_is_not_uploaded_twice(tmp_path, mo
 
     mindstash.sync(cfg)
 
-    uploads = sorted(c for c in calls if c.startswith("POST bundles/default/raw/"))
+    uploads = sorted(c for c in calls if c.startswith("POST teams/T/bundles/default/raw/"))
     assert uploads == [
-        "POST bundles/default/raw/Gartner says we lead. That-s kind of them.md",
-        "POST bundles/default/raw/notes- v2-2.md",
-        "POST bundles/default/raw/notes- v2.md",
+        "POST teams/T/bundles/default/raw/Gartner says we lead. That-s kind of them.md",
+        "POST teams/T/bundles/default/raw/notes- v2-2.md",
+        "POST teams/T/bundles/default/raw/notes- v2.md",
     ]
     assert (raw / "notes- v2-2.md").read_bytes() == b"old"
     assert (raw / "notes- v2.md").read_bytes() == b"new"
