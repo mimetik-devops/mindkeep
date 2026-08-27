@@ -88,12 +88,13 @@ export function Members({ team }: { team: Team }) {
             ) : (
               <span className="role">{m.role}</span>
             )}
-            {/* nobody leaves their personal team — it is theirs to keep */}
-            {!team.personal && ((manages && m.sub !== self) || m.sub === self) ? (
+            {/* leaving is the Team card's: it takes you home afterwards, which this
+                list cannot — it would only refresh a team you are no longer in */}
+            {manages && m.sub !== self && (
               <button className="link" onClick={() => act(removeMember(team.id, m.sub))}>
-                {m.sub === self ? "Leave" : "Remove"}
+                Remove
               </button>
-            ) : null}
+            )}
           </li>
         ))}
       </ul>
