@@ -26,23 +26,6 @@ jobs:
       - run: pip install pytest ruff
       - run: ruff check .
       - run: pytest -q
-      # the version is written twice in pyproject.toml (the package, the Briefcase app)
-      # and must match the tag: a forgotten bump would ship an installer Windows refuses
-      # to install over the last one, labelled as something it is not
-      - name: version matches, and matches the tag
-        run: python -c "$CHECK"
-        env:
-          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          CHECK: |
-            import os, sys, tomllib
-            t = tomllib.load(open("pyproject.toml", "rb"))
-            pkg, app = t["project"]["version"], t["tool"]["briefcase"]["version"]
-            tag = os.environ["TAG"]
-            if pkg != app:
-                sys.exit(f"pyproject.toml says {pkg} and {app}; make them one version")
-            if tag and tag != f"v{pkg}":
-                sys.exit(f"tag {tag} but pyproject.toml says {pkg}; bump it first")
-            print("version", pkg, "ok")
 
   package:
     # installers only for a tag, or when asked for by hand: three runners a push is a lot
@@ -91,6 +74,11 @@ jobs:
           python3 -m venv "$HOME/briefcase-venv"
           "$HOME/briefcase-venv/bin/pip" install briefcase
           echo "$HOME/briefcase-venv/bin" >> "$GITHUB_PATH"
+      # The tag is the version: pyproject.toml says 0.0.0 in git and is stamped here,
+      # before Briefcase reads it. A manual run without a tag builds 0.0.0 artifacts.
+      - if: github.ref_type == 'tag'
+        run: python stamp.py "$GITHUB_REF_NAME"
+        shell: bash
       # CHANGELOG.md is not in git: it is the commits since the previous tag, and
       # Briefcase ships it inside the Linux package (the Briefcase venv puts `python`
       # on the PATH on Linux too)
@@ -119,6 +107,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - run: python3 client/stamp.py "$GITHUB_REF_NAME"
       # the release body is the same generated changelog the Linux package carries,
       # under the unsigned-build note; GitHub's own PR list is appended after it
       - run: |

@@ -1,6 +1,7 @@
 [project]
 name = "mindstash-client"
-version = "0.1.0"
+# 0.0.0 in git: the release workflow stamps the tag's number here (see stamp.py)
+version = "0.0.0"
 description = "Keeps a Mindstash bundle on your machine: a folder Claude can read, that uploads what you drop in it."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -38,13 +39,11 @@ testpaths = ["."]
 # `briefcase package` builds the tray app for the OS it runs on; .github/workflows/app.yml
 # runs it on all three. Briefcase starts the module named after the app, so the app is
 # `mindstash-app` -> `mindstash_app`, a shim that calls mindstash.app.main.
+# version, author and license come from [project] above: Briefcase reads them there.
 [tool.briefcase]
 project_name = "Mindstash"
 bundle = "io.mindstash"
-version = "0.1.0"
 url = "https://mindstash.io"
-author = "Ruben Henares"
-author_email = "rhenares0@gmail.com"
 
 [tool.briefcase.app.mindstash-app]
 formal_name = "Mindstash"

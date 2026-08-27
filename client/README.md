@@ -72,18 +72,19 @@ briefcase create linux system && briefcase build linux system && briefcase packa
 
 ## Releasing
 
-1. Bump `version` in `pyproject.toml` — it is there twice, under `[project]` and
-   `[tool.briefcase]`, and they must agree.
-2. Commit, then tag and push the tag: `git tag -a v0.2.0 -m "0.2.0" && git push origin v0.2.0`.
+Tag and push the tag: `git tag -a v0.2.0 -m "0.2.0" && git push origin v0.2.0`. That is
+the whole of it.
 
-The workflow checks the versions agree with the tag before it builds anything, then
-attaches the installers to a GitHub release. The release notes — and the `CHANGELOG.md`
-Briefcase ships inside the Linux package — are written by `changelog.py`: the subjects
-of the commits that touched `client/` since the previous tag, so commit subjects are
-written as sentences a user could read. Nobody types a changelog; run
-`python changelog.py` before a local `briefcase build linux`. *Run workflow* on the
-Actions page builds the installers without a tag, as artifacts — the way to try a
-change to the workflow itself.
+The tag is the only place a version is typed. `pyproject.toml` says `0.0.0` in git —
+what a local build gets — and the workflow stamps the tag's number over it
+(`stamp.py`) before Briefcase reads it, so the installers, the package metadata and
+the changelog all carry it. The release notes — and the `CHANGELOG.md` Briefcase ships
+inside the Linux package — are written by `changelog.py`: the subjects of the commits
+that touched `client/` since the previous tag, so commit subjects are written as
+sentences a user could read. Nobody types a version or a changelog. For a local
+`briefcase build linux`, run `python changelog.py` first. *Run workflow* on the Actions
+page builds `0.0.0` installers without a tag, as artifacts — the way to try a change to
+the workflow itself.
 
 `briefcase dev` runs the app straight from the source tree. The icons come from
 `icons/make.py` and are checked in; rerun it if the mark changes.
