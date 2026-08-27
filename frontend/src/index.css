@@ -162,6 +162,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .primary:disabled { opacity: 0.5; cursor: default; }
 .danger { background: #a63244; }
 
+.quiet {
+  height: 42px; padding: 0 16px; border: 1.2px solid var(--soft); border-radius: 10px;
+  background: none; font-size: 13px; font-weight: 700; color: var(--slate);
+}
+.quiet:hover { background: var(--bone); }
+
+/* dialogs ---------------------------------------------------------------- */
+
+.veil {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(25, 24, 23, 0.45); backdrop-filter: blur(2px);
+}
+.dialog {
+  display: flex; flex-direction: column; gap: 18px;
+  width: min(460px, calc(100vw - 40px)); padding: 24px 26px;
+  background: var(--cream); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(25, 24, 23, 0.25);
+}
+.dialog p { margin: 0; font-family: var(--serif); font-size: 16px; line-height: 1.55; color: var(--ink); }
+.dialog input {
+  padding: 9px 12px; border: 1.2px solid var(--soft); border-radius: 9px;
+  background: none; font: inherit; font-size: 14px; color: var(--ink);
+}
+.dialog .actions { display: flex; justify-content: flex-end; gap: 10px; }
+
 /* library ---------------------------------------------------------------- */
 
 .sidebar {

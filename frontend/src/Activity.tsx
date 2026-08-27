@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { activity, can, type Entry, redoRun, runDetail, type Team, tree, undoRun } from "./api";
+import { confirm } from "./dialog";
 import { render } from "./okf";
 import { elapsed, took, useLint, useSources, when } from "./useSources";
 
@@ -83,7 +84,7 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
         : `Undo the ingest of ${e.source}? The wiki goes back to how it was before, and so ` +
           "does the source — a file new at this run is removed. Both stay in the history, " +
           "and the undo can be redone.";
-    if (!confirm(what)) return;
+    if (!(await confirm(what, { ok: "Undo", danger: true }))) return;
     setBusy(e.id);
     setError("");
     try {

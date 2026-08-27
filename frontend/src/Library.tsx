@@ -11,6 +11,7 @@ import {
   tree,
   verifyPage,
 } from "./api";
+import { confirm, prompt } from "./dialog";
 import { filesIn, type Picked } from "./dropped";
 import { build, FileTree } from "./FileTree";
 import { Check, Trash } from "./icons";
@@ -116,13 +117,12 @@ export function Library({ bundle }: { bundle: string }) {
 
   async function remove() {
     const name = selected.slice("raw/".length);
-    if (
-      !confirm(
-        `Delete ${name}? The pages that rest on it are retired right away. The file itself ` +
-          "stays in the history.",
-      )
-    )
-      return;
+    const sure = await confirm(
+      `Delete ${name}? The pages that rest on it are retired right away. The file itself ` +
+        "stays in the history.",
+      { ok: "Delete", danger: true },
+    );
+    if (!sure) return;
     try {
       await removeRaw(bundle, name);
       setSelected("index.md");
@@ -141,7 +141,7 @@ export function Library({ bundle }: { bundle: string }) {
 
   /** `parent` is a full path — "raw", or any folder inside it. */
   async function newFolder(parent: string) {
-    const name = prompt(`New folder in ${parent}`, "");
+    const name = await prompt(`New folder in ${parent}`, { ok: "Create" });
     if (!name?.trim()) return;
     const inside = parent === "raw" ? "" : parent.slice("raw/".length);
     try {
