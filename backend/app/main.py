@@ -6,8 +6,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app import files, ingest, kinde, runs, schedule
-from app.auth import CurrentRole, CurrentUser, device_token
+from app import files, ingest, runs, schedule
+from app.auth import CurrentProfile, CurrentRole, CurrentUser, device_token
 
 # Without this, app logs vanish: uvicorn configures only its own loggers, and the root
 # logger's fallback handler drops anything below WARNING. Ingest runs for minutes in the
@@ -62,11 +62,17 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/me")
-def me(user: CurrentUser, role: CurrentRole) -> dict[str, str]:
-    """Who is signed in. Composed from Kinde per read — there is no local user table."""
-    who = kinde.profile(user)
-    name = " ".join(n for n in (who["first_name"], who["last_name"]) if n)
-    return {"id": user, "name": name, "role": role} | who
+def me(user: CurrentUser, role: CurrentRole, who: CurrentProfile) -> dict[str, str]:
+    """Who is signed in, read off the token — there is no local user table."""
+    return {
+        "id": user,
+        "name": who.name,
+        "role": role,
+        "first_name": who.first_name,
+        "last_name": who.last_name,
+        "email": who.email,
+        "picture": who.picture,
+    }
 
 
 @app.get("/device-token")

@@ -12,10 +12,9 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
 from app import assist, gaps, graph, runs, schedule, todos
-from app.auth import CurrentUser
+from app.auth import CurrentIdentity, CurrentUser
 from app.db import LINT_OFF
 from app.ingest import LINT, agent_owns, enqueue, lock_for, pages_citing, user_owns
-from app.kinde import who_is
 
 router = APIRouter()
 
@@ -253,7 +252,7 @@ async def write(path: str, request: Request, home: Bundle) -> dict[str, str]:
 
 
 @router.post("/bundles/{name}/verify/{path:path}")
-def verify(path: str, home: Bundle, user: CurrentUser) -> dict[str, str]:
+def verify(path: str, home: Bundle, who: CurrentIdentity) -> dict[str, str]:
     """Stamp a page as human-checked.
 
     The server owns this, not the client: `verified` is the field that separates what
@@ -264,7 +263,6 @@ def verify(path: str, home: Bundle, user: CurrentUser) -> dict[str, str]:
     if not target.is_file() or not agent_owns(home, target):
         raise HTTPException(404, "not found")
 
-    who = who_is(user)
     at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     text = target.read_text(encoding="utf-8")
     match = FRONTMATTER.match(text)

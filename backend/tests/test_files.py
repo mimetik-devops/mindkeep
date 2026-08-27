@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
-from app.auth import current_role, current_user, device_token
+from app.auth import Profile, current_profile, current_role, current_user, device_token
 from app.files import safe_path
 from app.main import app
 
@@ -41,8 +41,11 @@ def client(tmp_path, monkeypatch, ingested, database):
         return request.headers.get("x-test-user", "alice")
 
     app.dependency_overrides[current_user] = as_user
-    # /me is the only route that reads the role, and it comes from the token's claims
+    # role and profile come from the token's claims; the tests hand them in directly
     app.dependency_overrides[current_role] = lambda: "Owner"
+    app.dependency_overrides[current_profile] = lambda: Profile(
+        first_name="Ada", last_name="Lovelace", email="ada@example.com", picture="https://pics/ada.png"
+    )
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -233,10 +236,10 @@ def test_no_sidecar_is_written(client):
 
 def test_verify_stamps_the_authenticated_user(client, page):
     page("wiki/jane.md")
-    assert client.post(f"{B}/verify/wiki/jane.md").json()["verified_by"] == "human:alice"
+    assert client.post(f"{B}/verify/wiki/jane.md").json()["verified_by"] == "human:ada@example.com"
 
     after = client.get(f"{B}/files/wiki/jane.md").text
-    assert "verified: { by: human:alice," in after
+    assert "verified: { by: human:ada@example.com," in after
     assert "title: Jane" in after and "  - id: a" in after  # nothing else reformatted
     assert after.endswith("body\n")
 
@@ -608,17 +611,8 @@ def test_an_impossible_lint_hour_is_rejected(client, hour):
     assert client.put(f"{B}/lint", json={"hour": hour}).status_code == 400
 
 
-def test_the_profile_is_composed_from_kinde(client, monkeypatch):
-    """Mindstash keeps no user table, so /me is whatever Kinde says right now."""
-    monkeypatch.setattr(
-        "app.kinde.profile",
-        lambda sub: {
-            "first_name": "Ada",
-            "last_name": "Lovelace",
-            "email": "ada@example.com",
-            "picture": "https://pics/ada.png",
-        },
-    )
+def test_the_profile_is_whatever_the_token_says(client):
+    """Mindstash keeps no user table, so /me is the token's own claims."""
     me = client.get("/me").json()
     assert me["id"] == "alice"
     assert me["name"] == "Ada Lovelace"
@@ -627,9 +621,9 @@ def test_the_profile_is_composed_from_kinde(client, monkeypatch):
     assert me["picture"] == "https://pics/ada.png"
 
 
-def test_the_profile_survives_kinde_being_unreachable(client, monkeypatch):
-    """A Kinde hiccup must not blank the whole app — the id is always known."""
-    monkeypatch.setattr("app.kinde.enabled", lambda: False)
+def test_a_token_with_no_profile_still_identifies_someone(client):
+    """A device token, or an access token without profile claims: the id is always known."""
+    app.dependency_overrides[current_profile] = lambda: Profile()
     me = client.get("/me").json()
     assert me["id"] == "alice"
     assert me["name"] == "" and me["picture"] == ""
