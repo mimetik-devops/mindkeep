@@ -156,6 +156,32 @@ export function Graph({ bundle }: { bundle: string }) {
   const titled = (path: string) => data?.pages.find((p) => p.path === path)?.title ?? path;
   const areas = data ? new Set(data.pages.map((p) => p.area).filter((a) => a >= 0)).size : 0;
 
+  // Text in an SVG grows with the zoom, so zooming in spreads the nodes and enlarges the
+  // labels at the same rate and the smear never clears. Labels are kept at screen size
+  // instead — and at any zoom only the ones that do not collide are drawn, hubs first,
+  // so the rest surface as you zoom in. A hovered or selected node's neighbourhood is
+  // always labelled: that is what you are looking at.
+  const scale = box.w / W;
+  const labelled = useMemo(() => {
+    const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    const show = new Set<string>();
+    const busiest = [...nodes].sort(
+      (a, b) =>
+        (near.get(b.id)?.size ?? 0) - (near.get(a.id)?.size ?? 0) || a.id.localeCompare(b.id),
+    );
+    for (const v of busiest) {
+      const h = 12 * scale;
+      const x0 = v.x + radius(v) + 3;
+      const y0 = v.y - h / 2;
+      const x1 = x0 + slug(v).length * 6 * scale;
+      const y1 = y0 + h;
+      if (placed.some((b) => x0 < b.x1 && x1 > b.x0 && y0 < b.y1 && y1 > b.y0)) continue;
+      placed.push({ x0, y0, x1, y1 });
+      show.add(v.id);
+    }
+    return show;
+  }, [nodes, near, scale]); // radius() only reads `near`
+
   function wheel(e: React.WheelEvent<SVGSVGElement>) {
     const r = e.currentTarget.getBoundingClientRect();
     const f = e.deltaY > 0 ? 1.15 : 1 / 1.15;
@@ -219,9 +245,11 @@ export function Graph({ bundle }: { bundle: string }) {
             ) : (
               <circle r={radius(v)} fill={colour(v)} />
             )}
-            <text x={radius(v) + 3} y={3}>
-              {slug(v)}
-            </text>
+            {(labelled.has(v.id) || (focus && lit(v.id))) && (
+              <text x={radius(v) + 3} y={4 * scale} fontSize={10 * scale}>
+                {slug(v)}
+              </text>
+            )}
           </g>
         ))}
       </svg>
@@ -288,7 +316,10 @@ export function Graph({ bundle }: { bundle: string }) {
                 />
                 Show sources
               </label>
-              <p className="soft">Click a page for what links to it. Scroll to zoom, drag to pan.</p>
+              <p className="soft">
+                Click a page for what links to it. Scroll to zoom — more labels appear as
+                there is room for them — and drag to pan.
+              </p>
             </>
           )
         )}
