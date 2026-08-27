@@ -208,8 +208,29 @@ def test_a_run_can_be_undone_and_the_source_stays(client, tmp_path):
     detail = client.get(f"{B}/runs/{run}").json()
     assert detail["changed"] == [{"status": "A", "path": "wiki/deck.md"}]
 
+    # the feed: the run with the agent's own log line, and the upload as people's change
+    (home / "log.md").write_text(
+        "# Log\n## [2026-08-27] ingest | deck\nOne page.\n", encoding="utf-8", newline="\n"
+    )
+    run2 = runs.start(home, "raw/deck.md", "m")
+    runs.finish(home, run2, turns=1, chars=1, commit=history.commit(home, f"run {run2}"))
+    feed = client.get(f"{B}/activity").json()
+    kinds = [(e["kind"], e.get("source") or e.get("commit")) for e in feed]
+    assert kinds[0] == ("run", "raw/deck.md") and "One page." in feed[0]["note"]
+    people = [e for e in feed if e["kind"] == "people"]
+    assert [x["path"] for x in people[-1]["changed"]] == ["raw/deck.md"]
+    assert not [
+        e
+        for e in feed
+        if e["kind"] == "people" and any(x["path"] == "index.md" for x in e["changed"])
+    ]
+
+    assert (
+        client.post(f"{B}/runs/{run2}/undo").status_code == 200
+    )  # the one that wrote the log line
     assert client.post(f"{B}/runs/{run}/undo").status_code == 200
     assert not (home / "wiki" / "deck.md").exists()
+    assert client.get(f"{B}/activity").json()[0]["kind"] == "undo"
     assert client.get(f"{B}/files/raw/deck.md").text == "the deck"
     [src] = client.get(f"{B}/sources").json()
     assert not src["ingested"] and src["undone"]

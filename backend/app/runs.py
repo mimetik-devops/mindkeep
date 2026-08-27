@@ -129,6 +129,20 @@ def set_base(run_id: int, sha: str) -> None:
             s.commit()
 
 
+def recent(home: Path, limit: int = 500) -> list[IngestRun]:
+    """This bundle's runs, newest first."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        return list(
+            s.scalars(
+                select(IngestRun)
+                .where(IngestRun.tenant == tenant, IngestRun.bundle == bundle)
+                .order_by(IngestRun.started_at.desc())
+                .limit(limit)
+            ).all()
+        )
+
+
 def last_read(home: Path, source: str) -> IngestRun | None:
     """The latest run that read this source and finished cleanly — and was not undone,
     since an undone run's reading no longer stands in the wiki."""

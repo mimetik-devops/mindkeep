@@ -102,7 +102,30 @@ export type Source = {
   undone: boolean;
 };
 
-/** Put the wiki back the way it was before this run. The source stays. */
+/**
+ * One thing that happened to a bundle: an agent run (with the log entry it wrote),
+ * changes by people between runs, or an undo. From the bundle's history.
+ */
+export type Entry = {
+  kind: "run" | "people" | "undo";
+  at: string;
+  commit: string;
+  changed: { status: string; path: string }[];
+  id?: number;
+  source?: string;
+  finished_at?: string | null;
+  seconds?: number;
+  error?: string;
+  undone?: boolean;
+  note?: string;
+  subject?: string;
+};
+
+export const activity = (bundle: string) => call<Entry[]>(`${at(bundle)}/activity`);
+export const runDetail = (bundle: string, run: number) =>
+  call<{ changed: { status: string; path: string }[] }>(`${at(bundle)}/runs/${run}`);
+
+/** Put the wiki back the way it was before this run. The source stays. `history`. */
 export const undoRun = (bundle: string, run: number) =>
   call<{ undone: number; commit: string }>(`${at(bundle)}/runs/${run}/undo`, { method: "POST" });
 
@@ -237,7 +260,7 @@ export type Team = {
   permissions: Permission[];
 };
 export type Role = "owner" | "admin" | "contributor" | "viewer";
-export type Permission = "read" | "write" | "bundles" | "members" | "team";
+export type Permission = "read" | "write" | "history" | "bundles" | "members" | "team";
 export const can = (team: Team, p: Permission) => team.permissions.includes(p);
 export type Member = { sub: string; name: string; email: string; role: Role; since: string };
 export type Invite = {

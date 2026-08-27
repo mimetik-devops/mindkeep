@@ -15,7 +15,7 @@ def test_everyone_has_a_personal_team_named_after_them(client):
         "name": "Ada Lovelace",
         "personal": True,
         "role": "owner",
-        "permissions": ["bundles", "members", "read", "team", "write"],
+        "permissions": ["bundles", "history", "members", "read", "team", "write"],
     }
     assert client.get(f"/teams/{team['id']}/bundles").json() == ["default"]
 
@@ -254,11 +254,11 @@ def test_a_role_is_a_named_set_of_permissions(client):
     assert teams.GRANTS == {
         "viewer": {"read"},
         "contributor": {"read", "write"},
-        "admin": {"read", "write", "bundles", "members"},
-        "owner": {"read", "write", "bundles", "members", "team"},
+        "admin": {"read", "write", "history", "bundles", "members"},
+        "owner": {"read", "write", "history", "bundles", "members", "team"},
     }
     [mine] = client.get("/teams").json()
-    assert mine["permissions"] == ["bundles", "members", "read", "team", "write"]
+    assert mine["permissions"] == ["bundles", "history", "members", "read", "team", "write"]
 
 
 def test_a_viewer_reads_and_a_contributor_writes(client):
@@ -296,6 +296,9 @@ def test_a_viewer_reads_and_a_contributor_writes(client):
         == 403
     )
     assert client.put(f"{B}/lint", json={"hour": 4}, headers=contributor).status_code == 403
+    # everyone reads the history; only an admin undoes
+    assert client.get(f"{B}/activity", headers=viewer).status_code == 200
+    assert client.post(f"{B}/runs/1/undo", headers=contributor).status_code == 403
     # an admin shelves
     assert (
         client.post(f"/teams/{team}/bundles", json={"name": "more"}, headers=admin).status_code

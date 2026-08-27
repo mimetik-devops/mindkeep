@@ -14,10 +14,10 @@ added under the `sub` they signed in with.
 
 Routes are gated by *permission*, and a role is a named set of permissions (GRANTS), so
 a role can change or a new one appear without a route knowing. Today: viewer reads a
-team's bundles; contributor writes to them — sources, answers, verifications; admin
-runs the team — members, invites, its shelf of bundles; owner also renames and deletes
-it, and a team keeps at least one. The provider's role claim is a separate thing, for
-platform-level gating, and the two do not meet.
+team's bundles; contributor writes to them — sources, answers, verifications; admin runs
+the team — members, invites, its shelf of bundles, undoing a run; owner also renames and
+deletes it, and a team keeps at least one. The provider's role claim is a separate thing,
+for platform-level gating, and the two do not meet.
 """
 
 import os
@@ -42,17 +42,18 @@ ROLES: tuple[Role, ...] = ("owner", "admin", "contributor", "viewer")
 INVITE_DAYS = 7
 
 # What a route asks for. Add one here and grant it below; no route names a role.
-Permission = Literal["read", "write", "bundles", "members", "team"]
+Permission = Literal["read", "write", "history", "bundles", "members", "team"]
 GRANTS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read"}),
     "contributor": frozenset({"read", "write"}),
-    "admin": frozenset({"read", "write", "bundles", "members"}),
-    "owner": frozenset({"read", "write", "bundles", "members", "team"}),
+    "admin": frozenset({"read", "write", "history", "bundles", "members"}),
+    "owner": frozenset({"read", "write", "history", "bundles", "members", "team"}),
 }
 # The sentence a refusal carries, per permission: says who can, not merely that you cannot.
 REFUSED: dict[str, str] = {
     "read": "not found",
     "write": "viewers read — ask an admin for the contributor role",
+    "history": "only owners and admins undo a run",
     "bundles": "only owners and admins change a team's bundles",
     "members": "only owners and admins manage members",
     "team": "only an owner renames or deletes a team, or makes another owner",

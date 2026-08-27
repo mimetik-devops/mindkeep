@@ -534,3 +534,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .subtab:hover { color: var(--ink); }
 .subtab[aria-current="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--clay); }
+
+/* activity --------------------------------------------------------------- */
+
+.event .kind { border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.event.people .kind, .event.undo .kind { color: var(--muted); }
+.event.undone .kind { text-decoration: line-through; opacity: 0.7; }
+.event.failed .state { color: #a63244; }
+.changes { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.change { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.change .mark { display: inline-block; min-width: 52px; color: var(--clay-ink); }
+.change .mark.D { color: #a63244; }

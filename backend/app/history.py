@@ -96,13 +96,50 @@ def diff(home: Path, since: str, path: str) -> str:
     return "\n".join(lines)
 
 
-def changed(home: Path, sha: str) -> list[dict[str, str]]:
-    """What a commit touched: A added, M modified, D deleted, R renamed (the new path)."""
-    out = _git(home, "show", "--name-status", "--format=", sha)
+def _files(lines: list[str]) -> list[dict[str, str]]:
     rows = []
-    for line in out.stdout.splitlines():
+    for line in lines:
         if not line.strip():
             continue
         status, *paths = line.split("\t")
         rows.append({"status": status[0], "path": paths[-1]})
     return rows
+
+
+def commits(home: Path, limit: int = 500) -> list[dict[str, object]]:
+    """Every commit, newest first, with what it touched — one git call, not one per run."""
+    if not (home / ".git").is_dir():
+        return []
+    out = _git(home, "log", f"-n{limit}", "--format=%x1e%h%x1f%cI%x1f%s", "--name-status")
+    found: list[dict[str, object]] = []
+    for record in out.stdout.split("\x1e"):
+        if not record.strip():
+            continue
+        head, *rest = record.strip("\n").split("\n")
+        sha, at, subject = head.split("\x1f")
+        found.append({"sha": sha, "at": at, "subject": subject, "changed": _files(rest)})
+    return found
+
+
+def log_entries(home: Path, limit: int = 500) -> dict[str, str]:
+    """Per commit, the lines it added to log.md — the agent's own account of that run, in
+    its own words, with no parsing or matching. One git call."""
+    if not (home / ".git").is_dir():
+        return {}
+    out = _git(home, "log", f"-n{limit}", "--format=%x1e%h", "-p", "-U0", "--", "log.md")
+    found: dict[str, str] = {}
+    for record in out.stdout.split("\x1e"):
+        if not record.strip():
+            continue
+        sha, *lines = record.strip("\n").split("\n")
+        added = [ln[1:] for ln in lines if ln.startswith("+") and not ln.startswith("+++")]
+        text = "\n".join(added).strip()
+        if text:
+            found[sha.strip()] = text
+    return found
+
+
+def changed(home: Path, sha: str) -> list[dict[str, str]]:
+    """What a commit touched: A added, M modified, D deleted, R renamed (the new path)."""
+    out = _git(home, "show", "--name-status", "--format=", sha)
+    return _files(out.stdout.splitlines())

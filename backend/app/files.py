@@ -14,7 +14,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
 from app import assist, gaps, graph, history, runs, schedule, teams, todos
 from app.auth import CurrentIdentity, CurrentProfile, CurrentUser
-from app.db import LINT_OFF
+from app.db import LINT_OFF, IngestRun
 from app.ingest import LINT, agent_owns, busy, enqueue, lock_for, pages_citing, user_owns
 
 log = logging.getLogger(__name__)
@@ -89,6 +89,8 @@ Tenant = Annotated[Path, Depends(tenant)]
 # those is teams.GRANTS, and nothing here knows.
 Writer = Annotated[None, teams.needs("write")]
 Manager = Annotated[None, teams.needs("bundles")]
+# Taking a run back rewrites the wiki: admins and owners. Seeing the history is reading.
+Historian = Annotated[None, teams.needs("history")]
 
 
 def bundle(name: str, home: Tenant) -> Path:
@@ -423,7 +425,7 @@ def verify(path: str, home: Bundle, who: CurrentIdentity, _: Writer) -> dict[str
 
 
 @router.get("/bundles/{name}/sources")
-def sources(home: Bundle) -> list[dict[str, str | int | bool]]:
+def sources(home: Bundle) -> list[dict[str, object]]:
     """Every raw source with its ingest state.
 
     "Ingested" is not a flag anyone sets — it is whether any wiki page cites the source.
@@ -435,7 +437,7 @@ def sources(home: Bundle) -> list[dict[str, str | int | bool]]:
     # a source moved since the last lint is still cited by the path it used to have
     was = {new for _, _, new in runs.pending_moves(home)}
 
-    def state(rel: str) -> dict[str, str | int | bool]:
+    def state(rel: str) -> dict[str, object]:
         run = last.get(rel)
         if run is None:  # never attempted
             return {"ingesting": False, "seconds": 0, "error": "", "took": 0, "note": ""}
@@ -473,6 +475,77 @@ def sources(home: Bundle) -> list[dict[str, str | int | bool]]:
     ]
 
 
+def by_people(change: dict[str, str]) -> bool:
+    """Whether a file in a before-run commit is something a person did. Sources are; an
+    answered todo.md is; a seeded or refreshed file — the skeleton, the guide — is not."""
+    path, status = change["path"], change["status"]
+    return path.startswith("raw/") or (path == "todo.md" and status == "M")
+
+
+@router.get("/bundles/{name}/activity")
+def activity(home: Bundle) -> list[dict[str, object]]:
+    """What happened to this bundle, newest first, from its history.
+
+    Agent runs — ingests and lints — come with the log entry they wrote, taken from their
+    own commit rather than parsed out of log.md and matched by title. The commits between
+    runs are what people did: uploads, edits, deletes, answers — which the log never had.
+    Reading the feed is reading; undoing a run is the `history` permission.
+    """
+    words = history.log_entries(home)
+    by_commit = {r.commit: r for r in runs.recent(home) if r.commit}
+    feed: list[dict[str, object]] = []
+    told: set[int] = set()
+
+    def run_entry(
+        r: IngestRun, changed: list[dict[str, str]] | None, at: str = ""
+    ) -> dict[str, object]:
+        """A run in the feed. Its time is its commit's when it has one — the same clock and
+        the same precision as every other entry, so a run and the undo of it sort right —
+        and its start otherwise."""
+        told.add(r.id)
+        return {
+            "kind": "run",
+            "id": r.id,
+            "source": r.source,
+            "at": at or runs.utc(r.started_at).isoformat(),
+            "finished_at": runs.utc(r.finished_at).isoformat() if r.finished_at else None,
+            "seconds": r.seconds or 0,
+            "error": r.error,
+            "commit": r.commit,
+            "undone": r.undone_at is not None,
+            "note": words.get(r.commit, ""),
+            "changed": changed or [],
+        }
+
+    for c in history.commits(home):
+        sha, subject = str(c["sha"]), str(c["subject"])
+        if sha in by_commit:
+            # what it changed is fetched on demand
+            feed.append(run_entry(by_commit[sha], None, at=str(c["at"])))
+        elif subject.startswith("undo run"):
+            feed.append(
+                {
+                    "kind": "undo",
+                    "at": c["at"],
+                    "commit": sha,
+                    "subject": subject,
+                    "changed": c["changed"],
+                }
+            )
+        else:
+            people = [x for x in c["changed"] if by_people(x)]  # type: ignore[union-attr]
+            if people:
+                feed.append({"kind": "people", "at": c["at"], "commit": sha, "changed": people})
+    # runs with no commit — still running, or read and wrote nothing — are history too
+    for r in runs.recent(home):
+        if r.id not in told:
+            feed.append(run_entry(r, []))
+    # newest first, on real times: run rows carry microseconds, commits do not. Stable, so
+    # entries from the same second keep git's own order.
+    feed.sort(key=lambda e: datetime.fromisoformat(str(e["at"])), reverse=True)
+    return feed
+
+
 @router.get("/bundles/{name}/runs/{run_id}")
 def run_detail(run_id: int, home: Bundle) -> dict[str, object]:
     """One run: what it touched, and whether it has been taken back."""
@@ -489,7 +562,7 @@ def run_detail(run_id: int, home: Bundle) -> dict[str, object]:
 
 
 @router.post("/bundles/{name}/runs/{run_id}/undo")
-def undo_run(run_id: int, home: Bundle, _: Writer) -> dict[str, object]:
+def undo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
     """Put the wiki back the way it was before this run — a revert of the run's commit.
     The source people added stays; what the agent wrote goes; the undo is itself in the
     history. Refused while an ingest is running, and when a later run changed the same

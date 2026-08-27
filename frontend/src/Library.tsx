@@ -8,7 +8,6 @@ import {
   readAsText,
   readFile,
   removeRaw,
-  undoRun,
   tree,
   verifyPage,
 } from "./api";
@@ -112,16 +111,6 @@ export function Library({ bundle }: { bundle: string }) {
       setRaw(await readFile(bundle, selected));
     } catch (e) {
       setError(String(e));
-    }
-  }
-
-  async function undoIngest() {
-    if (!status?.run) return;
-    try {
-      await undoRun(bundle, status.run);
-      refresh();
-    } catch (e) {
-      setError(String(e).replace(/^Error: \d{3} /, ""));
     }
   }
 
@@ -314,15 +303,6 @@ export function Library({ bundle }: { bundle: string }) {
             {status?.ingesting && status.note && <div className="step">{status.note}</div>}
             {status?.undone && (
               <div className="step">Its last ingest was undone. Ingest it again when ready.</div>
-            )}
-            {status && status.run > 0 && !status.ingesting && !status.undone && (
-              <button
-                className="primary"
-                title="Put the wiki back the way it was before this source was ingested"
-                onClick={undoIngest}
-              >
-                Undo ingest
-              </button>
             )}
             <button className="primary danger" onClick={remove}>
               <Trash /> Delete source

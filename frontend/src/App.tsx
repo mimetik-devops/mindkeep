@@ -9,7 +9,7 @@ import {
   type Team,
 } from "./api";
 import { Bundles } from "./Bundles";
-import { Console } from "./Console";
+import { Activity } from "./Activity";
 import { Graph } from "./Graph";
 import { Invite } from "./Invite";
 import { forget, pending } from "./invites";
@@ -20,7 +20,7 @@ import { Profile } from "./Profile";
 import { Settings } from "./Settings";
 import { Todo } from "./Todo";
 
-const TABS = ["Library", "Graph", "Todo", "Console"] as const;
+const TABS = ["Library", "Graph", "Todo", "Activity"] as const;
 // Settings is a page but not a tab — the account menu is its only entry point.
 type Tab = (typeof TABS)[number] | "Settings";
 
@@ -159,7 +159,7 @@ export function App({ user }: { user: User }) {
           {tab === "Library" && <Library bundle={bundle} />}
           {tab === "Graph" && <Graph bundle={bundle} />}
           {tab === "Todo" && <Todo bundle={bundle} />}
-          {tab === "Console" && <Console bundle={bundle} />}
+          {tab === "Activity" && <Activity bundle={bundle} team={team} />}
           {tab === "Settings" && (
             <Settings
               bundle={bundle}
