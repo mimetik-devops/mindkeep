@@ -7,6 +7,9 @@ import type { Adapter, Session } from "./providers/session";
 
 vi.mock("./api", () => ({
   setTokenSource: vi.fn(),
+  setTeam: vi.fn(),
+  listTeams: vi.fn(async () => [{ id: "me", name: "Ada", personal: true, role: "owner" }]),
+  createTeam: vi.fn(),
   listBundles: vi.fn(async () => ["default"]),
   me: vi.fn(async () => ({ id: "u", name: "", role: "", email: "", picture: "" })),
   tree: vi.fn(async () => ({})),

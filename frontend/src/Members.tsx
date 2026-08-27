@@ -1,0 +1,143 @@
+import { useEffect, useState } from "react";
+
+import {
+  createInvite,
+  invites,
+  type Invite,
+  type Member,
+  members,
+  me,
+  removeMember,
+  revokeInvite,
+  type Role,
+  setRole,
+  type Team,
+} from "./api";
+import { Copy } from "./icons";
+
+const ROLES: Role[] = ["owner", "admin", "member"];
+
+/**
+ * Who is in the team, and how to get someone in: the Settings card.
+ *
+ * Membership is Mindstash's own (see teams.py), so nothing here goes near the identity
+ * provider. An invite is a link — make one, copy it, send it however you like; whoever
+ * opens it joins as themselves. What each person may do here is what the server lets
+ * them do, and the server says so when it refuses.
+ */
+export function Members({ team }: { team: Team }) {
+  const [who, setWho] = useState<Member[]>([]);
+  const [open, setOpen] = useState<Invite[]>([]);
+  const [self, setSelf] = useState("");
+  const [role, setRoleToInvite] = useState<Role>("member");
+  const [copied, setCopied] = useState("");
+  const [error, setError] = useState("");
+  const manages = team.role === "owner" || team.role === "admin";
+
+  const refresh = () => {
+    members(team.id).then(setWho).catch((e) => setError(String(e)));
+    if (manages) invites(team.id).then(setOpen).catch((e) => setError(String(e)));
+  };
+
+  useEffect(() => {
+    setError("");
+    refresh();
+    me().then((p) => setSelf(p.id));
+  }, [team.id]);
+
+  const act = (work: Promise<unknown>) => {
+    setError("");
+    work.catch((e: Error) => setError(e.message.replace(/^\d{3} /, ""))).finally(refresh);
+  };
+
+  const link = (token: string) => `${window.location.origin}/?invite=${token}`;
+
+  return (
+    <section className="card">
+      <h2>Members</h2>
+      <p>
+        {team.personal
+          ? "Your own team. Invite someone and it stops being only yours."
+          : "Everyone here can read and add to this team's bundles."}
+      </p>
+
+      {error && <div className="banner">{error}</div>}
+
+      <ul className="members">
+        {who.map((m) => (
+          <li key={m.sub}>
+            <span className="who">
+              <b>{m.name || m.email || m.sub}</b>
+              {m.name && m.email && <span className="soft"> {m.email}</span>}
+              {m.sub === self && <span className="soft"> (you)</span>}
+            </span>
+            {manages && m.sub !== self ? (
+              <select
+                aria-label={`Role of ${m.name || m.sub}`}
+                value={m.role}
+                onChange={(e) => act(setRole(team.id, m.sub, e.target.value as Role))}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="role">{m.role}</span>
+            )}
+            {(manages && m.sub !== self) || m.sub === self ? (
+              <button className="link" onClick={() => act(removeMember(team.id, m.sub))}>
+                {m.sub === self ? "Leave" : "Remove"}
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+
+      {manages && (
+        <>
+          <div className="field">
+            <span>Invite someone as</span>
+            <select value={role} onChange={(e) => setRoleToInvite(e.target.value as Role)}>
+              {ROLES.filter((r) => team.role === "owner" || r !== "owner").map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            <button className="lint" onClick={() => act(createInvite(team.id, role))}>
+              Make an invite link
+            </button>
+          </div>
+          {open.length > 0 && (
+            <ul className="members">
+              {open.map((i) => (
+                <li key={i.token}>
+                  <span className="who">
+                    <code className="path">{link(i.token)}</code>
+                    <span className="soft"> as {i.role}</span>
+                  </span>
+                  <button
+                    className="link"
+                    title="Copy the link"
+                    onClick={() => {
+                      navigator.clipboard.writeText(link(i.token));
+                      setCopied(i.token);
+                    }}
+                  >
+                    {copied === i.token ? "copied" : <Copy />}
+                  </button>
+                  <button className="link" onClick={() => act(revokeInvite(team.id, i.token))}>
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="soft">A link works once and for a week. Send it however you like.</p>
+        </>
+      )}
+    </section>
+  );
+}

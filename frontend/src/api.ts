@@ -29,20 +29,26 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 const segments = (path: string) => path.split("/").map(encodeURIComponent).join("/");
 
-export const listBundles = () => call<string[]>("/bundles");
+// Every bundle lives in a team, and the app looks at one team at a time. App.tsx sets it
+// when the team changes and remounts everything below, so nothing else passes it around.
+let current = "";
+export const setTeam = (id: string) => (current = id);
+const at = (bundle: string) => `/teams/${current}/bundles/${bundle}`;
+
+export const listBundles = () => call<string[]>(`/teams/${current}/bundles`);
 
 export const createBundle = (name: string) =>
-  call<{ name: string }>("/bundles", {
+  call<{ name: string }>(`/teams/${current}/bundles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
 
 /** path -> sha256, for every file in the bundle. */
-export const tree = (bundle: string) => call<Record<string, string>>(`/bundles/${bundle}/tree`);
+export const tree = (bundle: string) => call<Record<string, string>>(`${at(bundle)}/tree`);
 
 export const readFile = (bundle: string, path: string) =>
-  call<string>(`/bundles/${bundle}/files/${path}`);
+  call<string>(`${at(bundle)}/files/${path}`);
 
 /**
  * A source as the agent reads it — a .docx unzipped, anything UTF-8 as itself.
@@ -51,14 +57,14 @@ export const readFile = (bundle: string, path: string) =>
  * PDF today. The bytes route stays for downloads.
  */
 export const readAsText = (bundle: string, path: string) =>
-  call<string>(`/bundles/${bundle}/text/${path}`);
+  call<string>(`${at(bundle)}/text/${path}`);
 
 export const writeFile = (bundle: string, path: string, body: string) =>
-  call<{ path: string }>(`/bundles/${bundle}/files/${path}`, { method: "PUT", body });
+  call<{ path: string }>(`${at(bundle)}/files/${path}`, { method: "PUT", body });
 
 /** The server stamps `verified` with the identity on the token — never one we send. */
 export const verifyPage = (bundle: string, path: string) =>
-  call<{ verified_by: string; at: string }>(`/bundles/${bundle}/verify/${path}`, {
+  call<{ verified_by: string; at: string }>(`${at(bundle)}/verify/${path}`, {
     method: "POST",
   });
 
@@ -73,7 +79,7 @@ export const verifyPage = (bundle: string, path: string) =>
  */
 export const addRaw = (bundle: string, file: File, rel = "") =>
   call<{ path: string }>(
-    `/bundles/${bundle}/raw/${segments(rel || file.webkitRelativePath || file.name)}`,
+    `${at(bundle)}/raw/${segments(rel || file.webkitRelativePath || file.name)}`,
     { method: "POST", body: file },
   );
 
@@ -93,7 +99,7 @@ export type Source = {
 };
 
 /** Every raw source and whether the agent has folded it in yet. */
-export const sources = (bundle: string) => call<Source[]>(`/bundles/${bundle}/sources`);
+export const sources = (bundle: string) => call<Source[]>(`${at(bundle)}/sources`);
 
 /** Only raw sources can be deleted. There is no route that removes a wiki page. */
 /**
@@ -102,24 +108,24 @@ export const sources = (bundle: string) => call<Source[]>(`/bundles/${bundle}/so
  * They cannot come from the tree, which maps files to hashes — an empty folder has no
  * file to carry it, and a folder you have just made is empty by definition.
  */
-export const folders = (bundle: string) => call<string[]>(`/bundles/${bundle}/folders`);
+export const folders = (bundle: string) => call<string[]>(`${at(bundle)}/folders`);
 
 export const addFolder = (bundle: string, path: string) =>
-  call<{ folder: string }>(`/bundles/${bundle}/folders/${segments(path)}`, { method: "POST" });
+  call<{ folder: string }>(`${at(bundle)}/folders/${segments(path)}`, { method: "POST" });
 
 export const removeFolder = (bundle: string, path: string) =>
-  call<{ deleted: string }>(`/bundles/${bundle}/folders/${segments(path)}`, { method: "DELETE" });
+  call<{ deleted: string }>(`${at(bundle)}/folders/${segments(path)}`, { method: "DELETE" });
 
 /** Move a source within raw/. Both paths are bundle-relative, as everywhere else. */
 export const moveRaw = (bundle: string, source: string, target: string) =>
-  call<{ from: string; to: string }>(`/bundles/${bundle}/move`, {
+  call<{ from: string; to: string }>(`${at(bundle)}/move`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source, target }),
   });
 
 export const removeRaw = (bundle: string, path: string) =>
-  call<{ deleted: string }>(`/bundles/${bundle}/raw/${segments(path)}`, { method: "DELETE" });
+  call<{ deleted: string }>(`${at(bundle)}/raw/${segments(path)}`, { method: "DELETE" });
 
 /** `at` is the day the last lint finished, empty if the bundle has never been linted. */
 export type Lint = {
@@ -140,17 +146,17 @@ export const LINT_OFF = -1;
 
 /** Choose the hour (UTC) for this bundle's nightly lint, or LINT_OFF to stop it. */
 export const setLintHour = (bundle: string, hour: number) =>
-  call<{ hour: number }>(`/bundles/${bundle}/lint`, {
+  call<{ hour: number }>(`${at(bundle)}/lint`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ hour }),
   });
 
-export const lintState = (bundle: string) => call<Lint>(`/bundles/${bundle}/lint`);
+export const lintState = (bundle: string) => call<Lint>(`${at(bundle)}/lint`);
 
 /** Run the maintenance pass now. The nightly one does exactly this, on a timer. */
 export const startLint = (bundle: string) =>
-  call<{ linting: string }>(`/bundles/${bundle}/lint`, { method: "POST" });
+  call<{ linting: string }>(`${at(bundle)}/lint`, { method: "POST" });
 
 /** Composed from Kinde on every read — Mindstash keeps no user table of its own. */
 export type Profile = {
@@ -168,10 +174,10 @@ export const me = () => call<Profile>("/me");
 /** An open question the wiki agent could not settle. `id` is its position in todo.md. */
 export type Todo = { id: number; done: boolean; text: string; detail: string };
 
-export const todos = (bundle: string) => call<Todo[]>(`/bundles/${bundle}/todos`);
+export const todos = (bundle: string) => call<Todo[]>(`${at(bundle)}/todos`);
 
 export const setTodo = (bundle: string, id: number, done: boolean) =>
-  call<{ done: boolean }>(`/bundles/${bundle}/todos/${id}`, {
+  call<{ done: boolean }>(`${at(bundle)}/todos/${id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ done }),
@@ -187,7 +193,7 @@ export type Said = { role: "user" | "assistant"; content: string };
  * re-ingested by the time this returns.
  */
 export const ask = (bundle: string, question: string, messages: Said[]) =>
-  call<{ reply: string; changed: string[] }>(`/bundles/${bundle}/assist`, {
+  call<{ reply: string; changed: string[] }>(`${at(bundle)}/assist`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, messages }),
@@ -211,6 +217,42 @@ export type Gap = { a: number; b: number; links: number; expected: number };
 /** Pages, the links between them, and the gaps — as the agent is told them. Rebuilt per call. */
 export type Graph = { pages: Page[]; links: [string, string][]; gaps: Gap[] };
 
-export const graph = (bundle: string) => call<Graph>(`/bundles/${bundle}/graph`);
+export const graph = (bundle: string) => call<Graph>(`${at(bundle)}/graph`);
+
+/** A team you belong to, with what you are in it. Personal teams come first. */
+export type Team = { id: string; name: string; personal: boolean; role: Role };
+export type Role = "owner" | "admin" | "member";
+export type Member = { sub: string; name: string; email: string; role: Role; since: string };
+export type Invite = {
+  token: string;
+  role: Role;
+  created_by: string;
+  expires_at: string;
+  accepted_by: string | null;
+};
+
+const json = (body: unknown, method = "POST") => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+export const listTeams = () => call<Team[]>("/teams");
+export const createTeam = (name: string) => call<Team>("/teams", json({ name }));
+export const members = (team: string) => call<Member[]>(`/teams/${team}/members`);
+export const setRole = (team: string, sub: string, role: Role) =>
+  call<{ role: Role }>(`/teams/${team}/members/${segments(sub)}`, json({ role }, "PUT"));
+export const removeMember = (team: string, sub: string) =>
+  call<{ removed: string }>(`/teams/${team}/members/${segments(sub)}`, { method: "DELETE" });
+export const invites = (team: string) => call<Invite[]>(`/teams/${team}/invites`);
+export const createInvite = (team: string, role: Role) =>
+  call<Invite>(`/teams/${team}/invites`, json({ role }));
+export const revokeInvite = (team: string, token: string) =>
+  call<{ revoked: string }>(`/teams/${team}/invites/${token}`, { method: "DELETE" });
+/** What an invite is for, before joining. 404 when it is spent or expired. */
+export const peekInvite = (token: string) =>
+  call<{ team: { id: string; name: string }; role: Role }>(`/invites/${token}`);
+export const acceptInvite = (token: string) =>
+  call<Team>(`/invites/${token}/accept`, { method: "POST" });
 
 export const deviceToken = () => call<{ token: string }>("/device-token");

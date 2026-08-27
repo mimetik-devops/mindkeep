@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-import { deviceToken, LINT_OFF, setLintHour, startLint } from "./api";
+import { deviceToken, LINT_OFF, setLintHour, startLint, type Team } from "./api";
+import { Members } from "./Members";
 import { Copy } from "./icons";
 import { took, useLint, when } from "./useSources";
 
@@ -27,7 +28,7 @@ function localHours() {
 
 const HOURS = localHours();
 
-export function Settings({ bundle }: { bundle: string }) {
+export function Settings({ bundle, team }: { bundle: string; team: Team }) {
   const { lint, refresh } = useLint(bundle);
   const [error, setError] = useState("");
   const [token, setToken] = useState("");
@@ -46,7 +47,7 @@ export function Settings({ bundle }: { bundle: string }) {
     <div className="settings">
       <h1>Settings</h1>
       <p className="lede">
-        For <b>{bundle}</b>. Every bundle keeps its own schedule.
+        <b>{team.name}</b> · bundle <b>{bundle}</b>. Every bundle keeps its own schedule.
       </p>
 
       {error && <div className="banner">{error}</div>}
@@ -100,6 +101,8 @@ export function Settings({ bundle }: { bundle: string }) {
           </p>
         )}
       </section>
+
+      <Members team={team} />
 
       <section className="card">
         <h2>On your machine</h2>

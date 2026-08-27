@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { listBundles, type Profile as Person } from "./api";
+import { createTeam, listBundles, listTeams, type Profile as Person, setTeam, type Team } from "./api";
 import { Bundles } from "./Bundles";
 import { Console } from "./Console";
 import { Graph } from "./Graph";
+import { Invite } from "./Invite";
 import { Mark } from "./icons";
 import { Library } from "./Library";
+import { Picker } from "./Picker";
 import { Profile } from "./Profile";
 import { Settings } from "./Settings";
 import { Todo } from "./Todo";
@@ -20,20 +22,60 @@ export type User = {
   claims: Partial<Person>;
 };
 
+/** The invite token in the address, if this visit is one. Cleared once it is used. */
+function invitedWith(): string {
+  return new URLSearchParams(window.location.search).get("invite") ?? "";
+}
+
 export function App({ user }: { user: User }) {
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [team, setCurrentTeam] = useState<Team | null>(null);
   const [bundles, setBundles] = useState<string[]>([]);
   const [bundle, setBundle] = useState("default");
   const [tab, setTab] = useState<Tab>("Library");
+  const [invite, setInvite] = useState(invitedWith);
   const [error, setError] = useState("");
 
+  // The team comes first: every bundle URL carries it, so nothing loads until one is chosen.
+  const choose = (t: Team) => {
+    setTeam(t.id);
+    setCurrentTeam(t);
+    setBundle("default");
+    setTab("Library");
+  };
+
   useEffect(() => {
+    listTeams()
+      .then((all) => {
+        setTeams(all);
+        if (all.length && !invite) choose(all[0]); // personal first, so a first visit lands home
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    if (!team) return;
     listBundles()
       .then((b) => {
         setBundles(b);
         if (b.length && !b.includes(bundle)) setBundle(b[0]);
       })
       .catch((e) => setError(String(e)));
-  }, []);
+  }, [team]);
+
+  if (invite) {
+    return (
+      <Invite
+        token={invite}
+        onJoined={(joined) => {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          setInvite("");
+          setTeams((all) => (all.some((t) => t.id === joined.id) ? all : [...all, joined]));
+          choose(joined);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="app">
@@ -43,15 +85,35 @@ export function App({ user }: { user: User }) {
           Mindstash
         </div>
 
-        <Bundles
-          bundles={bundles}
-          current={bundle}
-          onPick={setBundle}
-          onCreate={(name) => {
-            setBundles((b) => [...b, name].sort());
-            setBundle(name);
-          }}
-        />
+        {team && (
+          <Picker
+            items={teams.map((t) => ({ id: t.id, label: t.name }))}
+            current={team.id}
+            title="Teams"
+            placeholder="New team"
+            onPick={(id) => {
+              const next = teams.find((t) => t.id === id);
+              if (next) choose(next);
+            }}
+            onCreate={async (name) => {
+              const made = await createTeam(name);
+              setTeams((all) => [...all, made]);
+              return made.id;
+            }}
+          />
+        )}
+
+        {team && (
+          <Bundles
+            bundles={bundles}
+            current={bundle}
+            onPick={setBundle}
+            onCreate={(name) => {
+              setBundles((b) => [...b, name].sort());
+              setBundle(name);
+            }}
+          />
+        )}
 
         <nav className="tabs">
           {TABS.map((t) => (
@@ -70,11 +132,16 @@ export function App({ user }: { user: User }) {
         />
       </header>
 
-      {tab === "Library" && <Library bundle={bundle} />}
-      {tab === "Graph" && <Graph bundle={bundle} />}
-      {tab === "Todo" && <Todo bundle={bundle} />}
-      {tab === "Console" && <Console bundle={bundle} />}
-      {tab === "Settings" && <Settings bundle={bundle} />}
+      {/* keyed by team: a change of team remounts every view, so nothing shows stale data */}
+      {team && (
+        <div className="body" key={team.id}>
+          {tab === "Library" && <Library bundle={bundle} />}
+          {tab === "Graph" && <Graph bundle={bundle} />}
+          {tab === "Todo" && <Todo bundle={bundle} />}
+          {tab === "Console" && <Console bundle={bundle} />}
+          {tab === "Settings" && <Settings bundle={bundle} team={team} />}
+        </div>
+      )}
     </div>
   );
 }
