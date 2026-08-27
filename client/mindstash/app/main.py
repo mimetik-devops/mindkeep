@@ -7,6 +7,7 @@ import sys
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
+from mindstash import __version__
 from mindstash.app import config, mark
 from mindstash.app.log import Log
 from mindstash.app.settings import Settings
@@ -37,6 +38,7 @@ class App:
         self.worker = Worker()
         self.tray = Tray() if QSystemTrayIcon.isSystemTrayAvailable() else None
 
+        self.on_said(f"Mindstash {__version__}")  # the log opens with which release this is
         self.worker.said.connect(self.on_said)
         self.worker.status.connect(self.on_status)
         self.worker.alert.connect(self.on_alert)

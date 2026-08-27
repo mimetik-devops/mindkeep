@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mindstash import connect
+from mindstash import __version__, connect
 from mindstash import sync as engine
 from mindstash.app import config
 from mindstash.app.log import Log
@@ -64,7 +64,7 @@ class Settings(QDialog):
 
     def __init__(self, log: Log) -> None:
         super().__init__()
-        self.setWindowTitle("Mindstash")
+        self.setWindowTitle(f"Mindstash {__version__}")
         self.setMinimumSize(520, 460)
         self.cfg = config.load()
         self.log = log

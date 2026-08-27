@@ -7,6 +7,7 @@ from pathlib import Path
 from mindstash import sync as engine
 from mindstash.app import alerts, autostart, config
 from mindstash.app.log import Log
+from stamp import stamp
 
 
 def test_config_is_saved_where_it_is_loaded_from_and_survives_a_damaged_file(tmp_path):
@@ -124,3 +125,18 @@ def test_the_log_keeps_the_last_lines_stamped_with_the_time():
     assert log.text().count("\n") == 2 and "line 1" in log.text() and "got" not in log.text()
     log.clear()
     assert log.text() == ""
+
+
+def test_the_tag_is_stamped_into_every_file_that_carries_a_version(tmp_path):
+    (tmp_path / "mindstash").mkdir()
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\nversion = "0.0.0"\n[tool.other]\nversion = "9"\n', encoding="utf-8"
+    )
+    (tmp_path / "mindstash" / "__init__.py").write_text('__version__ = "0.0.0"\n', encoding="utf-8")
+    assert stamp("v1.2.3", tmp_path) == "1.2.3"
+    # only [project]'s line is stamped; the other section's is left alone
+    stamped = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert stamped == '[project]\nname = "x"\nversion = "1.2.3"\n[tool.other]\nversion = "9"\n'
+    assert (tmp_path / "mindstash" / "__init__.py").read_text(
+        encoding="utf-8"
+    ) == '__version__ = "1.2.3"\n'

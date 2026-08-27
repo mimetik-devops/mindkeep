@@ -39,11 +39,13 @@ testpaths = ["."]
 # `briefcase package` builds the tray app for the OS it runs on; .github/workflows/app.yml
 # runs it on all three. Briefcase starts the module named after the app, so the app is
 # `mindstash-app` -> `mindstash_app`, a shim that calls mindstash.app.main.
-# version, author and license come from [project] above: Briefcase reads them there.
+# version, author email and license come from [project] above: Briefcase reads them
+# there. The author is the company: it names the install folder and the publisher.
 [tool.briefcase]
 project_name = "Mindstash"
 bundle = "io.mindstash"
 url = "https://mindstash.io"
+author = "Mimetik"
 
 [tool.briefcase.app.mindstash-app]
 formal_name = "Mindstash"
@@ -106,6 +108,8 @@ linuxdeploy_plugins = []
 
 [tool.briefcase.app.mindstash-app.windows]
 requires = []
+# per user, no elevation: %LocalAppData%\Programs\Mimetik\Mindstash
+system_installer = false
 
 [tool.briefcase.app.mindstash-app.iOS]
 supported = false
