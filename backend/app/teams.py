@@ -17,17 +17,20 @@ one removed), admin (members and invites), member (the wiki). The provider's rol
 is a separate thing, for platform-level gating, and the two do not meet.
 """
 
+import os
 import secrets
+import shutil
 from datetime import timedelta
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import CurrentProfile, CurrentUser, Profile
 from app.db import Invite, Membership, Team, now, session
-from app.runs import utc
+from app.runs import forget_tenant, utc
 
 router = APIRouter()
 
@@ -158,6 +161,46 @@ ActingAs = Annotated[Role, Depends(acting_as)]
 def manages(role: Role) -> None:
     if role not in ("owner", "admin"):
         raise HTTPException(403, "only owners and admins manage members")
+
+
+@router.put("/teams/{team}")
+def rename_team(
+    team: str, acting: ActingAs, name: Annotated[str, Body(embed=True)]
+) -> dict[str, object]:
+    """Owners and admins rename; a personal team too — it was named from a token."""
+    manages(acting)
+    name = name.strip()
+    if not 1 <= len(name) <= 80:
+        raise HTTPException(400, "a team name is 1 to 80 characters")
+    with session() as s:
+        found = s.get(Team, team)
+        assert found is not None  # acting_as found a membership, so the team exists
+        found.name = name
+        s.commit()
+        return _as_dict(found, acting)
+
+
+@router.delete("/teams/{team}")
+def delete_team(team: str, acting: ActingAs) -> dict[str, str]:
+    """Gone: the team, everyone's membership, its invites, its run history — and its
+    bundles on disk. Owners only, never a personal team. The UI asks for the team's
+    name to be typed first; the server trusts an owner who got that far."""
+    if acting != "owner":
+        raise HTTPException(403, "only an owner can delete a team")
+    with session() as s:
+        found = s.get(Team, team)
+        if found is None:
+            raise HTTPException(404, "not found")
+        if found.personal:
+            raise HTTPException(409, "your personal team is yours to keep")
+        s.execute(delete(Membership).where(Membership.team_id == team))
+        s.execute(delete(Invite).where(Invite.team_id == team))
+        s.delete(found)
+        s.commit()
+    forget_tenant(team)
+    root = Path(os.environ.get("WIKI_ROOT", "/data")).resolve()
+    shutil.rmtree(root / team, ignore_errors=True)
+    return {"deleted": team}
 
 
 @router.get("/teams/{team}/members")

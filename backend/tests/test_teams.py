@@ -78,6 +78,50 @@ def test_you_cannot_leave_your_personal_team(client):
     assert client.get(f"/teams/{mine}/bundles").status_code == 200
 
 
+def test_owners_and_admins_rename_a_team_and_members_do_not(client):
+    team = client.post("/teams", json={"name": "Acme"}).json()["id"]
+    token = client.post(f"/teams/{team}/invites").json()["token"]
+    client.post(f"/invites/{token}/accept", headers=as_("bob"))
+
+    assert (
+        client.put(f"/teams/{team}", json={"name": "Acme Ltd"}, headers=as_("bob")).status_code
+        == 403
+    )
+    assert client.put(f"/teams/{team}", json={"name": "Acme Ltd"}).json()["name"] == "Acme Ltd"
+    assert client.put(f"/teams/{team}", json={"name": " "}).status_code == 400
+    assert [t["name"] for t in client.get("/teams", headers=as_("bob")).json()][-1] == "Acme Ltd"
+    # a personal team can be renamed too: its name came from a token
+    [mine] = [t["id"] for t in client.get("/teams").json() if t["personal"]]
+    assert client.put(f"/teams/{mine}", json={"name": "Home"}).json()["name"] == "Home"
+
+
+def test_deleting_a_team_takes_everything_with_it(client, tmp_path):
+    from app import runs
+
+    team = client.post("/teams", json={"name": "Acme"}).json()["id"]
+    token = client.post(f"/teams/{team}/invites").json()["token"]
+    client.post(f"/invites/{token}/accept", headers=as_("bob"))
+    client.post(f"/teams/{team}/bundles/default/raw/plan.md", content=b"x")
+    assert (tmp_path / team / "default" / "raw" / "plan.md").is_file()
+    runs.start(tmp_path / team / "default", "raw/plan.md", "m")  # some history to lose
+    assert runs.latest(tmp_path / team / "default")
+
+    assert client.delete(f"/teams/{team}", headers=as_("bob")).status_code == 403  # a member
+    assert client.delete(f"/teams/{team}").status_code == 200
+
+    assert not (tmp_path / team).exists()
+    assert client.get(f"/teams/{team}/bundles").status_code == 404
+    assert client.get(f"/teams/{team}/bundles", headers=as_("bob")).status_code == 404
+    assert [t["id"] for t in client.get("/teams", headers=as_("bob")).json()] == [tenant_id("bob")]
+    assert runs.latest(tmp_path / team / "default") == {}
+    assert client.post(f"/invites/{token}/accept", headers=as_("carol")).status_code == 404
+
+
+def test_a_personal_team_cannot_be_deleted(client):
+    [mine] = [t["id"] for t in client.get("/teams").json()]
+    assert client.delete(f"/teams/{mine}").status_code == 409
+
+
 def test_an_expired_invite_is_not_open(client, monkeypatch):
     from app import teams
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { deviceToken, LINT_OFF, setLintHour, startLint, type Team } from "./api";
 import { Members } from "./Members";
+import { TeamSettings } from "./TeamSettings";
 import { Copy } from "./icons";
 import { took, useLint, when } from "./useSources";
 
@@ -28,7 +29,16 @@ function localHours() {
 
 const HOURS = localHours();
 
-export function Settings({ bundle, team }: { bundle: string; team: Team }) {
+export function Settings({
+  bundle,
+  team,
+  onTeamChanged,
+}: {
+  bundle: string;
+  team: Team;
+  /** After a rename, a leave or a delete: the app re-reads its teams. */
+  onTeamChanged: () => void;
+}) {
   const { lint, refresh } = useLint(bundle);
   const [error, setError] = useState("");
   const [token, setToken] = useState("");
@@ -101,6 +111,8 @@ export function Settings({ bundle, team }: { bundle: string; team: Team }) {
           </p>
         )}
       </section>
+
+      <TeamSettings team={team} onChanged={onTeamChanged} />
 
       <Members team={team} />
 

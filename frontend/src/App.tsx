@@ -50,6 +50,18 @@ export function App({ user }: { user: User }) {
       .catch((e) => setError(String(e)));
   }, []);
 
+  // After a rename, a leave or a delete: the list is re-read, and if the team you were
+  // looking at is no longer yours, you land back home.
+  const reloadTeams = () =>
+    listTeams()
+      .then((all) => {
+        setTeams(all);
+        const still = all.find((t) => t.id === team?.id);
+        if (still) setCurrentTeam(still);
+        else if (all.length) choose(all[0]);
+      })
+      .catch((e) => setError(String(e)));
+
   useEffect(() => {
     if (!team) return;
     listBundles()
@@ -141,7 +153,9 @@ export function App({ user }: { user: User }) {
           {tab === "Graph" && <Graph bundle={bundle} />}
           {tab === "Todo" && <Todo bundle={bundle} />}
           {tab === "Console" && <Console bundle={bundle} />}
-          {tab === "Settings" && <Settings bundle={bundle} team={team} />}
+          {tab === "Settings" && (
+            <Settings bundle={bundle} team={team} onTeamChanged={reloadTeams} />
+          )}
         </div>
       )}
     </div>

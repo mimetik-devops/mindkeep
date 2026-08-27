@@ -9,7 +9,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from app.db import BundleSetting, IngestRun, SourceMove, now, session
 
@@ -33,6 +33,14 @@ def rename_tenant(old: str, new: str) -> None:
     with session() as s:
         for table in (IngestRun, BundleSetting, SourceMove):
             s.execute(update(table).where(table.tenant == old).values(tenant=new))
+        s.commit()
+
+
+def forget_tenant(tenant: str) -> None:
+    """Every row a tenant owns, gone. Once, when the team is deleted."""
+    with session() as s:
+        for table in (IngestRun, BundleSetting, SourceMove):
+            s.execute(delete(table).where(table.tenant == tenant))
         s.commit()
 
 

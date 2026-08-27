@@ -244,6 +244,11 @@ const json = (body: unknown, method = "POST") => ({
 
 export const listTeams = () => call<Team[]>("/teams");
 export const createTeam = (name: string) => call<Team>("/teams", json({ name }));
+export const renameTeam = (team: string, name: string) =>
+  call<Team>(`/teams/${team}`, json({ name }, "PUT"));
+/** Owners only, never a personal team: the members, the invites and the bundles on disk go too. */
+export const deleteTeam = (team: string) =>
+  call<{ deleted: string }>(`/teams/${team}`, { method: "DELETE" });
 export const members = (team: string) => call<Member[]>(`/teams/${team}/members`);
 export const setRole = (team: string, sub: string, role: Role) =>
   call<{ role: Role }>(`/teams/${team}/members/${segments(sub)}`, json({ role }, "PUT"));
