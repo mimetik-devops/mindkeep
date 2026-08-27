@@ -162,6 +162,34 @@ def test_a_rename_needs_a_valid_free_name_a_quiet_bundle_and_management(client, 
     assert refused.status_code == 403
 
 
+def test_deleting_a_bundle_takes_its_files_and_history(client, tmp_path, monkeypatch):
+    from app import runs
+
+    mine = tenant_id("alice")
+    client.post(f"/teams/{mine}/bundles", json={"name": "notes"})
+    client.post(f"/teams/{mine}/bundles/notes/raw/a.md", content=b"a")
+    runs.start(tmp_path / mine / "notes", "raw/a.md", "m")
+
+    monkeypatch.setattr("app.files.busy", lambda home: True)
+    assert client.delete(f"/teams/{mine}/bundles/notes").status_code == 409
+    monkeypatch.setattr("app.files.busy", lambda home: False)
+
+    assert client.delete(f"/teams/{mine}/bundles/notes").json() == {"deleted": "notes"}
+    assert client.get(f"/teams/{mine}/bundles").json() == ["default"]
+    assert not (tmp_path / mine / "notes").exists()
+    assert runs.latest(tmp_path / mine / "notes") == {}
+    assert client.get(f"/teams/{mine}/bundles/notes/tree").status_code == 404
+
+    # the last one stays, and a contributor deletes nothing
+    refused = client.delete(f"/teams/{mine}/bundles/default")
+    assert refused.status_code == 409 and "at least one" in refused.json()["detail"]
+    team = client.post("/teams", json={"name": "Acme"}).json()["id"]
+    token = client.post(f"/teams/{team}/invites", json={"role": "contributor"}).json()["token"]
+    client.post(f"/invites/{token}/accept", headers=as_("bob"))
+    client.post(f"/teams/{team}/bundles", json={"name": "more"})
+    assert client.delete(f"/teams/{team}/bundles/more", headers=as_("bob")).status_code == 403
+
+
 def test_a_bundle_moves_to_another_team_with_its_history(client, tmp_path):
     from app import runs
 

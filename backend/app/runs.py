@@ -56,6 +56,14 @@ def rename_bundle(tenant: str, old: str, new: str) -> None:
         s.commit()
 
 
+def forget_bundle(tenant: str, bundle: str) -> None:
+    """Every row of one bundle, gone. Once, when the bundle is deleted."""
+    with session() as s:
+        for table in (IngestRun, BundleSetting, SourceMove):
+            s.execute(delete(table).where(table.tenant == tenant, table.bundle == bundle))
+        s.commit()
+
+
 def forget_tenant(tenant: str) -> None:
     """Every row a tenant owns, gone. Once, when the team is deleted."""
     with session() as s:

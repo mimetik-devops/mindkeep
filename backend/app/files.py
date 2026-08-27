@@ -266,6 +266,23 @@ def rename_bundle(
     return {"name": to}
 
 
+@router.delete("/bundles/{name}")
+def delete_bundle(name: str, home: Bundle, _: Manager) -> dict[str, str]:
+    """Delete a bundle: its sources, its wiki, its history. The `bundles` permission; not
+    while anything is ingesting it; and a team keeps at least one, since every view opens
+    on a bundle. The UI asks for the name to be typed first — there is no undo yet."""
+    if busy(home):
+        raise HTTPException(409, "this bundle is being ingested — delete it when that has finished")
+    others = [b for b in home.parent.iterdir() if b.is_dir() and b != home]
+    if not others:
+        raise HTTPException(409, "a team keeps at least one bundle")
+    with lock_for(home):
+        shutil.rmtree(home)
+    runs.forget_bundle(home.parent.name, name)
+    log.info("deleted bundle %s in %s", name, home.parent.name)
+    return {"deleted": name}
+
+
 @router.put("/bundles/{name}/team")
 def move_bundle(
     name: str,

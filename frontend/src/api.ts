@@ -256,6 +256,10 @@ export const listTeams = () => call<Team[]>("/teams");
 export const renameBundle = (bundle: string, to: string) =>
   call<{ name: string }>(at(bundle), json({ to }, "PUT"));
 
+/** The `bundles` permission; not mid-ingest; a team keeps at least one. No undo. */
+export const deleteBundle = (bundle: string) =>
+  call<{ deleted: string }>(at(bundle), { method: "DELETE" });
+
 /** Owners and admins on both sides; the name must be free there; not mid-ingest. */
 export const moveBundle = (bundle: string, to: string) =>
   call<{ team: string; bundle: string }>(`${at(bundle)}/team`, json({ to }, "PUT"));

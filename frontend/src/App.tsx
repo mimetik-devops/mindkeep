@@ -177,6 +177,12 @@ export function App({ user }: { user: User }) {
                 setBundles((b) => b.map((n) => (n === from ? to : n)).sort());
                 setBundle(to);
               }}
+              onBundleDeleted={(name) => {
+                const left = bundles.filter((n) => n !== name);
+                setBundles(left);
+                setBundle(left[0] ?? "default");
+                setTab("Library");
+              }}
             />
           )}
         </div>

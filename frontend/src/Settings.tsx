@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import {
   can,
+  deleteBundle,
   deviceToken,
   LINT_OFF,
   moveBundle,
@@ -49,6 +50,7 @@ export function Settings({
   onTeamChanged,
   onBundleMoved,
   onBundleRenamed,
+  onBundleDeleted,
 }: {
   bundle: string;
   team: Team;
@@ -60,12 +62,15 @@ export function Settings({
   onBundleMoved: (team: string, bundle: string) => void;
   /** The bundle has a new name: the app's list and selection follow. */
   onBundleRenamed: (from: string, to: string) => void;
+  /** The bundle is gone: the app drops it and opens another. */
+  onBundleDeleted: (name: string) => void;
 }) {
   const { lint, refresh } = useLint(bundle);
   const [section, setSection] = useState<Section>("Bundle");
   const [error, setError] = useState("");
   const [destination, setDestination] = useState("");
   const [newName, setNewName] = useState(bundle);
+  const [confirmDelete, setConfirmDelete] = useState("");
   const manages = can(team, "bundles");
   const elsewhere = teams.filter((t) => t.id !== team.id && can(t, "bundles"));
   const [token, setToken] = useState("");
@@ -192,6 +197,37 @@ export function Settings({
                 />
                 <button type="submit" className="lint" disabled={newName.trim() === bundle}>
                   Rename
+                </button>
+              </form>
+            </section>
+          )}
+
+          {manages && (
+            <section className="card">
+              <h2>Delete this bundle</h2>
+              <p>
+                Its sources, its wiki and its history go, and there is no undo. A team keeps at
+                least one bundle. Type <b>{bundle}</b> to confirm.
+              </p>
+              <form
+                className="field"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (confirmDelete !== bundle) return;
+                  setError("");
+                  deleteBundle(bundle)
+                    .then(() => onBundleDeleted(bundle))
+                    .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
+                }}
+              >
+                <input
+                  aria-label="Type the bundle name to confirm"
+                  placeholder={bundle}
+                  value={confirmDelete}
+                  onChange={(e) => setConfirmDelete(e.target.value)}
+                />
+                <button type="submit" className="lint danger" disabled={confirmDelete !== bundle}>
+                  Delete
                 </button>
               </form>
             </section>
