@@ -36,5 +36,40 @@ sync will remove anything the server does not have. Changes go through Mindstash
 Read `index.md`, then open only the pages it points you to, and follow their links for
 the neighbours. Prefer `stable` pages to `draft` ones, and a claim with a `verified` stamp
 over one without. Quote the page's own citations when it matters where a claim came from.
-If an answer takes real synthesis, do not write it into `wiki/` here — put it in a new
-file under `raw/` so it is ingested and becomes a page the proper way.
+If an answer takes real synthesis, do not write it into `wiki/` here — write it up as a
+note, below, so it is ingested and becomes a page the proper way.
+
+## Contributing what you worked out
+
+When work here settles something the team should keep — why a thing fails and the fix,
+a decision and its reason, a fact that took effort to establish — write it as a **note**:
+one finding per file, under `raw/notes/<your name>/`, named by date and subject:
+
+```
+raw/notes/ruben/2026-08-27 — why the frontend container lost its packages.md
+```
+
+```yaml
+---
+type: Note
+author: ruben          # the person, not the tool
+via: claude-code       # or whatever wrote it
+about: [docker, frontend]
+supersedes: raw/notes/ruben/2026-08-20 — rebuild the frontend image.md   # optional
+---
+```
+
+Then the finding, in a few paragraphs, with what it rests on. The watcher uploads the
+note and the agent folds it into the wiki as a **draft** page — inferred by a tool, not
+yet checked by a person — until someone verifies it.
+
+Rules that keep notes true:
+
+- **One finding per file.** A file that grows goes stale as a whole; a fact has its own
+  life. Do not keep a running memory file here.
+- **Do not edit history into a note.** When you learn better, write a new note that names
+  the old one in `supersedes:`; the wiki retires the old claims. Delete a note only when it
+  was simply wrong.
+- **Team knowledge only.** What you learned about working with *this person or this
+  machine* — preferences, paths, habits — is your own memory and stays in your own memory,
+  not in the shared wiki.

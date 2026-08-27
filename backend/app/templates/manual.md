@@ -111,6 +111,22 @@ When a new file appears in `raw/`:
    where it is attached to the claim it justifies. A log entry nobody can skim is a log
    entry nobody reads.
 
+### Notes from local agents
+
+A source under `raw/notes/` is a finding written by a tool working on someone's machine —
+a local agent that settled something while reading a synced copy of this wiki. It is
+knowledge, and it is ingested like any source, with three differences:
+
+- **It is inferred, not checked.** A page whose only source is a note is `status: draft`
+  until a person verifies it, and stays so however confident the note sounds. Say in the
+  page that the claim comes from a note; cite it with the note's `author` and `via`.
+- **`supersedes:` retires the old note's claims.** When a note names an earlier one, the
+  claims that rested only on the earlier note are gone — remove them from the pages, keep
+  what the new note supports, and drop the earlier note from the pages' `sources`. Do not
+  merge the two into one longer story.
+- **A note that changed is a note that changed its mind.** On re-ingest, treat what is no
+  longer in the note as withdrawn, not merely unmentioned.
+
 Cite the source in the `sources` frontmatter of every page you touch. Do not paraphrase
 a claim into the wiki without a footnote back to where it came from.
 

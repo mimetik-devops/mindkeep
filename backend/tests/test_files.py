@@ -565,6 +565,9 @@ def test_the_agent_runs_on_the_manual_and_the_bundle_carries_the_guide(
     assert seen["system"] == manual
     assert "edit_file" in manual and "Do not edit it in place" in guide
     assert "edit_file" not in guide  # the guide names no tool the local reader lacks
+    # a local agent's findings come in as notes, and the agent treats them as inferred
+    assert "raw/notes/" in guide and "supersedes:" in guide
+    assert "raw/notes/" in manual and "status: draft" in manual
     assert (home / "CLAUDE.md").read_text(encoding="utf-8") == guide
     assert not (home / "manual.md").exists()
 
