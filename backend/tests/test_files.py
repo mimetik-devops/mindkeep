@@ -505,6 +505,23 @@ def test_the_nightly_lint_is_off_outside_its_hour(client, monkeypatch):
     assert ran == []
 
 
+def test_a_deploy_pushes_the_guide_to_every_bundle(client, tmp_path):
+    """Startup walks the bundles: a quiet one gets the current guide without an ingest."""
+    from app.files import TEMPLATES, refresh_guides
+
+    client.get(f"{T}/bundles")
+    client.post(f"{T}/bundles", json={"name": "work"})
+    client.get(f"{team_of('bob')}/bundles", headers={"x-test-user": "bob"})
+    stale = tmp_path / tenant_id("alice") / "work" / "CLAUDE.md"
+    stale.write_text("last month's guide", encoding="utf-8")
+    (tmp_path / ".hidden").mkdir()  # a staging leftover, not a tenant
+
+    assert refresh_guides(tmp_path) == 1  # only the stale one is rewritten
+    assert stale.read_text(encoding="utf-8") == (TEMPLATES / "CLAUDE.md").read_text("utf-8")
+    assert refresh_guides(tmp_path) == 0
+    assert refresh_guides(tmp_path / "nowhere") == 0
+
+
 def test_the_agent_runs_on_the_manual_and_the_bundle_carries_the_guide(
     client, tmp_path, monkeypatch
 ):

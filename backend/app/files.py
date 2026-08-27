@@ -153,6 +153,35 @@ def seed(home: Path) -> None:
     put_text(home / TODO, todos.EMPTY)
 
 
+def refresh_guide(home: Path) -> bool:
+    """Bring one bundle's CLAUDE.md up to the guide that ships with the app. True if it
+    changed. The guide is shipped code, not content: a bundle seeded last month would
+    otherwise carry last month's, and so would every synced copy of it."""
+    guide = (TEMPLATES / "CLAUDE.md").read_text(encoding="utf-8")
+    target = home / "CLAUDE.md"
+    if target.is_file() and target.read_text(encoding="utf-8") == guide:
+        return False
+    put_text(target, guide)
+    return True
+
+
+def refresh_guides(root: Path) -> int:
+    """Every bundle, at startup — so a deploy is how a change to the guide reaches them,
+    quiet bundles included. Sync clients see the new hash on their next pass."""
+    changed = 0
+    if not root.is_dir():
+        return 0
+    for tenant in root.iterdir():
+        if not tenant.is_dir() or tenant.name.startswith("."):
+            continue
+        for home in tenant.iterdir():
+            if home.is_dir() and (home / "index.md").is_file() and refresh_guide(home):
+                changed += 1
+    if changed:
+        log.info("refreshed CLAUDE.md in %d bundle(s)", changed)
+    return changed
+
+
 def safe_path(home: Path, rel: str) -> Path:
     try:
         target = (home / rel).resolve()

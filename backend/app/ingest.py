@@ -113,7 +113,7 @@ def ingest(
     written = 0
     steps = 0
     # local import: files.py imports this module
-    from app.files import TEMPLATES, put_text, readable_text, safe_path
+    from app.files import TEMPLATES, put_text, readable_text, refresh_guide, safe_path
 
     def step(what: str) -> None:
         """Say what just happened, to the server log and to the row the UI reads.
@@ -252,12 +252,9 @@ def ingest(
     with lock_for(home):
         # Two texts, two readers. manual.md is this agent's whole instruction and never
         # leaves the server; CLAUDE.md is the guide people and local tools find in a synced
-        # copy, telling them the copy is read-only. Both ship with the app, so the guide is
-        # refreshed here — a bundle seeded last month would otherwise carry last month's.
+        # copy. Startup pushes the guide everywhere; this catches a bundle made since.
         manual = (TEMPLATES / "manual.md").read_text(encoding="utf-8")
-        guide = (TEMPLATES / "CLAUDE.md").read_text(encoding="utf-8")
-        if (home / "CLAUDE.md").read_text(encoding="utf-8") != guide:
-            put_text(home / "CLAUDE.md", guide)
+        if refresh_guide(home):
             log.info("refreshed CLAUDE.md in %s", home)
 
         runner = client.beta.messages.tool_runner(

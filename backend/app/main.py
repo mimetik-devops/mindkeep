@@ -51,6 +51,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             ingest.enqueue(root / tenant / bundle, source)
     except Exception:
         log.exception("could not sweep interrupted ingests")
+    try:
+        files.refresh_guides(Path(os.environ.get("WIKI_ROOT", "/data")))
+    except Exception:
+        log.exception("could not refresh the reader's guide in the bundles")
     schedule.start()
     yield
 
