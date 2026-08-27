@@ -1,22 +1,18 @@
-"""Mindstash desktop client.
+"""The sync itself: one bundle, one folder, both ways.
 
-    mindstash login    once, per machine
-    mindstash sync     pull the wiki down, push anything new in raw/
-    mindstash watch    the same, every 30 seconds
+`sync(cfg)` pulls the wiki down and pushes anything new in raw/. `cfg` is a dict with
+server, token, folder, team and bundle — the CLI keeps one in a file, the desktop app
+keeps one per watched bundle. When you and someone else changed the same file, yours
+is kept under .conflicts/ and theirs lands in place; for todo.md your ticks are merged
+onto their list instead.
 
-Point Claude at the folder this creates. Drop files in its raw/ folder and they upload.
-
-When you and someone else changed the same file, yours is kept under .conflicts/ and
-theirs lands in place; for todo.md your ticks are merged onto their list instead.
-
-ponytail: stdlib only, so `python mindstash.py` works with nothing installed.
+ponytail: stdlib only, so the CLI works with nothing installed and the app's only
+dependency is Qt.
 """
 
 import hashlib
 import json
 import shutil
-import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,7 +34,6 @@ SHARED = "todo.md"
 # new source and ingested twice. Theirs lands in place; you merge by hand if you care.
 CONFLICTS = ".conflicts"
 
-CONFIG = Path.home() / ".mindstash.json"
 # What the server had at the end of the last sync. Without it, a local file the server
 # does not have is ambiguous: newly added here, or deleted over there? Guessing "new"
 # resurrects deleted sources; guessing "deleted" destroys your originals. Kept beside the
@@ -198,44 +193,6 @@ def remember(cfg: dict, tree: dict[str, str], dirs: set[str] | None = None) -> N
     state[_key(cfg)] = tree
     state[_key(cfg) + "|dirs"] = sorted(dirs or ())
     STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
-
-
-def login() -> None:
-    default_folder = Path.home() / "Mindstash"
-    server = input("API address [http://localhost:8001]: ").strip() or "http://localhost:8001"
-    token = input("Device token (copy it from Settings): ").strip()
-    folder = input(f"Save the wiki in [{default_folder}]: ").strip() or str(default_folder)
-
-    # The teams you belong to, personal first — the server makes the personal one on
-    # first sight, so there is always at least one to pick.
-    probe = {"server": server, "token": token}
-    try:
-        teams = call_json(probe, "teams")
-    except urllib.error.HTTPError as e:
-        sys.exit(f"That did not work ({e.code}). Check the token.")
-    except (urllib.error.URLError, Unreachable) as e:
-        sys.exit(f"Could not reach the API: {e}")
-    for n, t in enumerate(teams, 1):
-        print(f"  {n}. {t['name']}{' (personal)' if t['personal'] else ''}")
-    picked = input("Team [1]: ").strip() or "1"
-    chosen = next(
-        (t for n, t in enumerate(teams, 1) if picked in (str(n), t["id"], t["name"])), None
-    )
-    if chosen is None:
-        sys.exit("That is not one of your teams.")
-    team = chosen["id"]
-
-    bundle = input("Bundle [default]: ").strip() or "default"
-    cfg = {"server": server, "token": token, "folder": folder, "team": team, "bundle": bundle}
-    try:
-        call_json(cfg, f"teams/{team}/bundles/{bundle}/tree")
-    except urllib.error.HTTPError as e:
-        sys.exit(f"That did not work ({e.code}). Check the bundle name.")
-
-    for name in LAYOUT:
-        (Path(folder) / name).mkdir(parents=True, exist_ok=True)
-    CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    print(f"Ready. Run `mindstash watch`, and point Claude at {folder}.")
 
 
 def sync(cfg: dict) -> None:
@@ -434,36 +391,3 @@ def sync(cfg: dict) -> None:
 
     remember(cfg, remote, dirs)
 
-
-def needs_team(cfg: dict) -> None:
-    if "team" not in cfg:
-        sys.exit("Bundles now live in teams: run `mindstash login` once more to pick yours.")
-
-
-def main() -> None:
-    command = sys.argv[1] if len(sys.argv) > 1 else "sync"
-    if command == "login":
-        return login()
-    if not CONFIG.exists():
-        sys.exit("Run `mindstash login` first.")
-    cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
-    needs_team(cfg)
-
-    if command == "sync":
-        sync(cfg)
-    elif command == "watch":
-        print(f"Watching {Path(cfg['folder']) / 'raw'} - drop files there. Ctrl-C to stop.")
-        while True:
-            try:
-                sync(cfg)
-            except Unreachable as e:
-                sys.exit(str(e))  # a wrong address will not fix itself by waiting
-            except Exception as e:  # a laptop closes, wifi drops; keep going
-                print("retrying after:", e)
-            time.sleep(INTERVAL)
-    else:
-        sys.exit(__doc__)
-
-
-if __name__ == "__main__":
-    main()

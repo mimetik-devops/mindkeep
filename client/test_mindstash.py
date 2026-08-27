@@ -1,4 +1,4 @@
-"""Run with: pytest client/
+"""Run with: pytest client/ (from client/, so the package is importable)
 
 Only the sync logic is worth testing — it is the part that can delete your files.
 """
@@ -8,7 +8,7 @@ import json
 import re
 import urllib.error
 
-import mindstash
+import mindstash.sync as mindstash
 
 
 def cleaned(body: bytes) -> bytes:
