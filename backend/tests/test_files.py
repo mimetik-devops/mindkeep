@@ -529,6 +529,16 @@ class _FakeAnthropic:
         return iter(())
 
 
+def test_clean_says_what_a_name_will_be_stored_as(client):
+    """One rule, on the server: the client renames a new file to this before uploading."""
+    got = client.post(
+        "/clean",
+        json={"paths": ["papers/Futuros — how it works (arch, stack).md", "../x.md", ""]},
+    ).json()
+
+    assert got == {"paths": ["papers/Futuros - how it works (arch- stack).md", "x.md", "upload"]}
+
+
 def test_a_bundle_chooses_its_own_lint_hour(client, tmp_path, monkeypatch):
     """The server default is only a default — the hour belongs to the bundle."""
     from datetime import UTC, datetime

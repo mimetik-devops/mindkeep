@@ -11,7 +11,6 @@ ponytail: stdlib only, so `python mindstash.py` works with nothing installed.
 
 import hashlib
 import json
-import re
 import sys
 import time
 import urllib.error
@@ -38,39 +37,39 @@ CONFIG = Path.home() / ".mindstash.json"
 STATE = Path.home() / ".mindstash-state.json"
 INTERVAL = 30
 
-# The server's rule for a source's name (files.py, UNSAFE_NAME and raw_path), applied here
-# first. A name the server would change is renamed on disk *before* it goes up, so the
-# mirror and the server agree on what a file is called. Before this, the upload came back
-# under the changed name, the sweep took the original for deleted and removed it, and a
-# twin already spelt the server's way collided into "-2" — a duplicate source, ingested
-# twice. Keep the two regexes identical.
-UNSAFE_NAME = re.compile(r"[^A-Za-z0-9 ()._-]")
 
+def rename_new(cfg: dict, root: Path, remote: dict[str, str], seen: dict[str, str]) -> None:
+    """Give every file that is new here the name the server will store it under.
 
-def clean(rel: str) -> str:
-    """A raw/-relative path as the server will store it, one segment at a time."""
-    parts = [p for segment in rel.split("/") if (p := UNSAFE_NAME.sub("-", segment).strip(" ."))]
-    return "/".join(parts) or "upload"
-
-
-def rename_new(root: Path, remote: dict[str, str], seen: dict[str, str]) -> None:
-    """Give every file that is new here the name the server will give it.
+    The server rewrites names it does not like, and a mirror that uploads first sees its
+    own file come back under a different name — then sweeps the original away as deleted,
+    and a twin already spelt the server's way collides into "-2", a duplicate source. So
+    the server is asked (POST /clean, one call for all of them) and the file is renamed on
+    disk *before* it goes up. The rule lives on the server only.
 
     Only new files: one the server already has is already spelt its way. A target that
     exists with the same bytes is a twin, and the new copy is dropped; with different
     bytes the new one gets "-2", the way the server would have done it.
     """
-    for local in sorted((root / "raw").rglob("*")):
-        if not local.is_file() or local.name.startswith("."):
+    fresh = [
+        local.relative_to(root / "raw").as_posix()
+        for local in sorted((root / "raw").rglob("*"))
+        if local.is_file() and not local.name.startswith(".")
+    ]
+    fresh = [rel for rel in fresh if f"raw/{rel}" not in remote and f"raw/{rel}" not in seen]
+    if not fresh:
+        return
+    body = json.dumps({"paths": fresh}).encode()
+    stored = json.loads(call(cfg, "clean", body, kind="application/json"))["paths"]
+    for rel, clean in zip(fresh, stored, strict=True):
+        if clean == rel:
             continue
-        rel = local.relative_to(root / "raw").as_posix()
-        if f"raw/{rel}" in remote or f"raw/{rel}" in seen or clean(rel) == rel:
-            continue
-        target = root / "raw" / clean(rel)
+        local = root / "raw" / rel
+        target = root / "raw" / clean
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and digest(target) == digest(local):
             local.unlink()
-            print("dropped", f"raw/{rel}", "- same as", f"raw/{clean(rel)}")
+            print("dropped", f"raw/{rel}", "- same as", f"raw/{clean}")
             continue
         stem, suffix = target.stem, target.suffix
         for n in range(2, 1000):
@@ -176,7 +175,7 @@ def sync(cfg: dict) -> None:
     remote: dict[str, str] = call_json(cfg, f"bundles/{bundle}/tree")
     seen = known(cfg)
     # before anything is compared, so a moved file is paired under its final name too
-    rename_new(root, remote, seen)
+    rename_new(cfg, root, remote, seen)
 
     # Deleted here: in the last sync, on the server, gone from disk. Only the state file
     # makes that different from "not downloaded yet".

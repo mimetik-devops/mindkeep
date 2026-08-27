@@ -166,6 +166,19 @@ def create_bundle(home: Tenant, name: Annotated[str, Body(embed=True)]) -> dict[
     return {"name": name}
 
 
+@router.post("/clean")
+def clean_names(
+    paths: Annotated[list[str], Body(embed=True)], _: CurrentUser
+) -> dict[str, list[str]]:
+    """The names these raw/ paths will be stored under.
+
+    The desktop client asks before uploading a file that is new on its side and renames
+    it on disk first, so the mirror and the server agree on what a file is called. The
+    rule lives here only — a client with its own copy would drift.
+    """
+    return {"paths": [raw_path(p) for p in paths]}
+
+
 @router.get("/bundles/{name}/tree")
 def tree(home: Bundle) -> dict[str, str]:
     """path -> sha256. The client diffs this against its folder to decide what to fetch.

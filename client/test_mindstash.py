@@ -4,8 +4,20 @@ Only the sync logic is worth testing — it is the part that can delete your fil
 """
 
 import hashlib
+import json
+import re
 
 import mindstash
+
+
+def cleaned(body: bytes) -> bytes:
+    """What POST /clean answers: the server's naming rule, mimicked for the fakes."""
+    paths = json.loads(body)["paths"]
+    unsafe = re.compile(r"[^A-Za-z0-9 ()._-]")
+    clean = lambda rel: "/".join(  # noqa: E731 - a one-line double
+        p for seg in rel.split("/") if (p := unsafe.sub("-", seg).strip(" ."))
+    ) or "upload"
+    return json.dumps({"paths": [clean(rel) for rel in paths]}).encode()
 
 
 def fake_server(monkeypatch, tmp_path, tree: dict[str, str], dirs: list[str] | None = None) -> dict:
@@ -13,7 +25,11 @@ def fake_server(monkeypatch, tmp_path, tree: dict[str, str], dirs: list[str] | N
     monkeypatch.setattr(
         mindstash, "call_json", lambda cfg, path: (dirs or []) if path.endswith("folders") else tree
     )
-    monkeypatch.setattr(mindstash, "call", lambda cfg, path, body=None, method="", kind="": b"x")
+    monkeypatch.setattr(
+        mindstash,
+        "call",
+        lambda cfg, path, body=None, method="", kind="": cleaned(body) if path == "clean" else b"x",
+    )
     monkeypatch.setattr(mindstash, "STATE", tmp_path / "state.json")
     return {
         "server": "http://x",
@@ -59,11 +75,7 @@ def test_folders_you_make_in_raw_are_uploaded_as_you_made_them(tmp_path, monkeyp
     """raw/ is the owner's to organise, so the path they chose is the path we send."""
     sent: list[str] = []
     cfg = fake_server(monkeypatch, tmp_path, {})
-    monkeypatch.setattr(
-        mindstash,
-        "call",
-        lambda cfg, path, body=None, method="": sent.append(f"{method or 'POST'} {path}") or b"",
-    )
+    calls_from(monkeypatch, sent)
 
     root = tmp_path / "mirror"
     (root / "raw" / "papers" / "2026").mkdir(parents=True)
@@ -72,7 +84,7 @@ def test_folders_you_make_in_raw_are_uploaded_as_you_made_them(tmp_path, monkeyp
 
     mindstash.sync(cfg)
 
-    assert sorted(sent) == [
+    assert sorted(c for c in sent if c != "POST clean") == [
         "POST bundles/default/raw/loose.md",
         "POST bundles/default/raw/papers/2026/synthetic users.md",
     ]
@@ -86,12 +98,7 @@ def test_a_local_rename_is_sent_as_a_move(tmp_path, monkeypatch):
     hashed = mindstash.hashlib.sha256(body).hexdigest()
 
     cfg = fake_server(monkeypatch, tmp_path, {"raw/note.md": hashed})
-    monkeypatch.setattr(
-        mindstash,
-        "call",
-        lambda cfg, path, body=None, method="", kind="": calls.append(f"{method or 'POST'} {path}")
-        or b"{}",
-    )
+    calls_from(monkeypatch, calls)
     mindstash.remember(cfg, {"raw/note.md": hashed})  # the server had it at the last sync
 
     root = tmp_path / "mirror"
@@ -113,12 +120,7 @@ def test_reorganising_everything_is_not_mistaken_for_losing_everything(tmp_path,
         tree[f"raw/{name}"] = mindstash.hashlib.sha256(name.encode()).hexdigest()
 
     cfg = fake_server(monkeypatch, tmp_path, dict(tree))
-    monkeypatch.setattr(
-        mindstash,
-        "call",
-        lambda cfg, path, body=None, method="", kind="": calls.append(f"{method or 'POST'} {path}")
-        or b"{}",
-    )
+    calls_from(monkeypatch, calls)
     mindstash.remember(cfg, dict(tree))
 
     root = tmp_path / "mirror"
@@ -137,7 +139,7 @@ def calls_from(monkeypatch, sink: list[str]) -> None:
         mindstash,
         "call",
         lambda cfg, path, body=None, method="", kind="": sink.append(f"{method or 'POST'} {path}")
-        or b"{}",
+        or (cleaned(body) if path == "clean" else b"{}"),
     )
 
 
@@ -264,6 +266,8 @@ def uploads_into(monkeypatch, tree: dict[str, str], sink: list[str]) -> None:
 
     def fake(cfg, path, body=None, method="", kind=""):
         sink.append(f"{method or 'POST'} {path}")
+        if path == "clean":
+            return cleaned(body)
         if body is not None and path.startswith("bundles/default/raw/"):
             tree[path.removeprefix("bundles/default/")] = hashlib.sha256(body).hexdigest()
         return b"{}"
