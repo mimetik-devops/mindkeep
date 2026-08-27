@@ -143,7 +143,14 @@ def create_team(
     name = name.strip()
     if not 1 <= len(name) <= 80:
         raise HTTPException(400, "a team name is 1 to 80 characters")
-    return _as_dict(create(name, user, who), "owner")
+    team = create(name, user, who)
+    # a team starts with a bundle, made now rather than on first visit — a bundle moved in
+    # before anyone opened the team would otherwise be its only one
+    from app.files import seed  # local import: files.py imports this module
+
+    root = Path(os.environ.get("WIKI_ROOT", "/data")).resolve()
+    seed(root / team.id / "default")
+    return _as_dict(team, "owner")
 
 
 def acting_as(team: str, user: CurrentUser) -> Role:

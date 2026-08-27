@@ -36,6 +36,16 @@ def rename_tenant(old: str, new: str) -> None:
         s.commit()
 
 
+def move_bundle(old: str, new: str, bundle: str) -> None:
+    """Every row of one bundle, re-keyed to another team. Once, when the bundle moves."""
+    with session() as s:
+        for table in (IngestRun, BundleSetting, SourceMove):
+            s.execute(
+                update(table).where(table.tenant == old, table.bundle == bundle).values(tenant=new)
+            )
+        s.commit()
+
+
 def forget_tenant(tenant: str) -> None:
     """Every row a tenant owns, gone. Once, when the team is deleted."""
     with session() as s:
@@ -47,9 +57,7 @@ def forget_tenant(tenant: str) -> None:
 def start(home: Path, source: str, model: str) -> int:
     tenant, bundle = _where(home)
     with session() as s:
-        run = IngestRun(
-            tenant=tenant, bundle=bundle, source=source, started_at=now(), model=model
-        )
+        run = IngestRun(tenant=tenant, bundle=bundle, source=source, started_at=now(), model=model)
         s.add(run)
         s.commit()
         return run.id

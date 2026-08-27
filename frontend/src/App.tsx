@@ -154,7 +154,19 @@ export function App({ user }: { user: User }) {
           {tab === "Todo" && <Todo bundle={bundle} />}
           {tab === "Console" && <Console bundle={bundle} />}
           {tab === "Settings" && (
-            <Settings bundle={bundle} team={team} onTeamChanged={reloadTeams} />
+            <Settings
+              bundle={bundle}
+              team={team}
+              teams={teams}
+              onTeamChanged={reloadTeams}
+              onBundleMoved={(id, moved) => {
+                const next = teams.find((t) => t.id === id);
+                if (next) {
+                  choose(next);
+                  setBundle(moved);
+                }
+              }}
+            />
           )}
         </div>
       )}

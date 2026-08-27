@@ -309,6 +309,13 @@ _work: dict[str, "queue.Queue[str]"] = {}
 _work_lock = threading.Lock()
 
 
+def busy(home: Path) -> bool:
+    """A run in progress, or one waiting its turn. Moving a bundle under either would
+    strand it: the worker holds the old path."""
+    waiting = _work.get(str(home))
+    return lock_for(home).locked() or bool(waiting and not waiting.empty())
+
+
 def enqueue(home: Path, source: str) -> None:
     """Hand an ingest to the bundle's worker and return immediately."""
     with _work_lock:

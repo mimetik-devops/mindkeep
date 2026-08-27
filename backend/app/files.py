@@ -15,7 +15,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from app import assist, gaps, graph, runs, schedule, teams, todos
 from app.auth import CurrentIdentity, CurrentProfile, CurrentUser
 from app.db import LINT_OFF
-from app.ingest import LINT, agent_owns, enqueue, lock_for, pages_citing, user_owns
+from app.ingest import LINT, agent_owns, busy, enqueue, lock_for, pages_citing, user_owns
 
 log = logging.getLogger(__name__)
 
@@ -194,6 +194,35 @@ def create_bundle(home: Tenant, name: Annotated[str, Body(embed=True)]) -> dict[
         raise HTTPException(409, "bundle already exists")
     seed(home / name)
     return {"name": name}
+
+
+@router.put("/bundles/{name}/team")
+def move_bundle(
+    name: str, home: Bundle, user: CurrentUser, to: Annotated[str, Body(embed=True)]
+) -> dict[str, str]:
+    """Move a bundle to another team: a directory rename and its rows re-keyed.
+
+    Owners and admins on both sides — it leaves one team's shelf and lands on another's.
+    Not while anything is ingesting it: the worker holds the old path and would strand a
+    run. The name has to be free over there; bundles are not renamed on the way.
+    """
+    leaving, joining = home.parent.name, to
+    if teams.role_of(leaving, user) not in ("owner", "admin"):
+        raise HTTPException(403, "only an owner or admin moves a bundle out of a team")
+    if teams.role_of(joining, user) not in ("owner", "admin"):
+        raise HTTPException(404, "not found")  # a team you do not manage is not yours to see
+    root = home.parent.parent
+    target = root / joining / name
+    if target.exists():
+        raise HTTPException(409, "that team already has a bundle by that name")
+    if busy(home):
+        raise HTTPException(409, "this bundle is being ingested — move it when that has finished")
+    with lock_for(home):
+        (root / joining).mkdir(exist_ok=True)
+        home.rename(target)
+    runs.move_bundle(leaving, joining, name)
+    log.info("moved bundle %s from %s to %s", name, leaving, joining)
+    return {"team": joining, "bundle": name}
 
 
 @router.get("/bundles/{name}/tree")
@@ -552,9 +581,7 @@ def remove_raw(path: str, home: Bundle) -> dict[str, str]:
 
 
 @router.post("/bundles/{name}/raw/{path:path}")
-async def add_raw(
-    path: str, home: Bundle, request: Request
-) -> dict[str, str]:
+async def add_raw(path: str, home: Bundle, request: Request) -> dict[str, str]:
     """Raw documents land here as sent, keeping their own name.
 
     No provenance sidecar: the ingest agent writes a summary page under wiki/ that cites

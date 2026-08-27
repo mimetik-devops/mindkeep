@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { deviceToken, LINT_OFF, setLintHour, startLint, type Team } from "./api";
+import { deviceToken, LINT_OFF, moveBundle, setLintHour, startLint, type Team } from "./api";
 import { Members } from "./Members";
 import { TeamSettings } from "./TeamSettings";
 import { Copy } from "./icons";
@@ -32,15 +32,26 @@ const HOURS = localHours();
 export function Settings({
   bundle,
   team,
+  teams,
   onTeamChanged,
+  onBundleMoved,
 }: {
   bundle: string;
   team: Team;
+  /** Every team you belong to — the ones you manage are where a bundle can go. */
+  teams: Team[];
   /** After a rename, a leave or a delete: the app re-reads its teams. */
   onTeamChanged: () => void;
+  /** The bundle now lives over there: the app follows it. */
+  onBundleMoved: (team: string, bundle: string) => void;
 }) {
   const { lint, refresh } = useLint(bundle);
   const [error, setError] = useState("");
+  const [destination, setDestination] = useState("");
+  const manages = team.role === "owner" || team.role === "admin";
+  const elsewhere = teams.filter(
+    (t) => t.id !== team.id && (t.role === "owner" || t.role === "admin"),
+  );
   const [token, setToken] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -111,6 +122,39 @@ export function Settings({
           </p>
         )}
       </section>
+
+      {manages && elsewhere.length > 0 && (
+        <section className="card">
+          <h2>Move this bundle</h2>
+          <p>
+            <b>{bundle}</b> leaves <b>{team.name}</b> and lands on another team you manage,
+            history and all. Not while it is being ingested, and the name must be free there.
+          </p>
+          <div className="field">
+            <span>To</span>
+            <select value={destination} onChange={(e) => setDestination(e.target.value)}>
+              <option value="">Choose a team</option>
+              {elsewhere.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="lint"
+              disabled={!destination}
+              onClick={() => {
+                setError("");
+                moveBundle(bundle, destination)
+                  .then((r) => onBundleMoved(r.team, r.bundle))
+                  .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
+              }}
+            >
+              Move
+            </button>
+          </div>
+        </section>
+      )}
 
       <TeamSettings team={team} onChanged={onTeamChanged} />
 

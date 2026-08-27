@@ -243,6 +243,9 @@ const json = (body: unknown, method = "POST") => ({
 });
 
 export const listTeams = () => call<Team[]>("/teams");
+/** Owners and admins on both sides; the name must be free there; not mid-ingest. */
+export const moveBundle = (bundle: string, to: string) =>
+  call<{ team: string; bundle: string }>(`${at(bundle)}/team`, json({ to }, "PUT"));
 export const createTeam = (name: string) => call<Team>("/teams", json({ name }));
 export const renameTeam = (team: string, name: string) =>
   call<Team>(`/teams/${team}`, json({ name }, "PUT"));

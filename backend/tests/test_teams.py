@@ -122,6 +122,63 @@ def test_a_personal_team_cannot_be_deleted(client):
     assert client.delete(f"/teams/{mine}").status_code == 409
 
 
+def test_a_bundle_moves_to_another_team_with_its_history(client, tmp_path):
+    from app import runs
+
+    mine = tenant_id("alice")
+    acme = client.post("/teams", json={"name": "Acme"}).json()["id"]
+    client.post(f"/teams/{mine}/bundles", json={"name": "notes"})
+    client.post(f"/teams/{mine}/bundles/notes/raw/a.md", content=b"a")
+    run = runs.start(tmp_path / mine / "notes", "raw/a.md", "m")
+    runs.finish(tmp_path / mine / "notes", run, turns=1, chars=1)
+
+    moved = client.put(f"/teams/{mine}/bundles/notes/team", json={"to": acme}).json()
+    assert moved == {"team": acme, "bundle": "notes"}
+
+    assert client.get(f"/teams/{mine}/bundles").json() == ["default"]
+    assert client.get(f"/teams/{acme}/bundles").json() == ["default", "notes"]
+    assert (tmp_path / acme / "notes" / "raw" / "a.md").read_bytes() == b"a"
+    assert not (tmp_path / mine / "notes").exists()
+    [src] = client.get(f"/teams/{acme}/bundles/notes/sources").json()
+    assert src["path"] == "raw/a.md" and src["ingested"]  # the run row came along
+    assert runs.latest(tmp_path / mine / "notes") == {}
+
+
+def test_a_bundle_move_needs_a_free_name_and_a_quiet_bundle(client, monkeypatch):
+    mine = tenant_id("alice")
+    acme = client.post("/teams", json={"name": "Acme"}).json()["id"]
+    # both teams start with `default`
+    taken = client.put(f"/teams/{mine}/bundles/default/team", json={"to": acme})
+    assert taken.status_code == 409 and "already has" in taken.json()["detail"]
+
+    client.post(f"/teams/{mine}/bundles", json={"name": "notes"})
+    monkeypatch.setattr("app.files.busy", lambda home: True)  # where the route looks it up
+    mid_run = client.put(f"/teams/{mine}/bundles/notes/team", json={"to": acme})
+    assert mid_run.status_code == 409 and "ingested" in mid_run.json()["detail"]
+
+
+def test_a_bundle_move_needs_management_on_both_sides(client):
+    acme = client.post("/teams", json={"name": "Acme"}).json()["id"]
+    token = client.post(f"/teams/{acme}/invites").json()["token"]
+    client.post(f"/invites/{token}/accept", headers=as_("bob"))
+    bobs = tenant_id("bob")
+    client.get(f"/teams/{bobs}/bundles", headers=as_("bob"))
+
+    # bob is a member of Acme: he may not move its bundle out
+    assert (
+        client.put(
+            f"/teams/{acme}/bundles/default/team", json={"to": bobs}, headers=as_("bob")
+        ).status_code
+        == 403
+    )
+    # alice manages her own team but is not in bob's at all: it does not exist for her
+    client.post(f"/teams/{tenant_id('alice')}/bundles", json={"name": "notes"})
+    assert (
+        client.put(f"/teams/{tenant_id('alice')}/bundles/notes/team", json={"to": bobs}).status_code
+        == 404
+    )
+
+
 def test_an_expired_invite_is_not_open(client, monkeypatch):
     from app import teams
 
