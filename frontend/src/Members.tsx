@@ -88,7 +88,8 @@ export function Members({ team }: { team: Team }) {
             ) : (
               <span className="role">{m.role}</span>
             )}
-            {(manages && m.sub !== self) || m.sub === self ? (
+            {/* nobody leaves their personal team — it is theirs to keep */}
+            {!team.personal && ((manages && m.sub !== self) || m.sub === self) ? (
               <button className="link" onClick={() => act(removeMember(team.id, m.sub))}>
                 {m.sub === self ? "Leave" : "Remove"}
               </button>

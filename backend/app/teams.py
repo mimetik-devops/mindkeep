@@ -213,10 +213,14 @@ def set_role(
 
 @router.delete("/teams/{team}/members/{sub}")
 def remove_member(team: str, sub: str, user: CurrentUser, acting: ActingAs) -> dict[str, str]:
-    """Owners and admins remove others; anyone may leave — except the last owner."""
+    """Owners and admins remove others; anyone may leave — except the last owner, and
+    except from a personal team, which is its owner and cannot be walked out of."""
     if sub != user:
         manages(acting)
     with session() as s:
+        owned = s.get(Team, team)
+        if owned is not None and owned.personal:
+            raise HTTPException(409, "your personal team is yours to keep")
         m = s.scalar(select(Membership).where(Membership.team_id == team, Membership.sub == sub))
         if m is None:
             raise HTTPException(404, "not a member")

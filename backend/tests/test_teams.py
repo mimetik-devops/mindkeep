@@ -70,6 +70,14 @@ def test_a_personal_team_takes_no_invites(client):
     assert client.get(f"/teams/{mine}/invites").json() == []
 
 
+def test_you_cannot_leave_your_personal_team(client):
+    [mine] = [t["id"] for t in client.get("/teams").json()]
+    refused = client.delete(f"/teams/{mine}/members/alice")
+    assert refused.status_code == 409
+    assert "yours to keep" in refused.json()["detail"]
+    assert client.get(f"/teams/{mine}/bundles").status_code == 200
+
+
 def test_an_expired_invite_is_not_open(client, monkeypatch):
     from app import teams
 
