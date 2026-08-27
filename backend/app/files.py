@@ -539,6 +539,10 @@ def activity(home: Bundle) -> list[dict[str, object]]:
             "commit": r.commit,
             "undone": r.undone_at is not None,
             "note": words.get(r.commit, ""),
+            # what kind of run: the agent's own log heading says, at no extra cost
+            "task": "lint"
+            if r.source == LINT
+            else ("retire" if "] retire |" in words.get(r.commit, "") else "ingest"),
             "changed": changed or [],
         }
 

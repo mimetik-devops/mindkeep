@@ -196,7 +196,7 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
                 <button className="kind" aria-expanded={open === key} onClick={() => expand(e)}>
                   {isRun ? (
                     <>
-                      {e.source === "(lint)" ? "lint" : "ingest"}
+                      {e.task ?? (e.source === "(lint)" ? "lint" : "ingest")}
                       {e.source !== "(lint)" && <span className="soft"> · {e.source}</span>}
                       {e.seconds ? <span className="state"> {took(e.seconds)}</span> : null}
                       {state && <span className="state"> · {state}</span>}
@@ -234,7 +234,11 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
                         <div className="step">Looking up what it changed…</div>
                       )
                     ) : (
-                      <div className="step">This run wrote nothing.</div>
+                      <div className="step">
+                        {e.finished_at
+                          ? "This run wrote nothing."
+                          : "Still running — what it changed appears when it finishes."}
+                      </div>
                     )
                   ) : (
                     <Changed files={e.changed} />

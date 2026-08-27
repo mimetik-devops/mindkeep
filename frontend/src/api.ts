@@ -119,6 +119,8 @@ export type Entry = {
   undone?: boolean;
   note?: string;
   subject?: string;
+  /** ingest, lint or retire — a deleted source's pages being taken out. */
+  task?: string;
 };
 
 export const activity = (bundle: string) => call<Entry[]>(`${at(bundle)}/activity`);
