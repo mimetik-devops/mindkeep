@@ -55,6 +55,15 @@ def test_an_invite_link_joins_whoever_opens_it(client):
     assert client.get(f"/teams/{team}/invites").json() == []
 
 
+def test_a_personal_team_takes_no_invites(client):
+    """Yours alone; a team meant for sharing is made on purpose."""
+    [mine] = [t["id"] for t in client.get("/teams").json()]
+    refused = client.post(f"/teams/{mine}/invites")
+    assert refused.status_code == 403
+    assert "create a team" in refused.json()["detail"]
+    assert client.get(f"/teams/{mine}/invites").json() == []
+
+
 def test_an_expired_invite_is_not_open(client, monkeypatch):
     from app import teams
 

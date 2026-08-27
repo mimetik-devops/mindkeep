@@ -267,11 +267,17 @@ def create_invite(
 ) -> dict[str, object]:
     """An invite is a link. Whoever opens it, signed in with whatever provider, joins as
     the `sub` they signed in with — which is the whole reason it needs no email and no
-    provider API. Seven days, one use."""
+    provider API. Seven days, one use.
+
+    Not into a personal team: that one is its owner's alone, and a team meant for
+    sharing is made on purpose. Ruben's call, 2026-08-27."""
     manages(acting)
     if acting == "admin" and role == "owner":
         raise HTTPException(403, "only an owner can invite an owner")
     with session() as s:
+        owner_only = s.get(Team, team)
+        if owner_only is None or owner_only.personal:
+            raise HTTPException(403, "a personal team takes no invites — create a team to share")
         invite = Invite(
             token=secrets.token_urlsafe(24),
             team_id=team,

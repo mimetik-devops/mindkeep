@@ -33,10 +33,12 @@ export function Members({ team }: { team: Team }) {
   const [copied, setCopied] = useState("");
   const [error, setError] = useState("");
   const manages = team.role === "owner" || team.role === "admin";
+  // a personal team is its owner's alone — the server refuses invites into one
+  const invites_ = manages && !team.personal;
 
   const refresh = () => {
     members(team.id).then(setWho).catch((e) => setError(String(e)));
-    if (manages) invites(team.id).then(setOpen).catch((e) => setError(String(e)));
+    if (invites_) invites(team.id).then(setOpen).catch((e) => setError(String(e)));
   };
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export function Members({ team }: { team: Team }) {
       <h2>Members</h2>
       <p>
         {team.personal
-          ? "Your own team. Invite someone and it stops being only yours."
+          ? "Your own team, yours alone. To work with others, create a team from the team menu and invite them there."
           : "Everyone here can read and add to this team's bundles."}
       </p>
 
@@ -95,7 +97,7 @@ export function Members({ team }: { team: Team }) {
         ))}
       </ul>
 
-      {manages && (
+      {invites_ && (
         <>
           <div className="field">
             <span>Invite someone as</span>
