@@ -12,10 +12,11 @@ dependencies = [
     "httpx",
     "anthropic",
     "pyyaml",
+    "networkx",
 ]
 
 [dependency-groups]
-dev = ["mypy", "ruff", "pytest", "httpx"]
+dev = ["mypy", "ruff", "pytest", "httpx", "types-PyYAML", "types-networkx"]
 
 [tool.ruff]
 line-length = 100

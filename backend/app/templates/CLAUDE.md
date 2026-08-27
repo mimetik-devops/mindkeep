@@ -178,6 +178,21 @@ wiki, and treating it as a deletion is the most expensive.
 - Either way, clean up the links and `index.md` afterwards. A page deleted without
   unlinking it is worse than the orphan you started with.
 
+**Knowledge gaps are the other exception — ask, rather than only report.** Before each
+lint the server measures the wiki's link graph and names the pairs of areas that barely
+connect: several pages about one thing, several about another, and almost no link
+between them. You are handed those pairs with the lint, each side described by its most
+central pages. For each pair, decide whether the two areas genuinely bear on each other.
+
+- **Where they do**, add one question to `todo.md` whose answer would connect them, and
+  name the pages on each side. Make it specific enough that the owner can answer it or
+  drop in a source that does — that is how a gap actually closes. You may open the hub
+  pages to sharpen the question; do not read the whole of both areas.
+- **Where they do not**, say so in the log entry in a few words and add nothing. A wiki
+  about cooking and tax law has no gap between them, only two subjects.
+- Skip a pair that already has a question in `todo.md`, ticked or not. The same gap is
+  measured again every night until something links the two sides.
+
 ## Division of labour
 
 The owner sources material, explores, and questions. You do the summarizing,

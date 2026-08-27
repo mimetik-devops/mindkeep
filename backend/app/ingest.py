@@ -7,7 +7,7 @@ from pathlib import Path
 import anthropic
 from anthropic import beta_tool
 
-from app import runs
+from app import gaps, runs
 
 log = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ LINT_TASK = (
     "Today is {today}. Lint the wiki, following the Lint section of the manual. Report what "
     "you find in a log.md entry headed `## [{today}] lint`, and fix only what the manual "
     "tells you to fix — broken source links. Everything else is reported, not changed. "
-    "If the wiki is in good order, say so in one line rather than inventing work.{moves}"
+    "If the wiki is in good order, say so in one line rather than inventing work.{hints}"
 )
 
 # The server knows exactly what moved, because it did the moving. Telling the agent beats
@@ -85,17 +85,28 @@ MOVED = (
     "pointing at files that no longer exist."
 )
 
+# Same principle: the server has measured the link graph, so it names the thin spots
+# rather than leaving the agent to read every page and guess at the shape of the whole.
+GAPS = (
+    "\n\nThe wiki's link graph has areas that barely connect. Each pair below names the "
+    "most central pages on either side. Handle them as the Knowledge gaps section of the "
+    "manual says: one question in `todo.md` where the two areas genuinely bear on each "
+    "other, a few words in the log entry where they do not.\n{list}"
+)
+
 
 def ingest(
     home: Path,
     source: str,
     run_id: int | None = None,
     moves: list[tuple[int, str, str]] | None = None,
+    thin: list[gaps.Gap] | None = None,
 ) -> tuple[int, int]:
     """Have Claude fold a new source into the wiki, or lint it. One writer, serialized.
 
     `source` is a path under raw/, or LINT for a maintenance pass — the tools and the
-    manual are the same either way, only the instruction differs.
+    manual are the same either way, only the instruction differs. `moves` and `thin` are
+    what the server already knows a lint should look at.
 
     Returns (turns, characters written) so the run history can record the shape of the work.
     """
@@ -215,8 +226,13 @@ def ingest(
 
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     if source == LINT:
-        listed = "\n".join(f"- `{old}` is now `{new}`" for _, old, new in moves)
-        task = LINT_TASK.format(today=today, moves=MOVED.format(list=listed) if moves else "")
+        hints = ""
+        if moves:
+            listed = "\n".join(f"- `{old}` is now `{new}`" for _, old, new in moves)
+            hints += MOVED.format(list=listed)
+        if thin:
+            hints += GAPS.format(list=gaps.describe(thin))
+        task = LINT_TASK.format(today=today, hints=hints)
     else:
         task = INGEST_TASK.format(source=source, today=today)
 
@@ -314,11 +330,14 @@ def ingest_safely(home: Path, source: str) -> None:
     # read before the run, settled after it: a lint that dies must not lose the hints it
     # was given, and one that succeeds must not see them again
     moves = runs.pending_moves(home) if source == LINT else []
+    # measured now rather than inside the run: this worker is the bundle's only writer,
+    # so nothing changes the wiki between here and the lint reading the hint
+    thin = gaps.find(home) if source == LINT else []
     run_id = runs.start(home, source, MODEL)
     turns = written = 0
     error = ""
     try:
-        turns, written = ingest(home, source, run_id, moves)
+        turns, written = ingest(home, source, run_id, moves, thin)
     except Exception as e:
         log.exception("ingest failed for %s (source is still on disk, retry is safe)", source)
         # the sentence a person can act on, not the serialised error body around it
