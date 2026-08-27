@@ -17,8 +17,8 @@ sync will remove anything the server does not have. Changes go through Mindstash
 
 - **To add material**, drop a file into `raw/`. The watcher uploads it and the agent folds
   it into the wiki.
-- **To answer an open question** in `todo.md`, tick it off and write the answer there; the
-  file syncs back up. Better still, correct or add the source it turns on, in `raw/`.
+- **To answer an open question** from `todo.md`, add or correct the source it turns on, in
+  `raw/` — a note (below) is the usual shape. Do not edit `todo.md`; the agent keeps it.
 - **To fix a wrong page**, fix the source it cites, not the page. The page follows.
 
 ## Layout
@@ -29,7 +29,7 @@ sync will remove anything the server does not have. Changes go through Mindstash
   `verified` when a person has checked it), and cites its sources in footnotes.
 - `index.md` — the catalog: one line per page. **Read this first**; it says what exists.
 - `log.md` — what changed and why, newest last.
-- `todo.md` — questions the agent could not settle. A person answers them.
+- `todo.md` — questions the agent could not settle. Answered through Mindstash, not here.
 
 ## Answering a question from here
 
