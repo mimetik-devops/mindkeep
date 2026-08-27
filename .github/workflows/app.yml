@@ -70,17 +70,25 @@ jobs:
         working-directory: client
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Windows and macOS builds carry their own Python, so any 3.12 will do.
+      - if: matrix.platform != 'linux'
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install briefcase
-      # the .deb build links against the distribution's Qt, so its runtime packages
-      # must be there to be found
+      - if: matrix.platform != 'linux'
+        run: pip install briefcase
+      # The .deb is built for the distribution's own Python and Qt, and Briefcase
+      # refuses to run from any other interpreter — so no setup-python here: a venv made
+      # by the system python3 runs it, and the runtime packages must be present to be
+      # found.
       - if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libqt6dbus6 libqt6gui6 libxcb-cursor0 \
-            libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxkbcommon-x11-0
+          sudo apt-get install -y python3-venv python3-dev libgl1 libqt6dbus6 libqt6gui6 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxkbcommon-x11-0
+          python3 -m venv "$HOME/briefcase-venv"
+          "$HOME/briefcase-venv/bin/pip" install briefcase
+          echo "$HOME/briefcase-venv/bin" >> "$GITHUB_PATH"
       - run: briefcase create ${{ matrix.platform }} ${{ matrix.format }}
       - run: briefcase build ${{ matrix.platform }} ${{ matrix.format }}
       # ad-hoc on macOS: the app runs, unsigned, after the right-click dance above.
