@@ -518,3 +518,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .members li.used .path, .members li.expired .path { text-decoration: line-through; opacity: 0.6; }
 .lint.danger { border-color: #a63244; color: #a63244; }
 .lint.danger:hover:not(:disabled) { background: #f7ebeb; }
+
+/* settings sections ------------------------------------------------------ */
+
+.subtabs { display: flex; gap: 4px; margin: -8px 0 22px; border-bottom: 1px solid var(--line); }
+.subtab {
+  padding: 8px 14px 10px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  background: none; font-size: 13px; font-weight: 500; color: var(--muted);
+}
+.subtab:hover { color: var(--ink); }
+.subtab[aria-current="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--clay); }
