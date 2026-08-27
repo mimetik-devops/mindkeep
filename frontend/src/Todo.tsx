@@ -35,7 +35,12 @@ export function Todo({ bundle }: { bundle: string }) {
     setSaid([]);
   }, [bundle]);
 
-  useEffect(() => foot.current?.scrollIntoView({ behavior: "smooth" }), [said, thinking]);
+  useEffect(() => {
+    // braces, not an expression body: an effect's return value is its cleanup, and a
+    // scrollIntoView patched by an extension or polyfill returns one — React then
+    // crashed calling it when the question left the screen
+    foot.current?.scrollIntoView({ behavior: "smooth" });
+  }, [said, thinking]);
 
   const open = items.filter((i) => !i.done);
   // answering removes one, so the index can outrun the list; wrap rather than dead-end
