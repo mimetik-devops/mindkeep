@@ -8,7 +8,14 @@ from app.auth import Profile, current_profile, current_role, current_user, devic
 from app.files import safe_path, tenant_id
 from app.main import app
 
-B = "/bundles/default"
+
+def team_of(user: str) -> str:
+    """A person's personal team is the hash that names their directory."""
+    return f"/teams/{tenant_id(user)}"
+
+
+T = team_of("alice")
+B = f"{T}/bundles/default"
 PAGE = "---\ntype: Concept\ntitle: Jane\nsources:\n  - id: a\n    title: A\n---\n\nbody\n"
 
 
@@ -56,7 +63,8 @@ def page(client, tmp_path):
     """Write a wiki page straight to disk — no API route lets a user create one."""
 
     def write(rel: str, text: str = PAGE, user: str = "alice") -> None:
-        client.get("/bundles", headers={"x-test-user": user})  # ensure the tenant exists
+        # ensure the tenant exists
+        client.get(f"{team_of(user)}/bundles", headers={"x-test-user": user})
         target = tmp_path / tenant_id(user) / "default" / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8", newline="\n")
@@ -65,11 +73,12 @@ def page(client, tmp_path):
 
 
 def test_new_tenant_gets_one_seeded_bundle(client):
-    assert client.get("/bundles").json() == ["default"]
+    assert client.get(f"{T}/bundles").json() == ["default"]
     assert set(client.get(f"{B}/tree").json()) == {"CLAUDE.md", "index.md", "log.md", "todo.md"}
     assert 'okf_version: "0.2"' in client.get(f"{B}/files/index.md").text
 
 
+# both paths go under carol's team
 @pytest.mark.parametrize("path", ["/bundles", "/bundles/default/files/index.md"])
 def test_seeding_survives_a_login_burst(client, path):
     """A fresh sign-in fires several requests at once against an unseeded tenant.
@@ -79,7 +88,8 @@ def test_seeding_survives_a_login_burst(client, path):
     """
     with ThreadPoolExecutor(max_workers=8) as pool:
         calls = [
-            pool.submit(client.get, path, headers={"x-test-user": "carol"}) for _ in range(8)
+            pool.submit(client.get, team_of("carol") + path, headers={"x-test-user": "carol"})
+            for _ in range(8)
         ]
         results = [c.result() for c in calls]
 
@@ -98,21 +108,21 @@ def test_tree_hashes_let_a_client_tell_what_changed(client, page):
 
 
 def test_bundles_are_created_and_isolated(client, page):
-    assert client.post("/bundles", json={"name": "work"}).status_code == 201
-    assert client.get("/bundles").json() == ["default", "work"]
-    assert client.post("/bundles", json={"name": "work"}).status_code == 409
+    assert client.post(f"{T}/bundles", json={"name": "work"}).status_code == 201
+    assert client.get(f"{T}/bundles").json() == ["default", "work"]
+    assert client.post(f"{T}/bundles", json={"name": "work"}).status_code == 409
 
     page("wiki/note.md", "personal")
-    assert "wiki/note.md" not in client.get("/bundles/work/tree").json()
+    assert "wiki/note.md" not in client.get(f"{T}/bundles/work/tree").json()
 
 
 @pytest.mark.parametrize("name", ["../alice", "Work", "with space", ""])
 def test_bad_bundle_names_are_rejected(client, name):
-    assert client.post("/bundles", json={"name": name}).status_code in (400, 422)
+    assert client.post(f"{T}/bundles", json={"name": name}).status_code in (400, 422)
 
 
 def test_unknown_bundle_is_404(client):
-    assert client.get("/bundles/nope/tree").status_code == 404
+    assert client.get(f"{T}/bundles/nope/tree").status_code == 404
 
 
 def test_the_user_owns_raw_and_the_agent_owns_wiki(client, page):
@@ -322,7 +332,7 @@ def test_run_history_outlives_the_process(client, database, tmp_path):
     from app import runs
 
     home = tmp_path / tenant_id("alice") / "default"
-    client.get("/bundles")  # seed the tenant
+    client.get(f"{T}/bundles")  # seed the tenant
 
     finished = runs.start(home, "raw/done.md", "claude-sonnet-5")
     runs.finish(home, finished, turns=7, chars=6367)
@@ -384,7 +394,7 @@ def test_lint_state_reports_the_last_one(client, tmp_path, ingested):
     from app import runs
     from app.ingest import LINT
 
-    client.get("/bundles")  # seed alice/default
+    client.get(f"{T}/bundles")  # seed alice/default
     home = tmp_path / tenant_id("alice") / "default"
     assert client.get(f"{B}/lint").json()["at"] == ""  # never linted
 
@@ -399,7 +409,7 @@ def test_a_running_agent_reports_what_it_is_doing(client, tmp_path, ingested):
     from app import runs
     from app.ingest import LINT
 
-    client.get("/bundles")
+    client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
     run = runs.start(home, LINT, "m")
 
@@ -431,7 +441,7 @@ def test_the_nightly_lint_runs_once_a_day(client, tmp_path, monkeypatch):
     from app import runs, schedule
     from app.ingest import LINT
 
-    client.get("/bundles")  # seed alice/default
+    client.get(f"{T}/bundles")  # seed alice/default
     home = tmp_path / tenant_id("alice") / "default"
     monkeypatch.setenv("LINT_HOUR", str(datetime.now(UTC).hour))
 
@@ -459,7 +469,7 @@ def test_the_next_automatic_lint_is_announced(client, tmp_path, monkeypatch):
     from app import runs, schedule
     from app.ingest import LINT
 
-    client.get("/bundles")
+    client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
     moment = datetime.now(UTC)
 
@@ -497,7 +507,7 @@ def test_the_agent_runs_on_the_current_manual(client, tmp_path, monkeypatch):
     from app import ingest as agent
     from app.files import TEMPLATES
 
-    client.get("/bundles")
+    client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
     (home / "CLAUDE.md").write_text("stale manual", encoding="utf-8")
 
@@ -534,7 +544,7 @@ class _FakeAnthropic:
 
 def test_the_graph_route_names_the_gaps_between_areas(client, tmp_path):
     home = tmp_path / tenant_id("alice") / "default"
-    client.get("/bundles")
+    client.get(f"{T}/bundles")
     for side in ("cooking", "tax"):
         names = ["a", "b", "c"]
         for name in names:
@@ -565,7 +575,7 @@ def test_a_bundle_chooses_its_own_lint_hour(client, tmp_path, monkeypatch):
 
     from app import schedule
 
-    client.get("/bundles")
+    client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
     monkeypatch.setenv("LINT_HOUR", "3")
     assert client.get(f"{B}/lint").json()["hour"] == 3
@@ -575,8 +585,8 @@ def test_a_bundle_chooses_its_own_lint_hour(client, tmp_path, monkeypatch):
     assert datetime.fromisoformat(client.get(f"{B}/lint").json()["next"]).hour == 20
 
     # a second bundle is unaffected, and still follows the server default
-    client.post("/bundles", json={"name": "work"})
-    assert client.get("/bundles/work/lint").json()["hour"] == 3
+    client.post(f"{T}/bundles", json={"name": "work"})
+    assert client.get(f"{T}/bundles/work/lint").json()["hour"] == 3
 
     # and the sweep honours the choice rather than the default
     ran: list = []
@@ -591,7 +601,7 @@ def test_a_bundle_can_switch_its_nightly_lint_off(client, monkeypatch):
 
     from app import schedule
 
-    client.get("/bundles")
+    client.get(f"{T}/bundles")
     monkeypatch.setenv("LINT_HOUR", str(datetime.now(UTC).hour))  # would fire right now
 
     assert client.put(f"{B}/lint", json={"hour": -1}).json() == {"hour": -1}
@@ -613,7 +623,7 @@ def test_an_impossible_lint_hour_is_rejected(client, hour):
 
 def test_a_tenant_lives_under_a_hash_of_its_subject(client, tmp_path):
     """The subject is the provider's; the directory has to be everyone's."""
-    client.get("/bundles")
+    client.get(f"{T}/bundles")
     assert (tmp_path / tenant_id("alice") / "default" / "index.md").is_file()
     assert not (tmp_path / "alice").exists()
     assert tenant_id("alice") != tenant_id("alicia")

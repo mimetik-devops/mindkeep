@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Index,
     Integer,
@@ -88,6 +89,64 @@ class SourceMove(Base):
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     __table_args__ = (Index("ix_source_move_pending", "tenant", "bundle", "settled_at"),)
+
+
+class Team(Base):
+    """People who share bundles. See teams.py for why this is Mindstash's, not the provider's.
+
+    A personal team's id is the hash that names its owner's directory, so the tenant
+    directory and the team are the same thing under two names.
+    """
+
+    __tablename__ = "team"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    personal: Mapped[bool] = mapped_column(Boolean)
+    created_by: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Membership(Base):
+    """One person in one team, with the app's own role: owner, admin or member.
+
+    `name` and `email` are a snapshot of what the person's token said, refreshed each
+    time they list their teams — there is no user table to look them up in, and a
+    members list that showed only subjects would be useless.
+    """
+
+    __tablename__ = "membership"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[str] = mapped_column(String(32))
+    sub: Mapped[str] = mapped_column(String(128))
+    role: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    email: Mapped[str] = mapped_column(String(320), default="")
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("team_id", "sub", name="uq_membership"),
+        Index("ix_membership_sub", "sub"),
+    )
+
+
+class Invite(Base):
+    """A link into a team: one use, a week, a role. Spent when `accepted_by` is set."""
+
+    __tablename__ = "invite"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    team_id: Mapped[str] = mapped_column(String(32))
+    role: Mapped[str] = mapped_column(String(16))
+    created_by: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_by: Mapped[str | None] = mapped_column(String(128), default=None)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+    __table_args__ = (Index("ix_invite_team", "team_id"),)
 
 
 LINT_OFF = -1

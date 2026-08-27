@@ -12,14 +12,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
-from app import assist, gaps, graph, runs, schedule, todos
-from app.auth import CurrentIdentity, CurrentUser
+from app import assist, gaps, graph, runs, schedule, teams, todos
+from app.auth import CurrentIdentity, CurrentProfile, CurrentUser
 from app.db import LINT_OFF
 from app.ingest import LINT, agent_owns, enqueue, lock_for, pages_citing, user_owns
 
 log = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(prefix="/teams/{team}")
 
 TEMPLATES = Path(__file__).parent / "templates"
 TODO = "todo.md"  # shared: the wiki agent writes questions, the assistant ticks them off
@@ -41,14 +41,22 @@ def tenant_id(sub: str) -> str:
     return sha256(sub.encode()).hexdigest()[:32]
 
 
-def tenant(user: CurrentUser) -> Path:
-    """The tenant's directory of bundles. This path prefix is the isolation boundary."""
+def tenant(team: str, user: CurrentUser, who: CurrentProfile) -> Path:
+    """The team's directory of bundles. This path prefix is the isolation boundary, and
+    membership is the gate: a team you are not in does not exist as far as you are
+    concerned — 404, never 403. Your own team is made the first time you ask for it, so
+    a desktop client can start with the personal id and no sign-in ever having happened
+    in the browser."""
     root = Path(os.environ.get("WIKI_ROOT", "/data")).resolve()
-    home = root / tenant_id(user)
+    if team == tenant_id(user):
+        teams.ensure_personal(user, who)
+    elif teams.role_of(team, user) is None:
+        raise HTTPException(404, "not found")
+    home = root / team
     # Tenants from before the hash were named by the subject itself. Move one the first
     # time its owner shows up, and take its run history and settings along.
     legacy = root / user
-    if not home.exists() and legacy.is_dir():
+    if team == tenant_id(user) and not home.exists() and legacy.is_dir():
         with lock_for(home):
             if not home.exists():
                 legacy.rename(home)
@@ -62,7 +70,7 @@ def tenant(user: CurrentUser) -> Path:
         # directory either does not exist or is complete, never halfway.
         with lock_for(home):
             if not home.exists():
-                staging = root / f".{tenant_id(user)}.seeding"
+                staging = root / f".{team}.seeding"
                 shutil.rmtree(staging, ignore_errors=True)  # a crashed earlier attempt
                 # ponytail: new tenants get one bundle, so the UI never opens on empty.
                 seed(staging / "default")
@@ -186,19 +194,6 @@ def create_bundle(home: Tenant, name: Annotated[str, Body(embed=True)]) -> dict[
         raise HTTPException(409, "bundle already exists")
     seed(home / name)
     return {"name": name}
-
-
-@router.post("/clean")
-def clean_names(
-    paths: Annotated[list[str], Body(embed=True)], _: CurrentUser
-) -> dict[str, list[str]]:
-    """The names these raw/ paths will be stored under.
-
-    The desktop client asks before uploading a file that is new on its side and renames
-    it on disk first, so the mirror and the server agree on what a file is called. The
-    rule lives here only — a client with its own copy would drift.
-    """
-    return {"paths": [raw_path(p) for p in paths]}
 
 
 @router.get("/bundles/{name}/tree")

@@ -3,17 +3,20 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Body, FastAPI
 
-from app import files, ingest, runs, schedule
+from app import files, ingest, runs, schedule, teams
 from app.auth import CurrentProfile, CurrentRole, CurrentUser, device_token
+from app.files import raw_path
 
 # Without this, app logs vanish: uvicorn configures only its own loggers, and the root
 # logger's fallback handler drops anything below WARNING. Ingest runs for minutes in the
 # background — being unable to see it start and finish makes every failure look identical.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
 log = logging.getLogger(__name__)
+
 
 def migrate() -> None:
     """Bring the schema up to date before anything reads it.
@@ -54,6 +57,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Mindstash", lifespan=lifespan)
 app.include_router(files.router)
+app.include_router(teams.router)
 
 
 @app.get("/health")
@@ -73,6 +77,19 @@ def me(user: CurrentUser, role: CurrentRole, who: CurrentProfile) -> dict[str, s
         "email": who.email,
         "picture": who.picture,
     }
+
+
+@app.post("/clean")
+def clean_names(
+    paths: Annotated[list[str], Body(embed=True)], _: CurrentUser
+) -> dict[str, list[str]]:
+    """The names these raw/ paths will be stored under.
+
+    The desktop client asks before uploading a file that is new on its side and renames
+    it on disk first, so the mirror and the server agree on what a file is called. The
+    rule lives here only — a client with its own copy would drift.
+    """
+    return {"paths": [raw_path(p) for p in paths]}
 
 
 @app.get("/device-token")
