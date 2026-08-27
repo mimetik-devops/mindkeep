@@ -1,6 +1,6 @@
 const BASE = import.meta.env.VITE_API_URL ?? "/api";
 
-// Kinde owns the browser session; auth.tsx hands us its token getter once it has one.
+// The identity provider owns the browser session; auth.tsx hands us its token getter.
 // The API also accepts a device token, which is what the desktop client sends.
 let bearer: () => Promise<string | undefined> = async () => undefined;
 export const setTokenSource = (getter: typeof bearer) => (bearer = getter);

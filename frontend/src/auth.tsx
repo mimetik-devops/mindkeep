@@ -1,80 +1,61 @@
-import { KindeProvider, useKindeAuth } from "@kinde-oss/kinde-auth-react";
-import { useEffect } from "react";
-
 import { setTokenSource } from "./api";
 import { App } from "./App";
 import { Mark } from "./icons";
+import { kinde } from "./providers/kinde";
+import { oidc } from "./providers/oidc";
+import type { Adapter } from "./providers/session";
 
-const env = import.meta.env;
+/**
+ * The gate: whoever VITE_AUTH_PROVIDER names owns the session, and this file only
+ * asks it the five things the app needs. A provider's SDK is imported by its adapter
+ * under providers/ and by nothing else.
+ */
+const ADAPTERS: Record<string, Adapter> = { kinde, oidc };
 
-/** Only ever rendered inside KindeProvider — the hook throws anywhere else. */
-function Session() {
-  const auth = useKindeAuth();
-  setTokenSource(auth.getAccessToken);
+function chosen(): Adapter | string {
+  const name = String(import.meta.env.VITE_AUTH_PROVIDER ?? "");
+  return ADAPTERS[name] ?? name;
+}
 
-  const { isLoading, isAuthenticated, register } = auth;
+/** Only ever rendered inside the adapter's Provider — its hook throws anywhere else. */
+function Session({ adapter }: { adapter: Adapter }) {
+  const session = adapter.useSession();
+  setTokenSource(session.token);
 
-  // ALL-ORGS, as in Futuros and iclonic: every registration creates a Kinde org, and
-  // the query string picks which kind. Plain visits fall through to the sign-in screen.
-  //   /?account_type=org&org_name=Acme   a real team
-  //   /?account_type=user                a personal org, named "Personal"
-  //   /?invitation_code=…                joins the INVITER's org, never creates one
-  useEffect(() => {
-    if (isLoading || isAuthenticated) return;
-    const params = new URLSearchParams(window.location.search);
+  if (session.loading) return <div className="login" />;
 
-    const invitationCode = params.get("invitation_code");
-    if (invitationCode) {
-      void register({ invitationCode });
-      return;
-    }
-
-    const orgName = params.get("org_name");
-    if (params.get("account_type") === "org") {
-      void register({ isCreateOrg: true, ...(orgName ? { orgName } : {}) });
-    } else if (params.get("account_type") === "user") {
-      void register({ isCreateOrg: true, orgName: "Personal" });
-    }
-  }, [isLoading, isAuthenticated, register]);
-
-  if (auth.isLoading) return <div className="login" />;
-
-  if (!auth.isAuthenticated) {
+  if (!session.signedIn) {
     return (
       <div className="login">
         <Mark size={64} />
         <h1>Mindstash</h1>
         <p>A second brain that reads what you feed it.</p>
-        <button className="primary" onClick={() => auth.login()}>Sign in</button>
+        <button className="primary" onClick={session.login}>
+          Sign in
+        </button>
       </div>
     );
   }
 
-  // The profile proper comes from GET /me, which reads Kinde live rather than from
-  // claims minted when this session started. These are the fallback for when that read
-  // cannot answer — a Kinde outage, or M2M credentials that are not authorised yet.
-  const claims = {
-    first_name: auth.user?.givenName ?? "",
-    last_name: auth.user?.familyName ?? "",
-    name: [auth.user?.givenName, auth.user?.familyName].filter(Boolean).join(" "),
-    email: auth.user?.email ?? "",
-    picture: auth.user?.picture ?? "",
-  };
-
-  return <App user={{ signOut: () => auth.logout(), claims }} />;
+  return <App user={{ signOut: session.logout, claims: session.claims }} />;
 }
 
-export function Gate() {
-  const origin = window.location.origin;
+export function Gate({ adapter = chosen() }: { adapter?: Adapter | string }) {
+  if (typeof adapter === "string") {
+    return (
+      <div className="login">
+        <Mark size={64} />
+        <h1>Mindstash</h1>
+        <p>
+          VITE_AUTH_PROVIDER is {adapter ? `"${adapter}"` : "not set"}. It names the identity
+          provider: one of {Object.keys(ADAPTERS).join(", ")}.
+        </p>
+      </div>
+    );
+  }
   return (
-    <KindeProvider
-      domain={env.VITE_KINDE_DOMAIN}
-      clientId={env.VITE_KINDE_CLIENT_ID}
-      redirectUri={env.VITE_KINDE_REDIRECT_URI || origin}
-      logoutUri={env.VITE_KINDE_LOGOUT_URI || origin}
-      forceChildrenRender
-    >
-      <Session />
-    </KindeProvider>
+    <adapter.Provider>
+      <Session adapter={adapter} />
+    </adapter.Provider>
   );
 }
