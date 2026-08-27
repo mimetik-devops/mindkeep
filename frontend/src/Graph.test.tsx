@@ -64,8 +64,10 @@ test("a click opens the page's connections", async () => {
 /** Gaps mode shows what the lint will be asked about: which two areas, and how thin. */
 test("gaps mode lists each gap and lights only its two areas", async () => {
   const alone = { path: "wiki/alone.md", title: "Alone", description: "", area: -1, sources: [] };
+  // a third area on no side of any gap: it fades, so the gaps are where the colour is
+  const food = { path: "wiki/food.md", title: "Food", description: "", area: 2, sources: [] };
   served = {
-    pages: [jane, x, ...tax, alone],
+    pages: [jane, x, ...tax, alone, food],
     links: [
       [jane.path, x.path],
       [tax[0].path, tax[1].path],
@@ -87,11 +89,13 @@ test("gaps mode lists each gap and lights only its two areas", async () => {
   expect(aside.textContent).toContain("Area 2 (3)");
   expect(aside.textContent).toContain("0 of 3");
   expect(host.querySelectorAll("g.gap")).toHaveLength(1);
+  const dimmed = () =>
+    [...host.querySelectorAll("g.node.dim")].map((g) => g.querySelector("title")?.textContent);
+  expect(dimmed()).toEqual(["Alone", "Food"]); // on no side of any gap
 
   await act(async () => host.querySelector("g.gap")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
   expect(host.querySelector("g.gap")?.classList.contains("picked")).toBe(true);
   expect(host.querySelector("g.gap text")?.textContent).toBe("0 links, 3 expected");
-  const dim = [...host.querySelectorAll("g.node.dim")].map((g) => g.querySelector("title")?.textContent);
-  expect(dim).toEqual(["Alone"]); // a page in no area is outside both sides of the gap
+  expect(dimmed()).toEqual(["Alone", "Food"]);
 });

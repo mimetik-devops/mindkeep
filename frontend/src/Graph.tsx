@@ -166,10 +166,13 @@ export function Graph({ bundle }: { bundle: string }) {
   const pick = gapAt >= 0 ? gaps[gapAt] : null;
   const focus = hover || selected;
   // what is lit: a hovered or selected node's neighbourhood; failing that, a chosen gap's
-  // two areas; failing that, everything
+  // two areas; failing that, in gaps mode, every area that is on some side of a gap — the
+  // rest fade so the gaps are where the colour is; failing that, everything
+  const gapped = new Set(gaps.flatMap((g) => [g.a, g.b]));
   const lit = (id: string) => {
     if (focus) return id === focus || near.get(focus)?.has(id);
     if (pick) return areaOf.get(id) === pick.a || areaOf.get(id) === pick.b;
+    if (gapped.size) return gapped.has(areaOf.get(id) ?? -1);
     return true;
   };
   const edgeLit = (a: Node, b: Node) =>
@@ -360,8 +363,8 @@ export function Graph({ bundle }: { bundle: string }) {
             <p>
               {gaps.length
                 ? "Two areas the wiki knows about that barely connect: fewer than a third of " +
-                  "the links random wiring would give them. The lint asks about the thinnest " +
-                  "on its next pass; the rest wait their turn."
+                  "the links random wiring would give them. Areas with no gap are faded. The " +
+                  "lint asks about the thinnest on its next pass; the rest wait their turn."
                 : "Every pair of areas is linked about as much as chance would give it. " +
                   "Nothing here for the lint to ask about."}
             </p>
