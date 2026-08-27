@@ -5,7 +5,7 @@ from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
 from app.auth import Profile, current_profile, current_role, current_user, device_token
-from app.files import safe_path
+from app.files import safe_path, tenant_id
 from app.main import app
 
 B = "/bundles/default"
@@ -57,7 +57,7 @@ def page(client, tmp_path):
 
     def write(rel: str, text: str = PAGE, user: str = "alice") -> None:
         client.get("/bundles", headers={"x-test-user": user})  # ensure the tenant exists
-        target = tmp_path / user / "default" / rel
+        target = tmp_path / tenant_id(user) / "default" / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8", newline="\n")
 
@@ -187,7 +187,7 @@ def test_an_upload_cannot_climb_out_of_raw(client, tmp_path, upload):
     client.post(f"{B}/raw/{upload}", content=b"climbed")
 
     written = [p for p in tmp_path.rglob("*") if p.is_file() and p.read_bytes() == b"climbed"]
-    raw = tmp_path / "alice" / "default" / "raw"
+    raw = tmp_path / tenant_id("alice") / "default" / "raw"
     assert all(raw in p.parents for p in written)
 
 
@@ -284,7 +284,7 @@ def test_device_token_names_its_own_owner(client, monkeypatch):
 @pytest.mark.parametrize("path", ["../bob/secret.md", "a/../../bob/secret.md", "/etc/passwd"])
 def test_traversal_is_rejected(tmp_path, path):
     with pytest.raises(HTTPException):
-        safe_path(tmp_path / "alice" / "default", path)
+        safe_path(tmp_path / tenant_id("alice") / "default", path)
 
 
 # httpx strips literal `..` from URLs, so percent-encoded is what actually reaches the handler.
@@ -321,7 +321,7 @@ def test_run_history_outlives_the_process(client, database, tmp_path):
     """The point of the table: a duration survives the restart that killed its run."""
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.get("/bundles")  # seed the tenant
 
     finished = runs.start(home, "raw/done.md", "claude-sonnet-5")
@@ -335,7 +335,7 @@ def test_run_history_outlives_the_process(client, database, tmp_path):
 
     # the process dies here; the next boot closes out whatever was open and says what it
     # was, so the caller can put it back in the queue
-    assert runs.sweep_interrupted() == [("alice", "default", "raw/killed.md")]
+    assert runs.sweep_interrupted() == [(tenant_id("alice"), "default", "raw/killed.md")]
     after = runs.latest(home)
     assert after["raw/killed.md"].finished_at is not None
     assert "Interrupted" in after["raw/killed.md"].error
@@ -348,7 +348,7 @@ def test_run_history_outlives_the_process(client, database, tmp_path):
 def test_a_failed_run_is_reported_with_its_reason(client, tmp_path):
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/notes.txt", content=b"one")
     runs.finish(home, runs.start(home, "raw/notes.txt", "m"), 0, 0, "credit balance is too low")
 
@@ -376,7 +376,7 @@ def test_lint_runs_and_refuses_to_stack(client, tmp_path, ingested):
 
     # Two agents editing the same wiki at once would clobber each other, so an open
     # lint refuses the next one rather than queueing it.
-    runs.start(tmp_path / "alice" / "default", LINT, "m")
+    runs.start(tmp_path / tenant_id("alice") / "default", LINT, "m")
     assert client.post(f"{B}/lint").status_code == 409
 
 
@@ -385,7 +385,7 @@ def test_lint_state_reports_the_last_one(client, tmp_path, ingested):
     from app.ingest import LINT
 
     client.get("/bundles")  # seed alice/default
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     assert client.get(f"{B}/lint").json()["at"] == ""  # never linted
 
     run = runs.start(home, LINT, "m")
@@ -400,7 +400,7 @@ def test_a_running_agent_reports_what_it_is_doing(client, tmp_path, ingested):
     from app.ingest import LINT
 
     client.get("/bundles")
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     run = runs.start(home, LINT, "m")
 
     runs.progress(home, run, note="3 · reading wiki/people/jane.md", turns=2)
@@ -417,7 +417,7 @@ def test_the_note_follows_an_ingest_too(client, tmp_path):
     from app import runs
 
     client.post(f"{B}/raw/notes.txt", content=b"one")  # ingest_safely is stubbed by the fixture
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     runs.progress(home, runs.start(home, "raw/notes.txt", "m"), note="1 · reading raw/notes.txt")
 
     source = client.get(f"{B}/sources").json()[0]
@@ -432,7 +432,7 @@ def test_the_nightly_lint_runs_once_a_day(client, tmp_path, monkeypatch):
     from app.ingest import LINT
 
     client.get("/bundles")  # seed alice/default
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     monkeypatch.setenv("LINT_HOUR", str(datetime.now(UTC).hour))
 
     ran: list = []
@@ -460,7 +460,7 @@ def test_the_next_automatic_lint_is_announced(client, tmp_path, monkeypatch):
     from app.ingest import LINT
 
     client.get("/bundles")
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     moment = datetime.now(UTC)
 
     # the next slot is always within a day, and always on the hour that was configured
@@ -498,7 +498,7 @@ def test_the_agent_runs_on_the_current_manual(client, tmp_path, monkeypatch):
     from app.files import TEMPLATES
 
     client.get("/bundles")
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     (home / "CLAUDE.md").write_text("stale manual", encoding="utf-8")
 
     seen: dict = {}
@@ -533,7 +533,7 @@ class _FakeAnthropic:
 
 
 def test_the_graph_route_names_the_gaps_between_areas(client, tmp_path):
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.get("/bundles")
     for side in ("cooking", "tax"):
         names = ["a", "b", "c"]
@@ -566,7 +566,7 @@ def test_a_bundle_chooses_its_own_lint_hour(client, tmp_path, monkeypatch):
     from app import schedule
 
     client.get("/bundles")
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     monkeypatch.setenv("LINT_HOUR", "3")
     assert client.get(f"{B}/lint").json()["hour"] == 3
 
@@ -609,6 +609,32 @@ def test_a_bundle_can_switch_its_nightly_lint_off(client, monkeypatch):
 @pytest.mark.parametrize("hour", [24, -2, 100])
 def test_an_impossible_lint_hour_is_rejected(client, hour):
     assert client.put(f"{B}/lint", json={"hour": hour}).status_code == 400
+
+
+def test_a_tenant_lives_under_a_hash_of_its_subject(client, tmp_path):
+    """The subject is the provider's; the directory has to be everyone's."""
+    client.get("/bundles")
+    assert (tmp_path / tenant_id("alice") / "default" / "index.md").is_file()
+    assert not (tmp_path / "alice").exists()
+    assert tenant_id("alice") != tenant_id("alicia")
+
+
+def test_a_tenant_named_by_its_subject_is_moved_once(client, tmp_path):
+    """Tenants from before the hash come along, run history and settings included."""
+    from app import runs
+
+    legacy = tmp_path / "alice" / "default"
+    (legacy / "raw").mkdir(parents=True)
+    (legacy / "index.md").write_text("# mine\n", encoding="utf-8", newline="\n")
+    (legacy / "raw" / "deck.md").write_text("x", encoding="utf-8")
+    run = runs.start(legacy, "raw/deck.md", "m")
+    runs.finish(legacy, run, turns=1, chars=1)
+
+    assert client.get(f"{B}/files/index.md").text == "# mine\n"
+    assert not (tmp_path / "alice").exists()
+    assert (tmp_path / tenant_id("alice") / "default" / "raw" / "deck.md").is_file()
+    [deck] = client.get(f"{B}/sources").json()
+    assert deck["path"] == "raw/deck.md" and deck["ingested"]
 
 
 def test_the_profile_is_whatever_the_token_says(client):
@@ -681,7 +707,7 @@ def test_a_move_is_recorded_for_the_next_lint(client, tmp_path):
     """The server did the moving, so it knows exactly what moved — the lint should not guess."""
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/note.md", content=b"x")
     client.post(f"{B}/move", json={"source": "raw/note.md", "target": "raw/papers/note.md"})
 
@@ -694,7 +720,7 @@ def test_a_chain_of_moves_collapses_to_one_fact(client, tmp_path):
     """A page citing the first path only needs to know the last one."""
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/note.md", content=b"x")
     client.post(f"{B}/move", json={"source": "raw/note.md", "target": "raw/a/note.md"})
     client.post(f"{B}/move", json={"source": "raw/a/note.md", "target": "raw/b/note.md"})
@@ -708,7 +734,7 @@ def test_a_chain_of_moves_collapses_to_one_fact(client, tmp_path):
 def test_deleting_a_moved_source_drops_the_hint(client, tmp_path):
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/note.md", content=b"x")
     client.post(f"{B}/move", json={"source": "raw/note.md", "target": "raw/papers/note.md"})
     client.delete(f"{B}/raw/papers/note.md")
@@ -720,7 +746,7 @@ def test_the_lint_is_told_what_moved_and_forgets_only_when_it_worked(client, tmp
     from app import ingest as agent
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/note.md", content=b"x")
     client.post(f"{B}/move", json={"source": "raw/note.md", "target": "raw/papers/note.md"})
 
@@ -746,7 +772,7 @@ def test_a_moved_source_is_still_ingested(client, tmp_path, page):
     somewhere else now. Its history follows it."""
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/note.md", content=b"x")
     runs.finish(home, runs.start(home, "raw/note.md", "m"), 4, 900)
     assert client.get(f"{B}/sources").json()[0]["ingested"] is True
@@ -763,7 +789,7 @@ def test_a_failed_reingest_does_not_unmake_the_pages_already_written(client, tmp
     """"Ingested" is whether a run ever succeeded, not whether the last one did."""
     from app import runs
 
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/note.md", content=b"x")
     runs.finish(home, runs.start(home, "raw/note.md", "m"), 4, 900)
     runs.finish(home, runs.start(home, "raw/note.md", "m"), 0, 0, error="credit balance too low")
@@ -779,7 +805,7 @@ def test_a_bundle_keeps_its_two_halves_however_empty(client, tmp_path):
 
     client.post(f"{B}/raw/note.md", content=b"x")
     client.delete(f"{B}/raw/note.md")
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     assert (home / "raw").is_dir() and (home / "wiki").is_dir()
 
     # and they come back if something outside the app removes them
@@ -842,7 +868,7 @@ def test_questions_are_a_shared_list_neither_side_owns(client, ingested):
 
 
 def test_a_bundle_made_before_the_list_existed_gets_one(client, tmp_path):
-    home = tmp_path / "alice" / "default"
+    home = tmp_path / tenant_id("alice") / "default"
     client.get(f"{B}/tree")
     (home / "todo.md").unlink()
 

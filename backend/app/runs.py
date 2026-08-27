@@ -28,6 +28,14 @@ def _where(home: Path) -> tuple[str, str]:
     return home.parent.name, home.name
 
 
+def rename_tenant(old: str, new: str) -> None:
+    """Every row a tenant owns, re-keyed. Once, when its directory moves."""
+    with session() as s:
+        for table in (IngestRun, BundleSetting, SourceMove):
+            s.execute(update(table).where(table.tenant == old).values(tenant=new))
+        s.commit()
+
+
 def start(home: Path, source: str, model: str) -> int:
     tenant, bundle = _where(home)
     with session() as s:

@@ -1,4 +1,5 @@
 import html
+import logging
 import mimetypes
 import os
 import re
@@ -16,6 +17,8 @@ from app.auth import CurrentIdentity, CurrentUser
 from app.db import LINT_OFF
 from app.ingest import LINT, agent_owns, enqueue, lock_for, pages_citing, user_owns
 
+log = logging.getLogger(__name__)
+
 router = APIRouter()
 
 TEMPLATES = Path(__file__).parent / "templates"
@@ -27,10 +30,30 @@ BUNDLE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 FRONTMATTER = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n?", re.DOTALL)
 
 
+def tenant_id(sub: str) -> str:
+    """The directory a subject's bundles live in: a hash, not the subject.
+
+    Subjects are the provider's to shape — `kp_…`, `user_…`, `auth0|…` — and a directory
+    name has to be the same on every filesystem, in every URL and in every log line. A
+    hash is; the subject is not. Thirty-two hex characters is more than enough to never
+    collide and short enough to read.
+    """
+    return sha256(sub.encode()).hexdigest()[:32]
+
+
 def tenant(user: CurrentUser) -> Path:
     """The tenant's directory of bundles. This path prefix is the isolation boundary."""
     root = Path(os.environ.get("WIKI_ROOT", "/data")).resolve()
-    home = root / user
+    home = root / tenant_id(user)
+    # Tenants from before the hash were named by the subject itself. Move one the first
+    # time its owner shows up, and take its run history and settings along.
+    legacy = root / user
+    if not home.exists() and legacy.is_dir():
+        with lock_for(home):
+            if not home.exists():
+                legacy.rename(home)
+                runs.rename_tenant(user, tenant_id(user))
+                log.info("moved tenant %s to %s", user, tenant_id(user))
     if not home.exists():
         # A fresh sign-in fires several requests at once. Seeding in place is not enough
         # even under a lock: seed() creates the tenant directory as its first act, so a
@@ -39,7 +62,7 @@ def tenant(user: CurrentUser) -> Path:
         # directory either does not exist or is complete, never halfway.
         with lock_for(home):
             if not home.exists():
-                staging = root / f".{user}.seeding"
+                staging = root / f".{tenant_id(user)}.seeding"
                 shutil.rmtree(staging, ignore_errors=True)  # a crashed earlier attempt
                 # ponytail: new tenants get one bundle, so the UI never opens on empty.
                 seed(staging / "default")
