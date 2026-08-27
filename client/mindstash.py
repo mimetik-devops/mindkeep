@@ -11,6 +11,7 @@ ponytail: stdlib only, so `python mindstash.py` works with nothing installed.
 
 import hashlib
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -36,6 +37,48 @@ CONFIG = Path.home() / ".mindstash.json"
 # config rather than in the synced folder, so the mirror stays pure wiki.
 STATE = Path.home() / ".mindstash-state.json"
 INTERVAL = 30
+
+# The server's rule for a source's name (files.py, UNSAFE_NAME and raw_path), applied here
+# first. A name the server would change is renamed on disk *before* it goes up, so the
+# mirror and the server agree on what a file is called. Before this, the upload came back
+# under the changed name, the sweep took the original for deleted and removed it, and a
+# twin already spelt the server's way collided into "-2" — a duplicate source, ingested
+# twice. Keep the two regexes identical.
+UNSAFE_NAME = re.compile(r"[^A-Za-z0-9 ()._-]")
+
+
+def clean(rel: str) -> str:
+    """A raw/-relative path as the server will store it, one segment at a time."""
+    parts = [p for segment in rel.split("/") if (p := UNSAFE_NAME.sub("-", segment).strip(" ."))]
+    return "/".join(parts) or "upload"
+
+
+def rename_new(root: Path, remote: dict[str, str], seen: dict[str, str]) -> None:
+    """Give every file that is new here the name the server will give it.
+
+    Only new files: one the server already has is already spelt its way. A target that
+    exists with the same bytes is a twin, and the new copy is dropped; with different
+    bytes the new one gets "-2", the way the server would have done it.
+    """
+    for local in sorted((root / "raw").rglob("*")):
+        if not local.is_file() or local.name.startswith("."):
+            continue
+        rel = local.relative_to(root / "raw").as_posix()
+        if f"raw/{rel}" in remote or f"raw/{rel}" in seen or clean(rel) == rel:
+            continue
+        target = root / "raw" / clean(rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and digest(target) == digest(local):
+            local.unlink()
+            print("dropped", f"raw/{rel}", "- same as", f"raw/{clean(rel)}")
+            continue
+        stem, suffix = target.stem, target.suffix
+        for n in range(2, 1000):
+            if not target.exists():
+                break
+            target = target.with_name(f"{stem}-{n}{suffix}")
+        local.rename(target)
+        print("renamed", f"raw/{rel}", "->", f"raw/{target.relative_to(root / 'raw').as_posix()}")
 
 
 class Unreachable(Exception):
@@ -132,6 +175,8 @@ def sync(cfg: dict) -> None:
     root, bundle = Path(cfg["folder"]), cfg["bundle"]
     remote: dict[str, str] = call_json(cfg, f"bundles/{bundle}/tree")
     seen = known(cfg)
+    # before anything is compared, so a moved file is paired under its final name too
+    rename_new(root, remote, seen)
 
     # Deleted here: in the last sync, on the server, gone from disk. Only the state file
     # makes that different from "not downloaded yet".

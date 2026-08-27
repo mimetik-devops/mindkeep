@@ -3,6 +3,8 @@
 Only the sync logic is worth testing — it is the part that can delete your files.
 """
 
+import hashlib
+
 import mindstash
 
 
@@ -255,3 +257,69 @@ def test_a_todo_only_the_server_changed_is_not_pushed_back(tmp_path, monkeypatch
     mindstash.sync(cfg)
 
     assert not [c for c in calls if c.startswith("PUT")]
+
+
+def uploads_into(monkeypatch, tree: dict[str, str], sink: list[str]) -> None:
+    """As calls_from(), but an upload lands in `tree` — the way the server's does."""
+
+    def fake(cfg, path, body=None, method="", kind=""):
+        sink.append(f"{method or 'POST'} {path}")
+        if body is not None and path.startswith("bundles/default/raw/"):
+            tree[path.removeprefix("bundles/default/")] = hashlib.sha256(body).hexdigest()
+        return b"{}"
+
+    monkeypatch.setattr(mindstash, "call", fake)
+
+
+def test_a_new_file_is_renamed_the_way_the_server_would_before_it_goes_up(tmp_path, monkeypatch):
+    """The server rewrites names; a mirror that does not do the same first sees its own
+    upload come back as a different file, and sweeps the original away."""
+    calls: list[str] = []
+    tree: dict[str, str] = {}
+    cfg = fake_server(monkeypatch, tmp_path, tree)
+    uploads_into(monkeypatch, tree, calls)
+    raw = tmp_path / "mirror" / "raw"
+    raw.mkdir(parents=True)
+    (raw / "Futuros — how it works (architecture, stack).md").write_bytes(b"a")
+
+    mindstash.sync(cfg)
+
+    assert "POST bundles/default/raw/Futuros - how it works (architecture- stack).md" in calls
+    assert not (raw / "Futuros — how it works (architecture, stack).md").exists()
+    assert (raw / "Futuros - how it works (architecture- stack).md").read_bytes() == b"a"
+
+
+def test_a_twin_already_spelt_the_servers_way_is_not_uploaded_twice(tmp_path, monkeypatch):
+    calls: list[str] = []
+    tree: dict[str, str] = {}
+    cfg = fake_server(monkeypatch, tmp_path, tree)
+    uploads_into(monkeypatch, tree, calls)
+    raw = tmp_path / "mirror" / "raw"
+    raw.mkdir(parents=True)
+    (raw / "Gartner says we lead. That's kind of them.md").write_bytes(b"same")
+    (raw / "Gartner says we lead. That-s kind of them.md").write_bytes(b"same")
+    (raw / "notes, v2.md").write_bytes(b"old")
+    (raw / "notes- v2.md").write_bytes(b"new")  # a different document under the clean name
+
+    mindstash.sync(cfg)
+
+    uploads = sorted(c for c in calls if c.startswith("POST bundles/default/raw/"))
+    assert uploads == [
+        "POST bundles/default/raw/Gartner says we lead. That-s kind of them.md",
+        "POST bundles/default/raw/notes- v2-2.md",
+        "POST bundles/default/raw/notes- v2.md",
+    ]
+    assert (raw / "notes- v2-2.md").read_bytes() == b"old"
+    assert (raw / "notes- v2.md").read_bytes() == b"new"
+
+
+def test_a_file_the_server_already_has_keeps_its_name(tmp_path, monkeypatch):
+    """Only new files are renamed: whatever the server stores is by definition its spelling."""
+    cfg = fake_server(monkeypatch, tmp_path, {"raw/kept'.md": "h"})
+    raw = tmp_path / "mirror" / "raw"
+    raw.mkdir(parents=True)
+    (raw / "kept'.md").write_bytes(b"x")
+
+    mindstash.sync(cfg)
+
+    assert (raw / "kept'.md").exists()
