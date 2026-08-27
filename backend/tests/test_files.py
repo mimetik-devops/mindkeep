@@ -317,6 +317,49 @@ def test_a_persons_change_is_in_the_history_as_it_happens(client, tmp_path):
     assert kinds.count("people") == 4 and "pending" not in kinds
 
 
+def test_a_source_waiting_its_turn_is_not_queued_twice(tmp_path, monkeypatch):
+    """Five saves during a sync are one run, over the file as it is when its turn comes."""
+    from app import ingest as agent
+
+    home = tmp_path / "t" / "b"
+    ran: list[str] = []
+    monkeypatch.setattr(agent, "_worker", lambda home, pending: None)  # nothing drains it
+    for source in ["raw/a.md", "raw/a.md", "raw/b.md", "raw/a.md"]:
+        agent.enqueue(home, source)
+    pending = agent._work[str(home)]
+    while not pending.empty():
+        ran.append(pending.get())
+    assert ran == ["raw/a.md", "raw/b.md"]
+    agent._waiting[str(home)].clear()  # what the worker does as it takes each one
+    agent.enqueue(home, "raw/a.md")  # taken already, so it may be queued again
+    assert pending.qsize() == 1
+
+
+def test_a_source_the_last_run_already_read_is_skipped(client, tmp_path, ingested):
+    """Queued again but byte-for-byte what the last run read: no run, no row. Changed
+    since — or deleted, or undone — and it runs."""
+    from unittest.mock import patch
+
+    from app import ingest as agent
+    from app import runs
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/deck.md", content=b"v1")
+    run_over(client, home, "raw/deck.md")
+    before = len(runs.recent(home))
+
+    seen: dict = {}
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest_safely(home, "raw/deck.md")
+    assert not seen and len(runs.recent(home)) == before  # nothing to teach the wiki
+
+    client.put(f"{B}/files/raw/deck.md", content=b"v2")
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest_safely(home, "raw/deck.md")
+    assert seen and len(runs.recent(home)) == before + 1  # changed since: it runs
+
+
 def test_deleting_a_cited_source_retires_its_pages_now(client, tmp_path, ingested):
     """Not tonight's lint: a run over the gone source, told exactly what to do."""
     from app import ingest as agent

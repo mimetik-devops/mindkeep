@@ -336,6 +336,7 @@ def ingest(
 # ponytail: the queue is in memory, so a restart loses what has not started. The run rows
 # are already swept to "interrupted" at boot, which is where recovery would read from.
 _work: dict[str, "queue.Queue[str]"] = {}
+_waiting: dict[str, set[str]] = {}  # what each queue holds, so a source is never in it twice
 _work_lock = threading.Lock()
 
 
@@ -347,7 +348,12 @@ def busy(home: Path) -> bool:
 
 
 def enqueue(home: Path, source: str) -> None:
-    """Hand an ingest to the bundle's worker and return immediately."""
+    """Hand an ingest to the bundle's worker and return immediately.
+
+    A source already waiting is not queued again: five saves of one file during a sync
+    are one run, over the file as it is when its turn comes. A source *running* is
+    queued — it may have changed since that run read it, and the run cannot tell.
+    """
     with _work_lock:
         pending = _work.get(str(home))
         if pending is None:
@@ -358,13 +364,20 @@ def enqueue(home: Path, source: str) -> None:
                 daemon=True,
                 name=f"ingest-{home.parent.name}-{home.name}",
             ).start()
-    pending.put(source)
+        waiting = _waiting.setdefault(str(home), set())
+        if source in waiting:
+            log.info("%s is already waiting; not queued twice", source)
+            return
+        waiting.add(source)
+        pending.put(source)
     log.info("queued %s (%d waiting)", source, pending.qsize())
 
 
 def _worker(home: Path, pending: "queue.Queue[str]") -> None:
     while True:
         source = pending.get()
+        with _work_lock:
+            _waiting[str(home)].discard(source)
         try:
             ingest_safely(home, source)
         except Exception:  # ingest_safely logs its own failures; this is the last resort
@@ -381,12 +394,23 @@ def snapshot(home: Path, message: str) -> str:
         return ""
 
 
+def _already_read(home: Path, source: str) -> bool:
+    last = runs.last_read(home, source)
+    return bool(last and last.based_on and history.same(home, last.based_on, source))
+
+
 def ingest_safely(home: Path, source: str) -> None:
     """Background entry point: a failed ingest must not lose the source that triggered it.
 
     The run row is opened here and closed here, so a source can never be left looking
     like it is still running when nothing is.
     """
+    # a source queued again that is exactly what the last run read — saved twice, synced
+    # twice — has nothing to teach the wiki; a minute of the agent finding that out is the
+    # commonest way a team's queue grows
+    if source != LINT and _already_read(home, source):
+        log.info("%s is as the last run read it; nothing to ingest", source)
+        return
     # read before the run, settled after it: a lint that dies must not lose the hints it
     # was given, and one that succeeds must not see them again
     moves = runs.pending_moves(home) if source == LINT else []

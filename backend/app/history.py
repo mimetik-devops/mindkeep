@@ -137,6 +137,13 @@ def head(home: Path) -> str:
 DIFF_LINES = 400
 
 
+def same(home: Path, since: str, path: str) -> bool:
+    """True when the file on disk is what that commit holds — a source queued again that
+    nobody changed in between. Anything git cannot tell (an unknown commit) counts as
+    changed, since a needless run is cheaper than a missed one."""
+    return _git(home, "diff", "--quiet", since, "--", path).returncode == 0
+
+
 def diff(home: Path, since: str, path: str) -> str:
     """One file's changes since a commit, as a unified diff without the header noise —
     what a re-ingest is handed. Cut off past DIFF_LINES; a rewrite that long is a new
