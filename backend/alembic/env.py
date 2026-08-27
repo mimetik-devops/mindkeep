@@ -1,3 +1,4 @@
+import logging
 import os
 from logging.config import fileConfig
 
@@ -11,7 +12,12 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
+#
+# Only from the command line. migrate() also runs this file inside the app at startup,
+# and fileConfig would then replace the app's logging with alembic.ini's — root at WARN,
+# its own format — so every app INFO line, ingest progress included, silently vanished.
+# A root logger that already has handlers means someone else configured logging; leave it.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name)
 
 # add your model's MetaData object here
