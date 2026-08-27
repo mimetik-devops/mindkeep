@@ -37,9 +37,14 @@ test("a click opens the page's connections", async () => {
   expect(host.textContent).toContain("2 pages");
   expect(host.textContent).toContain("1 links");
 
-  const node = [...host.querySelectorAll("g.node")].find((g) => g.textContent === "Project X");
+  // labelled by slug, so a cluster of sentence-long titles stays readable
+  const node = [...host.querySelectorAll("g.node")].find(
+    (g) => g.querySelector("text")?.textContent === "x",
+  );
+  expect(node?.querySelector("title")?.textContent).toBe("Project X");
   await act(async () => node!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
+  expect(host.querySelector("aside")?.textContent).toContain("Project X");
   expect(host.querySelector("aside")?.textContent).toContain("about x");
   expect(host.querySelector("aside")?.textContent).toContain("Linked from");
   expect(host.querySelector("aside")?.textContent).toContain("Jane");

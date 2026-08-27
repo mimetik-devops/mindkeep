@@ -21,6 +21,14 @@ type Node = {
   y: number;
 };
 
+/**
+ * The label a node wears: its slug, not its title. Titles are sentences — "Futuros —
+ * pricing, plans & security" — and forty of them over a cluster is a smear; the file
+ * stem is the page's name in the OKF sense and is short by construction. The full title
+ * is the hover tooltip and the side panel's heading.
+ */
+const slug = (v: Node) => (v.id.split("/").pop() ?? v.id).replace(/\.md$/, "");
+
 const AREAS = ["#c0603d", "#3d6f8c", "#5b7a5e", "#8a6d3b", "#6b5b95", "#a04a6b", "#2f7f7a", "#7a7a3d"];
 const NONE = "#a09584"; // a page in no area, or a source
 const W = 1000;
@@ -205,13 +213,14 @@ export function Graph({ bundle }: { bundle: string }) {
             onPointerEnter={() => setHover(v.id)}
             onPointerLeave={() => setHover("")}
           >
+            <title>{v.title}</title>
             {v.kind === "source" ? (
               <rect x={-3} y={-3} width={6} height={6} fill={NONE} />
             ) : (
               <circle r={radius(v)} fill={colour(v)} />
             )}
             <text x={radius(v) + 3} y={3}>
-              {v.title}
+              {slug(v)}
             </text>
           </g>
         ))}
