@@ -22,7 +22,6 @@ for platform-level gating, and the two do not meet.
 
 import os
 import secrets
-import shutil
 from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -251,7 +250,12 @@ def delete_team(team: str, acting: ActingAs) -> dict[str, str]:
         s.commit()
     forget_tenant(team)
     root = Path(os.environ.get("WIKI_ROOT", "/data")).resolve()
-    shutil.rmtree(root / team, ignore_errors=True)
+    from app.files import remove_tree  # local import: files.py imports this module
+
+    try:
+        remove_tree(root / team)
+    except FileNotFoundError:
+        pass
     return {"deleted": team}
 
 

@@ -99,6 +99,25 @@ def take_back(
     return _git(home, "rev-parse", "--short", "HEAD").stdout.strip()
 
 
+def record(home: Path, message: str, *paths: str) -> str:
+    """Commit these paths only — a person's upload, edit, delete or move, as it happens.
+    Scoped to the paths, so the agent's half-written pages are never swept into a
+    people's commit. The short hash, or "" when the paths are as committed already."""
+    ensure(home)
+    before = head(home)
+    # new files need staging; a path that is gone (a delete, the old side of a move) is
+    # nothing to add, and `commit -- path` records its removal on its own
+    _git(home, "add", "--ignore-errors", "--", *paths)
+    out = _git(home, "commit", "-q", "-m", message, "--", *paths)
+    after = head(home)
+    if after == before:
+        if out.returncode and "nothing to commit" not in out.stdout + out.stderr:
+            if "no changes added" not in out.stdout + out.stderr:
+                raise RuntimeError((out.stderr or out.stdout).strip())
+        return ""
+    return after
+
+
 def undo(home: Path, sha: str, message: str) -> str:
     """Revert one commit as a new one. History is kept, so an undo can itself be undone."""
     out = _git(home, "revert", "--no-edit", sha)

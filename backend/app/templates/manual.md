@@ -111,6 +111,14 @@ When a new file appears in `raw/`:
    where it is attached to the claim it justifies. A log entry nobody can skim is a log
    entry nobody reads.
 
+### A source that is gone
+
+When the task says a source has been deleted, you are not ingesting: you are retiring.
+Find the pages that cite it and apply the rules under *It is gone* in the Lint section —
+delete a page whose only source it was, otherwise drop the entry and the claims that
+rested on it alone — then the links and `index.md`, and a one-line log entry. Nothing else
+is yours to touch on that run.
+
 ### A source that changed
 
 A source ingested before and edited since comes with a diff of what changed since you

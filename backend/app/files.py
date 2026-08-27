@@ -153,6 +153,11 @@ def seed(home: Path) -> None:
     put_text(home / "index.md", '---\nokf_version: "0.2"\n---\n\n# Index\n')
     put_text(home / "log.md", "# Log\n")
     put_text(home / TODO, todos.EMPTY)
+    # the skeleton is the first commit, so the first answer in todo.md reads as an edit
+    try:
+        history.commit(home, "seeded")
+    except Exception:
+        log.exception("could not commit the seeded skeleton in %s", home)
 
 
 def refresh_guide(home: Path) -> bool:
@@ -193,6 +198,15 @@ def unchanged(target: Path, request: Request) -> None:
         raise HTTPException(412, "changed since you last saw it — fetch it again first")
 
 
+def record(home: Path, message: str, *paths: str) -> None:
+    """A person's change, committed as it happens. History is a convenience: a commit
+    that fails is logged and the change stands."""
+    try:
+        history.record(home, message, *paths)
+    except Exception:
+        log.exception("could not record %s in %s", message, home)
+
+
 def safe_path(home: Path, rel: str) -> Path:
     try:
         target = (home / rel).resolve()
@@ -216,6 +230,16 @@ def raw_path(rel: str) -> str:
     """
     parts = [p for segment in rel.split("/") if (p := UNSAFE_NAME.sub("-", segment).strip(" ."))]
     return "/".join(parts) or "upload"
+
+
+def remove_tree(path: Path) -> None:
+    """rmtree that gets past git's read-only object files on Windows."""
+
+    def unlock(fn, target, _exc):  # type: ignore[no-untyped-def]
+        os.chmod(target, 0o600)
+        fn(target)
+
+    shutil.rmtree(path, onexc=unlock)
 
 
 def prune_empty(start: Path, stop: Path) -> None:
@@ -282,7 +306,7 @@ def delete_bundle(name: str, home: Bundle, _: Manager) -> dict[str, str]:
     if not others:
         raise HTTPException(409, "a team keeps at least one bundle")
     with lock_for(home):
-        shutil.rmtree(home)
+        remove_tree(home)
     runs.forget_bundle(home.parent.name, name)
     log.info("deleted bundle %s in %s", name, home.parent.name)
     return {"deleted": name}
@@ -390,6 +414,7 @@ async def write(path: str, request: Request, home: Bundle, _: Writer) -> dict[st
     target.write_bytes(await request.body())
 
     rel = target.relative_to(home).as_posix()
+    record(home, f"{'answer' if shared else 'edit'} {rel}", rel)
     # a corrected source should correct the wiki: the pages built from it are now stale.
     # todo.md is a record *about* the knowledge, so nothing is re-read when it changes.
     if not shared:
@@ -540,8 +565,8 @@ def activity(home: Bundle) -> list[dict[str, object]]:
     for r in runs.recent(home):
         if r.id not in told:
             feed.append(run_entry(r, []))
-    # what people changed since the last run is not committed until the next one starts,
-    # so a source deleted a minute ago would otherwise be nowhere in the feed
+    # people's changes through the app are committed as they happen; what is left here is
+    # a change made straight on the volume, which the next run's commit will record
     waiting = [x for x in history.pending(home) if by_people(x)]
     if waiting:
         feed.append(
@@ -829,6 +854,7 @@ def move_raw(
     now = new.relative_to(home).as_posix()
     runs.rename_source(home, was, now)  # its history is about the document, not the path
     runs.record_move(home, was, now)  # and the next lint is told, rather than left to notice
+    record(home, f"move {was} -> {now}", was, now)
     return {"from": was, "to": now}
 
 
@@ -849,7 +875,7 @@ def reingest(path: str, home: Bundle, _: Writer) -> dict[str, str]:
 
 
 @router.delete("/bundles/{name}/raw/{path:path}")
-def remove_raw(path: str, home: Bundle, request: Request, _: Writer) -> dict[str, str]:
+def remove_raw(path: str, home: Bundle, request: Request, _: Writer) -> dict[str, object]:
     """Delete a raw source. Only ever raw/ — never a wiki page.
 
     Deleting a source orphans the pages derived from it. That is fine and expected: the
@@ -861,10 +887,16 @@ def remove_raw(path: str, home: Bundle, request: Request, _: Writer) -> dict[str
         raise HTTPException(404, "not found")
     unchanged(target, request)  # deleting what someone has since rewritten is a conflict
     rel = target.relative_to(home).as_posix()
+    cited = pages_citing(home, rel) > 0
     target.unlink()
     prune_empty(target.parent, home / "raw")
     runs.forget_moves(home, rel)  # a deleted source has nowhere to be repointed to
-    return {"deleted": rel}
+    record(home, f"delete {rel}", rel)
+    # pages that rested on it are retired now, by a run over the gone source — the lint
+    # would find them tonight, and nobody wants to wait for a lint to stop citing a file
+    if cited:
+        enqueue(home, rel)
+    return {"deleted": rel, "retiring": cited}
 
 
 @router.post("/bundles/{name}/raw/{path:path}")
@@ -885,5 +917,6 @@ async def add_raw(path: str, home: Bundle, request: Request, _: Writer) -> dict[
     target.write_bytes(await request.body())
 
     rel = target.relative_to(home).as_posix()
+    record(home, f"upload {rel}", rel)
     enqueue(home, rel)
     return {"path": rel}

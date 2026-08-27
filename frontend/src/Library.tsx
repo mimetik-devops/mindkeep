@@ -116,7 +116,13 @@ export function Library({ bundle }: { bundle: string }) {
 
   async function remove() {
     const name = selected.slice("raw/".length);
-    if (!confirm(`Delete ${name}? The original is not kept anywhere else.`)) return;
+    if (
+      !confirm(
+        `Delete ${name}? The pages that rest on it are retired right away. The file itself ` +
+          "stays in the history.",
+      )
+    )
+      return;
     try {
       await removeRaw(bundle, name);
       setSelected("index.md");

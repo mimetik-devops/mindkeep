@@ -69,6 +69,16 @@ INGEST_TASK = (
     "the manual describes.{hints}"
 )
 
+# A source that was deleted while pages still cite it. The lint would find them tonight;
+# this does it now, and only for the pages that rested on that one file.
+RETIRE_TASK = (
+    "Today is {today}. The source `{source}` has been deleted by its owner. Pages under "
+    "`wiki/` still cite it. Follow the manual's rules for a source that is gone — delete "
+    "a page whose only source it was; otherwise drop its `sources` entry and the claims "
+    "that rested on it alone — then clean up the links and `index.md`, and write a log "
+    "entry headed `## [{today}] retire | {source}`. Touch nothing else."
+)
+
 # A source read before, changed since: the server has the version the agent read, so it
 # says exactly what changed rather than leaving the agent to re-read the whole document
 # as if it were new — and to miss what was taken out of it.
@@ -262,6 +272,8 @@ def ingest(
         if thin:
             hints += GAPS.format(list=gaps.describe(thin))
         task = LINT_TASK.format(today=today, hints=hints)
+    elif not (home / source).is_file():
+        task = RETIRE_TASK.format(source=source, today=today)
     else:
         task = INGEST_TASK.format(
             source=source, today=today, hints=CHANGED.format(diff=changed) if changed else ""

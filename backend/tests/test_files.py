@@ -289,13 +289,72 @@ def test_rows_keyed_by_a_subject_are_rekeyed_at_startup(client, tmp_path):
     assert runs.rekey_legacy_tenants(tenant_id) == 0  # once
 
 
+def test_a_persons_change_is_in_the_history_as_it_happens(client, tmp_path):
+    """No run needed: an upload, an edit, a delete, a move each become a commit of their
+    own path — so the feed has them at once, and an agent mid-run is never swept in."""
+    from app import history
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    (home / "wiki" / "half.md").write_text("the agent, mid-run", encoding="utf-8")  # not ours
+
+    client.post(f"{B}/raw/deck.md", content=b"v1")
+    client.put(f"{B}/files/raw/deck.md", content=b"v2")
+    client.post(f"{B}/move", json={"source": "raw/deck.md", "target": "raw/papers/deck.md"})
+    client.put(f"{B}/files/todo.md", content=b"- [x] done\n")
+
+    subjects = [str(c["subject"]) for c in history.commits(home)]
+    assert subjects[:4] == [
+        "answer todo.md",
+        "move raw/deck.md -> raw/papers/deck.md",
+        "edit raw/deck.md",
+        "upload raw/deck.md",
+    ]
+    left = history.pending(home)  # the agent's file is untouched; the seeded files wait too
+    assert {"status": "A", "path": "wiki/half.md"} in left
+    assert not [x for x in left if x["path"].startswith("raw/")]
+    kinds = [e["kind"] for e in client.get(f"{B}/activity").json()]
+    assert kinds.count("people") == 4 and "pending" not in kinds
+
+
+def test_deleting_a_cited_source_retires_its_pages_now(client, tmp_path, ingested):
+    """Not tonight's lint: a run over the gone source, told exactly what to do."""
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/deck.md", content=b"the deck")
+    client.post(f"{B}/raw/loose.md", content=b"nobody cites this")
+    (home / "wiki" / "deck.md").write_text(
+        "---\ntitle: Deck\nsources:\n  - resource: /raw/deck.md\n---\n", encoding="utf-8"
+    )
+    ingested.clear()
+
+    assert client.delete(f"{B}/raw/deck.md").json() == {"deleted": "raw/deck.md", "retiring": True}
+    assert client.delete(f"{B}/raw/loose.md").json() == {
+        "deleted": "raw/loose.md",
+        "retiring": False,
+    }
+    assert [c[1] for c in ingested] == ["raw/deck.md"]  # only the cited one starts a run
+
+    # and that run is a retire run, not an ingest of a file that is not there
+    seen: dict = {}
+    (home / "raw").mkdir(exist_ok=True)
+    from unittest.mock import patch
+
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest(home, "raw/deck.md")
+    task = seen["messages"][0]["content"]
+    assert "has been deleted" in task and "retire | raw/deck.md" in task
+
+
 def test_what_people_changed_since_the_last_run_shows_as_pending(client, tmp_path):
     client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/deck.md", content=b"the deck")
     run_over(client, home, "raw/deck.md")
-    client.delete(f"{B}/raw/deck.md")
-    client.post(f"{B}/raw/memo.md", content=b"memo")
+    (home / "raw" / "deck.md").unlink()  # straight on the volume, past the app
+    (home / "raw" / "memo.md").write_text("memo", encoding="utf-8")
 
     [waiting] = [e for e in client.get(f"{B}/activity").json() if e["kind"] == "pending"]
     assert sorted((x["status"], x["path"]) for x in waiting["changed"]) == [
@@ -409,7 +468,7 @@ def test_a_source_reports_whether_it_was_ingested(client, page):
 
 def test_a_raw_source_can_be_deleted(client):
     client.post(f"{B}/raw/notes.txt", content=b"one")
-    assert client.delete(f"{B}/raw/notes.txt").json() == {"deleted": "raw/notes.txt"}
+    assert client.delete(f"{B}/raw/notes.txt").json()["deleted"] == "raw/notes.txt"
     assert "raw/notes.txt" not in client.get(f"{B}/tree").json()
     assert client.delete(f"{B}/raw/notes.txt").status_code == 404  # already gone
 
