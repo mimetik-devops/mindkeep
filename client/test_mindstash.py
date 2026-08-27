@@ -6,6 +6,7 @@ Only the sync logic is worth testing — it is the part that can delete your fil
 import hashlib
 import json
 import re
+import urllib.error
 
 import mindstash
 
@@ -14,9 +15,11 @@ def cleaned(body: bytes) -> bytes:
     """What POST /clean answers: the server's naming rule, mimicked for the fakes."""
     paths = json.loads(body)["paths"]
     unsafe = re.compile(r"[^A-Za-z0-9 ()._-]")
-    clean = lambda rel: "/".join(  # noqa: E731 - a one-line double
-        p for seg in rel.split("/") if (p := unsafe.sub("-", seg).strip(" ."))
-    ) or "upload"
+
+    def clean(rel: str) -> str:
+        parts = [p for seg in rel.split("/") if (p := unsafe.sub("-", seg).strip(" ."))]
+        return "/".join(parts) or "upload"
+
     return json.dumps({"paths": [clean(rel) for rel in paths]}).encode()
 
 
@@ -28,7 +31,9 @@ def fake_server(monkeypatch, tmp_path, tree: dict[str, str], dirs: list[str] | N
     monkeypatch.setattr(
         mindstash,
         "call",
-        lambda cfg, path, body=None, method="", kind="": cleaned(body) if path == "clean" else b"x",
+        lambda cfg, path, body=None, method="", kind="", headers=None: (
+            cleaned(body) if path == "clean" else b"x"
+        ),
     )
     monkeypatch.setattr(mindstash, "STATE", tmp_path / "state.json")
     return {
@@ -139,8 +144,10 @@ def calls_from(monkeypatch, sink: list[str]) -> None:
     monkeypatch.setattr(
         mindstash,
         "call",
-        lambda cfg, path, body=None, method="", kind="": sink.append(f"{method or 'POST'} {path}")
-        or (cleaned(body) if path == "clean" else b"{}"),
+        lambda cfg, path, body=None, method="", kind="", headers=None: (
+            sink.append(f"{method or 'POST'} {path}")
+            or (cleaned(body) if path == "clean" else b"{}")
+        ),
     )
 
 
@@ -265,7 +272,7 @@ def test_a_todo_only_the_server_changed_is_not_pushed_back(tmp_path, monkeypatch
 def uploads_into(monkeypatch, tree: dict[str, str], sink: list[str]) -> None:
     """As calls_from(), but an upload lands in `tree` — the way the server's does."""
 
-    def fake(cfg, path, body=None, method="", kind=""):
+    def fake(cfg, path, body=None, method="", kind="", headers=None):
         sink.append(f"{method or 'POST'} {path}")
         if path == "clean":
             return cleaned(body)
@@ -329,3 +336,140 @@ def test_a_file_the_server_already_has_keeps_its_name(tmp_path, monkeypatch):
     mindstash.sync(cfg)
 
     assert (raw / "kept'.md").exists()
+
+
+class Server:
+    """A server with files in it: answers the tree, serves and stores files, honours
+    If-Match with a 412, and remembers what was asked of it."""
+
+    def __init__(self, files: dict[str, bytes]) -> None:
+        self.files = dict(files)
+        self.calls: list[str] = []
+
+    def stamp(self, rel: str) -> str:
+        """The file as it is now — what If-Match is checked against, whatever the tree said."""
+        return hashlib.sha256(self.files.get(rel, b"")).hexdigest()
+
+    def tree(self) -> dict[str, str]:
+        return {p: self.stamp(p) for p in self.files}
+
+    def call(self, cfg, path, body=None, method="", kind="", headers=None) -> bytes:
+        method = method or ("POST" if body else "GET")
+        self.calls.append(f"{method} {path}")
+        rel = path.split("/bundles/default/", 1)[1] if "/bundles/default/" in path else path
+        if path == "clean":
+            return cleaned(body)
+        if rel.startswith("files/"):
+            rel = rel.removeprefix("files/")
+            if method == "GET":
+                return self.files[rel]
+            want = (headers or {}).get("If-Match")
+            if want and want != self.stamp(rel):
+                raise urllib.error.HTTPError(path, 412, "changed", {}, None)  # type: ignore[arg-type]
+            self.files[rel] = body
+            return b"{}"
+        if rel.startswith("raw/") and method == "DELETE":
+            want = (headers or {}).get("If-Match")
+            if want and want != self.stamp(rel):
+                raise urllib.error.HTTPError(path, 412, "changed", {}, None)  # type: ignore[arg-type]
+            self.files.pop(rel, None)
+            return b"{}"
+        if rel.startswith("raw/"):
+            self.files[rel] = body
+            return b"{}"
+        return b"{}"
+
+    def install(self, monkeypatch, tmp_path) -> dict:
+        monkeypatch.setattr(
+            mindstash,
+            "call_json",
+            lambda cfg, path: [] if path.endswith("folders") else self.tree(),
+        )
+        monkeypatch.setattr(mindstash, "call", self.call)
+        monkeypatch.setattr(mindstash, "STATE", tmp_path / "state.json")
+        return {
+            "server": "http://x",
+            "token": "t",
+            "folder": str(tmp_path / "mirror"),
+            "bundle": "default",
+            "team": "T",
+        }
+
+
+def test_a_file_changed_on_both_sides_is_kept_aside_not_overwritten(tmp_path, monkeypatch):
+    """Nobody's edit wins silently: theirs lands in place, yours under .conflicts/."""
+    server = Server({"raw/plan.md": b"v1"})
+    cfg = server.install(monkeypatch, tmp_path)
+    mindstash.sync(cfg)  # brings v1 down and remembers it
+    root = tmp_path / "mirror"
+
+    (root / "raw" / "plan.md").write_bytes(b"mine")
+    server.files["raw/plan.md"] = b"theirs"
+    mindstash.sync(cfg)
+
+    assert (root / "raw" / "plan.md").read_bytes() == b"theirs"
+    assert (root / ".conflicts" / "raw" / "plan.md").read_bytes() == b"mine"
+    assert not any(c.startswith("PUT") for c in server.calls)
+    assert server.files["raw/plan.md"] == b"theirs"
+
+    mindstash.sync(cfg)  # the kept copy is neither uploaded nor swept
+    assert (root / ".conflicts" / "raw" / "plan.md").exists()
+    assert "raw/.conflicts" not in server.files and ".conflicts/raw/plan.md" not in server.files
+
+
+def test_the_server_catches_the_race_the_tree_fetch_cannot_see(tmp_path, monkeypatch):
+    server = Server({"raw/plan.md": b"v1"})
+    cfg = server.install(monkeypatch, tmp_path)
+    mindstash.sync(cfg)
+    root = tmp_path / "mirror"
+    (root / "raw" / "plan.md").write_bytes(b"mine")
+
+    # the tree said v1, but by the time the PUT lands someone else has written
+    real_tree = server.tree
+    monkeypatch.setattr(
+        server, "tree", lambda: real_tree() | {"raw/plan.md": hashlib.sha256(b"v1").hexdigest()}
+    )
+    server.files["raw/plan.md"] = b"theirs"
+    mindstash.sync(cfg)
+
+    assert (root / ".conflicts" / "raw" / "plan.md").read_bytes() == b"mine"
+    assert server.files["raw/plan.md"] == b"theirs"
+
+
+def test_your_ticks_land_on_the_list_the_agent_added_to(tmp_path, monkeypatch):
+    """todo.md: the agent appended a question overnight; you ticked one and wrote an
+    answer under another. Both survive, the answer under its question."""
+    server = Server({"todo.md": b"# Todo\n\n- [ ] Which figure?\n- [ ] Who is Jane?\n"})
+    cfg = server.install(monkeypatch, tmp_path)
+    mindstash.sync(cfg)
+    root = tmp_path / "mirror"
+
+    (root / "todo.md").write_bytes(
+        b"# Todo\n\n- [x] Which figure?\n- [ ] Who is Jane?\n  Jane is the CTO.\n"
+    )
+    server.files["todo.md"] = (
+        b"# Todo\n\n- [ ] Which figure?\n- [ ] Who is Jane?\n- [ ] Is the deck current?\n"
+    )
+    mindstash.sync(cfg)
+
+    merged = (
+        "# Todo\n\n- [x] Which figure?\n- [ ] Who is Jane?\n  Jane is the CTO.\n"
+        "- [ ] Is the deck current?\n"
+    )
+    assert server.files["todo.md"].decode() == merged
+    assert (root / "todo.md").read_bytes().decode() == merged
+    assert not (root / ".conflicts").exists()
+
+
+def test_a_delete_of_a_file_rewritten_over_there_brings_theirs_back(tmp_path, monkeypatch):
+    server = Server({"raw/plan.md": b"v1"})
+    cfg = server.install(monkeypatch, tmp_path)
+    mindstash.sync(cfg)
+    root = tmp_path / "mirror"
+
+    (root / "raw" / "plan.md").unlink()
+    server.files["raw/plan.md"] = b"theirs"
+    mindstash.sync(cfg)
+
+    assert server.files["raw/plan.md"] == b"theirs"
+    assert (root / "raw" / "plan.md").read_bytes() == b"theirs"

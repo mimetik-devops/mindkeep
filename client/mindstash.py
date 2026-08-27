@@ -6,11 +6,15 @@
 
 Point Claude at the folder this creates. Drop files in its raw/ folder and they upload.
 
+When you and someone else changed the same file, yours is kept under .conflicts/ and
+theirs lands in place; for todo.md your ticks are merged onto their list instead.
+
 ponytail: stdlib only, so `python mindstash.py` works with nothing installed.
 """
 
 import hashlib
 import json
+import shutil
 import sys
 import time
 import urllib.error
@@ -28,6 +32,11 @@ LAYOUT = ("raw", "wiki")
 # only works if what you write here goes back. Everything else under the mirror is the
 # agent's and is overwritten from the server.
 SHARED = "todo.md"
+
+# Where your version of a file goes when the server has a different one: outside the
+# synced tree — a dot name is neither uploaded nor swept — so it is never mistaken for a
+# new source and ingested twice. Theirs lands in place; you merge by hand if you care.
+CONFLICTS = ".conflicts"
 
 CONFIG = Path.home() / ".mindstash.json"
 # What the server had at the end of the last sync. Without it, a local file the server
@@ -91,7 +100,12 @@ def url_for(cfg: dict, path: str) -> str:
 
 
 def call(
-    cfg: dict, path: str, body: bytes | None = None, method: str = "", kind: str = ""
+    cfg: dict,
+    path: str,
+    body: bytes | None = None,
+    method: str = "",
+    kind: str = "",
+    headers: dict[str, str] | None = None,
 ) -> bytes:
     request = urllib.request.Request(
         url_for(cfg, path), data=body, method=method or ("POST" if body else "GET")
@@ -99,6 +113,8 @@ def call(
     request.add_header("Authorization", "Bearer " + cfg["token"])
     if kind:
         request.add_header("Content-Type", kind)
+    for name, value in (headers or {}).items():
+        request.add_header(name, value)
     with urllib.request.urlopen(request) as response:
         return response.read()
 
@@ -113,6 +129,41 @@ def call_json(cfg: dict, path: str):
             f"{cfg['server']} did not return JSON. That is usually the web address rather "
             "than the API - try the backend port (8001 by default)."
         ) from None
+
+
+def keep_aside(root: Path, rel: str) -> Path:
+    """Your version, kept under .conflicts/ at the same relative path."""
+    kept = root / CONFLICTS / rel
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(root / rel, kept)
+    return kept
+
+
+def conflict(root: Path, rel: str, why: str) -> None:
+    kept = keep_aside(root, rel)
+    print(f"conflict {rel}: {why}; yours is kept in {kept.relative_to(root).as_posix()}")
+
+
+def merge_todo(mine: str, theirs: str) -> str:
+    """Their list — the agent may have added questions overnight — with your ticks and
+    your added lines applied. One line per question makes this a text match rather than a
+    merge: a line of yours they also have is theirs; a tick of yours on a question they
+    still have open ticks it; anything else you wrote goes in after the last line of yours
+    they do have, so an answer stays under its question."""
+    lines = theirs.splitlines()
+    at = 0  # where the next line of yours that they lack goes
+    for line in mine.splitlines():
+        if line in lines:
+            at = lines.index(line) + 1
+            continue
+        if line.startswith("- [x] ") and ("- [ ] " + line[6:]) in lines:
+            at = lines.index("- [ ] " + line[6:])
+            lines[at] = line
+            at += 1
+            continue
+        lines.insert(at, line)
+        at += 1
+    return "\n".join(lines) + "\n"
 
 
 def digest(path: Path) -> str:
@@ -252,7 +303,13 @@ def sync(cfg: dict) -> None:
     elif everything:
         print(f"deleting all {len(gone)} sources - the rest of {root.name} is still here")
     for rel in gone:
-        call(cfg, f"{base}/{rel}", method="DELETE")
+        try:
+            call(cfg, f"{base}/{rel}", method="DELETE", headers={"If-Match": seen[rel]})
+        except urllib.error.HTTPError as e:
+            if e.code != 412:
+                raise
+            print(f"conflict {rel}: rewritten over there since you deleted it; theirs comes back")
+            continue  # still in the tree, so the download pass restores it
         print("deleted", rel)
         remote.pop(rel, None)
 
@@ -271,7 +328,20 @@ def sync(cfg: dict) -> None:
         if rel not in remote and rel in seen:
             continue  # deleted on the server since last sync; the sweep below removes it
         if rel in remote:
-            call(cfg, f"{base}/files/{rel}", local.read_bytes(), method="PUT")
+            # Both sides changed since you last synced: nobody's edit should silently win.
+            # Yours is kept aside and theirs lands in place. The server's own check covers
+            # the seconds between fetching the tree and this upload.
+            if rel in seen and remote[rel] != seen[rel]:
+                conflict(root, rel, "changed over there too")
+                continue
+            try:
+                stamp = {"If-Match": seen[rel]} if rel in seen else {}
+                call(cfg, f"{base}/files/{rel}", local.read_bytes(), method="PUT", headers=stamp)
+            except urllib.error.HTTPError as e:
+                if e.code != 412:
+                    raise
+                conflict(root, rel, "changed over there just now")
+                continue
             print("updated", rel)
         else:
             call(cfg, f"{base}/{rel}", local.read_bytes())
@@ -285,10 +355,25 @@ def sync(cfg: dict) -> None:
     shared = root / SHARED
     if shared.is_file() and (here := digest(shared)) != remote.get(SHARED):
         if here != seen.get(SHARED):  # changed here, not merely changed over there
-            call(cfg, f"{base}/files/{SHARED}", shared.read_bytes(), method="PUT")
-            print("sent", SHARED)
-            remote[SHARED] = here
-            sent = True
+            mine = shared.read_bytes()
+            if SHARED in remote and remote[SHARED] != seen.get(SHARED):
+                # theirs moved too — the agent asked something overnight, or a teammate
+                # ticked — so your ticks and lines go onto their list, not over it
+                theirs = call(cfg, f"{base}/files/{SHARED}").decode("utf-8")
+                mine = merge_todo(mine.decode("utf-8"), theirs).encode("utf-8")
+                shared.write_bytes(mine)
+                print("merged", SHARED)
+            try:
+                stamp = {"If-Match": remote[SHARED]} if SHARED in remote else {}
+                call(cfg, f"{base}/files/{SHARED}", mine, method="PUT", headers=stamp)
+            except urllib.error.HTTPError as e:
+                if e.code != 412:
+                    raise
+                conflict(root, SHARED, "changed over there just now")
+            else:
+                print("sent", SHARED)
+                remote[SHARED] = digest(shared)
+                sent = True
 
     # Down: everything else is the agent's, so the server wins. Your raw/ edits were
     # pushed above, which is why this cannot overwrite them any more.
@@ -334,9 +419,9 @@ def sync(cfg: dict) -> None:
     # files somewhere else, because they will not survive here.
     kept = set(LAYOUT) | {f"raw/{rel}" for rel in dirs}
     for local in sorted(root.rglob("*"), reverse=True):
-        if local.name.startswith("."):
-            continue
         rel = local.relative_to(root).as_posix()
+        if any(part.startswith(".") for part in rel.split("/")):
+            continue  # .conflicts/ and friends: not part of the mirror
         if local.is_file() and rel not in remote:
             local.unlink()
             print("removed", rel)
