@@ -42,6 +42,17 @@ STATE = Path.home() / ".mindstash-state.json"
 INTERVAL = 30
 
 
+# Where the sync reports. The CLI prints; the tray app swaps these for its own log and,
+# for what needs a person now, a notification. Module attributes rather than arguments
+# so the sync's signature stays what the tests and the CLI know.
+def say(*parts: object) -> None:
+    print(*parts)
+
+
+def notify(cfg: dict, kind: str, text: str) -> None:  # noqa: ARG001 - the hook's contract
+    """Something a person should hear about now — so far, a conflict kept aside."""
+
+
 def rename_new(cfg: dict, root: Path, remote: dict[str, str], seen: dict[str, str]) -> None:
     """Give every file that is new here the name the server will store it under.
 
@@ -73,7 +84,7 @@ def rename_new(cfg: dict, root: Path, remote: dict[str, str], seen: dict[str, st
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and digest(target) == digest(local):
             local.unlink()
-            print("dropped", f"raw/{rel}", "- same as", f"raw/{clean}")
+            say("dropped", f"raw/{rel}", "- same as", f"raw/{clean}")
             continue
         stem, suffix = target.stem, target.suffix
         for n in range(2, 1000):
@@ -81,7 +92,7 @@ def rename_new(cfg: dict, root: Path, remote: dict[str, str], seen: dict[str, st
                 break
             target = target.with_name(f"{stem}-{n}{suffix}")
         local.rename(target)
-        print("renamed", f"raw/{rel}", "->", f"raw/{target.relative_to(root / 'raw').as_posix()}")
+        say("renamed", f"raw/{rel}", "->", f"raw/{target.relative_to(root / 'raw').as_posix()}")
 
 
 class Unreachable(Exception):
@@ -134,9 +145,11 @@ def keep_aside(root: Path, rel: str) -> Path:
     return kept
 
 
-def conflict(root: Path, rel: str, why: str) -> None:
+def conflict(cfg: dict, root: Path, rel: str, why: str) -> None:
     kept = keep_aside(root, rel)
-    print(f"conflict {rel}: {why}; yours is kept in {kept.relative_to(root).as_posix()}")
+    where = kept.relative_to(root).as_posix()
+    say(f"conflict {rel}: {why}; yours is kept in {where}")
+    notify(cfg, "conflict", f"{rel}: {why}. Yours is kept in {where}.")
 
 
 def merge_todo(mine: str, theirs: str) -> str:
@@ -236,7 +249,7 @@ def sync(cfg: dict) -> None:
             json.dumps({"source": rel, "target": landed}).encode(),
             kind="application/json",
         )
-        print("moved", rel, "->", landed)
+        say("moved", rel, "->", landed)
         remote[landed] = remote.pop(rel)  # same bytes, so the same hash, at the new path
         gone.remove(rel)
         moved = True
@@ -254,20 +267,20 @@ def sync(cfg: dict) -> None:
     everything = gone and len(gone) == len([r for r in seen if r.startswith("raw/")]) > 1
     intact = any(not rel.startswith("raw/") and (root / rel).exists() for rel in seen)
     if everything and not intact:
-        print(f"skipping: the whole folder looks missing, not just its {len(gone)} sources")
-        print(f"  nothing was deleted on the server. Check that {root} is where you left it.")
+        say(f"skipping: the whole folder looks missing, not just its {len(gone)} sources")
+        say(f"  nothing was deleted on the server. Check that {root} is where you left it.")
         gone = []
     elif everything:
-        print(f"deleting all {len(gone)} sources - the rest of {root.name} is still here")
+        say(f"deleting all {len(gone)} sources - the rest of {root.name} is still here")
     for rel in gone:
         try:
             call(cfg, f"{base}/{rel}", method="DELETE", headers={"If-Match": seen[rel]})
         except urllib.error.HTTPError as e:
             if e.code != 412:
                 raise
-            print(f"conflict {rel}: rewritten over there since you deleted it; theirs comes back")
+            say(f"conflict {rel}: rewritten over there since you deleted it; theirs comes back")
             continue  # still in the tree, so the download pass restores it
-        print("deleted", rel)
+        say("deleted", rel)
         remote.pop(rel, None)
 
     # Up: raw/ is yours, so a change *you* made here wins. Three-way, not two: comparing
@@ -289,7 +302,7 @@ def sync(cfg: dict) -> None:
             # Yours is kept aside and theirs lands in place. The server's own check covers
             # the seconds between fetching the tree and this upload.
             if rel in seen and remote[rel] != seen[rel]:
-                conflict(root, rel, "changed over there too")
+                conflict(cfg, root, rel, "changed over there too")
                 continue
             try:
                 stamp = {"If-Match": seen[rel]} if rel in seen else {}
@@ -297,12 +310,12 @@ def sync(cfg: dict) -> None:
             except urllib.error.HTTPError as e:
                 if e.code != 412:
                     raise
-                conflict(root, rel, "changed over there just now")
+                conflict(cfg, root, rel, "changed over there just now")
                 continue
-            print("updated", rel)
+            say("updated", rel)
         else:
             call(cfg, f"{base}/{rel}", local.read_bytes())
-            print("sent", rel)
+            say("sent", rel)
         sent = True
     if sent:
         remote = call_json(cfg, f"{base}/tree")
@@ -319,16 +332,16 @@ def sync(cfg: dict) -> None:
                 theirs = call(cfg, f"{base}/files/{SHARED}").decode("utf-8")
                 mine = merge_todo(mine.decode("utf-8"), theirs).encode("utf-8")
                 shared.write_bytes(mine)
-                print("merged", SHARED)
+                say("merged", SHARED)
             try:
                 stamp = {"If-Match": remote[SHARED]} if SHARED in remote else {}
                 call(cfg, f"{base}/files/{SHARED}", mine, method="PUT", headers=stamp)
             except urllib.error.HTTPError as e:
                 if e.code != 412:
                     raise
-                conflict(root, SHARED, "changed over there just now")
+                conflict(cfg, root, SHARED, "changed over there just now")
             else:
-                print("sent", SHARED)
+                say("sent", SHARED)
                 remote[SHARED] = digest(shared)
                 sent = True
 
@@ -340,7 +353,7 @@ def sync(cfg: dict) -> None:
             continue
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_bytes(call(cfg, f"{base}/files/{path}"))
-        print("got", path)
+        say("got", path)
 
     # Folders, which files cannot carry: an empty one has no file to arrive with, and
     # a folder made to be filled later is empty by definition. Read after the file work
@@ -359,13 +372,13 @@ def sync(cfg: dict) -> None:
         if any(p.is_file() for p in (root / "raw" / rel).rglob("*")):
             continue  # its files were uploaded above, and they brought the folder with them
         call(cfg, f"{base}/folders/{rel}")
-        print("made", f"raw/{rel}")
+        say("made", f"raw/{rel}")
         dirs.add(rel)
     # deepest first, so a folder tree deleted here goes from the inside out
     for rel in sorted(before & dirs - here, reverse=True):
         try:
             call(cfg, f"{base}/folders/{rel}", method="DELETE")
-            print("removed", f"raw/{rel}")
+            say("removed", f"raw/{rel}")
         except urllib.error.HTTPError as e:
             if e.code not in (404, 409):  # already pruned with its last file, or refilled
                 raise
@@ -381,7 +394,7 @@ def sync(cfg: dict) -> None:
             continue  # .conflicts/ and friends: not part of the mirror
         if local.is_file() and rel not in remote:
             local.unlink()
-            print("removed", rel)
+            say("removed", rel)
         elif local.is_dir() and not any(local.iterdir()) and rel not in kept:
             local.rmdir()
 
@@ -390,4 +403,3 @@ def sync(cfg: dict) -> None:
         (root / name).mkdir(parents=True, exist_ok=True)
 
     remember(cfg, remote, dirs)
-
