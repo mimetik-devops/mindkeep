@@ -52,6 +52,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     except Exception:
         log.exception("could not sweep interrupted ingests")
     try:
+        runs.rekey_legacy_tenants(files.tenant_id)
+    except Exception:
+        log.exception("could not re-key legacy tenant rows")
+    try:
         files.refresh_guides(Path(os.environ.get("WIKI_ROOT", "/data")))
     except Exception:
         log.exception("could not refresh the reader's guide in the bundles")

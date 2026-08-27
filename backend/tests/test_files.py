@@ -270,6 +270,40 @@ def test_undoing_a_reingest_puts_the_edited_source_back_to_what_the_wiki_had(cli
     assert client.get(f"{B}/sources").json() == []
 
 
+def test_rows_keyed_by_a_subject_are_rekeyed_at_startup(client, tmp_path):
+    """The directory may have been renamed, moved or recreated since; the rows follow the
+    value alone, so a wiki ingested before tenants were hashed still reads as ingested."""
+    from app import runs
+    from app.files import tenant_id
+
+    legacy = tmp_path / "alice" / "default"  # a home named by the subject, as it once was
+    legacy.mkdir(parents=True)
+    run = runs.start(legacy, "raw/deck.md", "m")
+    runs.finish(legacy, run, turns=1, chars=1)
+    runs.set_lint_hour(legacy, 4)
+
+    assert runs.rekey_legacy_tenants(tenant_id) == 1
+    home = tmp_path / tenant_id("alice") / "default"
+    assert "raw/deck.md" in runs.ingested_sources(home)
+    assert runs.lint_hour(home) == 4
+    assert runs.rekey_legacy_tenants(tenant_id) == 0  # once
+
+
+def test_what_people_changed_since_the_last_run_shows_as_pending(client, tmp_path):
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/deck.md", content=b"the deck")
+    run_over(client, home, "raw/deck.md")
+    client.delete(f"{B}/raw/deck.md")
+    client.post(f"{B}/raw/memo.md", content=b"memo")
+
+    [waiting] = [e for e in client.get(f"{B}/activity").json() if e["kind"] == "pending"]
+    assert sorted((x["status"], x["path"]) for x in waiting["changed"]) == [
+        ("A", "raw/memo.md"),
+        ("D", "raw/deck.md"),
+    ]
+
+
 def test_the_feed_shows_runs_with_their_words_and_what_people_did(client, tmp_path):
     from app import history
 

@@ -174,6 +174,20 @@ def log_entries(home: Path, limit: int = 500) -> dict[str, str]:
     return found
 
 
+def pending(home: Path) -> list[dict[str, str]]:
+    """Changes on disk that no commit holds yet — what people did since the last run."""
+    if not (home / ".git").is_dir():
+        return []
+    out = _git(home, "status", "--porcelain", "--untracked-files=all")
+    rows = []
+    for line in out.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        code, path = line[:2].strip() or "?", line[3:].strip().strip('"')
+        rows.append({"status": {"?": "A", "??": "A"}.get(code, code[0]), "path": path})
+    return rows
+
+
 def changed(home: Path, sha: str) -> list[dict[str, str]]:
     """What a commit touched: A added, M modified, D deleted, R renamed (the new path)."""
     out = _git(home, "show", "--name-status", "--format=", sha)

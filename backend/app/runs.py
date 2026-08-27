@@ -6,6 +6,8 @@ and what lets an interrupted run be recognised as interrupted rather than as "ne
 """
 
 import logging
+import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,6 +28,26 @@ def utc(moment: datetime) -> datetime:
 def _where(home: Path) -> tuple[str, str]:
     """A bundle directory is `<root>/<tenant>/<bundle>`."""
     return home.parent.name, home.name
+
+
+def rekey_legacy_tenants(tenant_id: Callable[[str], str]) -> int:
+    """Rows keyed by a subject rather than its hash — from before tenants were hashed —
+    re-keyed at startup. Judged by the value alone, so it does not matter whether the
+    directory was renamed, moved, or recreated since; once, and then never again."""
+    with session() as s:
+        keys = {
+            t
+            for table in (IngestRun, BundleSetting, SourceMove)
+            for t in s.scalars(select(table.tenant).distinct()).all()
+        }
+    moved = 0
+    for old in keys:
+        if re.fullmatch(r"[0-9a-f]{32}", old):
+            continue
+        rename_tenant(old, tenant_id(old))
+        moved += 1
+        log.info("re-keyed rows of tenant %s to %s", old, tenant_id(old))
+    return moved
 
 
 def rename_tenant(old: str, new: str) -> None:

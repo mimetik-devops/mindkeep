@@ -190,7 +190,7 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
           return (
             <article key={key} className={`event ${e.kind} ${state}`}>
               <span className="when" title={e.at}>
-                {when(e.at)}
+                {e.kind === "pending" ? "now" : when(e.at)}
               </span>
               <div className="what">
                 <button className="kind" aria-expanded={open === key} onClick={() => expand(e)}>
@@ -200,6 +200,14 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
                       {e.source !== "(lint)" && <span className="soft"> · {e.source}</span>}
                       {e.seconds ? <span className="state"> {took(e.seconds)}</span> : null}
                       {state && <span className="state"> · {state}</span>}
+                    </>
+                  ) : e.kind === "pending" ? (
+                    <>
+                      changes
+                      <span className="soft">
+                        {" "}
+                        · by people, {e.changed.length} files, waiting for the next run
+                      </span>
                     </>
                   ) : e.kind === "undo" || e.kind === "redo" ? (
                     <>

@@ -107,7 +107,7 @@ export type Source = {
  * changes by people between runs, or an undo. From the bundle's history.
  */
 export type Entry = {
-  kind: "run" | "people" | "undo" | "redo";
+  kind: "run" | "people" | "undo" | "redo" | "pending";
   at: string;
   commit: string;
   changed: { status: string; path: string }[];

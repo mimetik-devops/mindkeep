@@ -540,6 +540,18 @@ def activity(home: Bundle) -> list[dict[str, object]]:
     for r in runs.recent(home):
         if r.id not in told:
             feed.append(run_entry(r, []))
+    # what people changed since the last run is not committed until the next one starts,
+    # so a source deleted a minute ago would otherwise be nowhere in the feed
+    waiting = [x for x in history.pending(home) if by_people(x)]
+    if waiting:
+        feed.append(
+            {
+                "kind": "pending",
+                "at": datetime.now(UTC).isoformat(),
+                "commit": "",
+                "changed": waiting,
+            }
+        )
     # newest first, on real times: run rows carry microseconds, commits do not. Stable, so
     # entries from the same second keep git's own order.
     feed.sort(key=lambda e: datetime.fromisoformat(str(e["at"])), reverse=True)
