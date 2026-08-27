@@ -26,6 +26,23 @@ jobs:
       - run: pip install pytest ruff
       - run: ruff check .
       - run: pytest -q
+      # the version is written twice in pyproject.toml (the package, the Briefcase app)
+      # and must match the tag: a forgotten bump would ship an installer Windows refuses
+      # to install over the last one, labelled as something it is not
+      - name: version matches, and matches the tag
+        run: python -c "$CHECK"
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          CHECK: |
+            import os, sys, tomllib
+            t = tomllib.load(open("pyproject.toml", "rb"))
+            pkg, app = t["project"]["version"], t["tool"]["briefcase"]["version"]
+            tag = os.environ["TAG"]
+            if pkg != app:
+                sys.exit(f"pyproject.toml says {pkg} and {app}; make them one version")
+            if tag and tag != f"v{pkg}":
+                sys.exit(f"tag {tag} but pyproject.toml says {pkg}; bump it first")
+            print("version", pkg, "ok")
 
   package:
     # installers only for a tag, or when asked for by hand: three runners a push is a lot
@@ -92,6 +109,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: installers/*
+          generate_release_notes: true
           body: |
             Desktop client ${{ github.ref_name }}. These builds are not code-signed:
             Windows will warn (More info → Run anyway), macOS needs a right-click → Open
