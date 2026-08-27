@@ -463,7 +463,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .graph line.source { stroke-dasharray: 3 3; }
 .graph line.dim, .graph g.dim { opacity: 0.12; }
 .graph g.node { cursor: pointer; }
-.graph g.node text { font-size: 10px; fill: var(--muted); pointer-events: none; }
+/* no font-size here: Graph.tsx sets it per zoom, and a stylesheet rule would win over the attribute */
+.graph g.node text { fill: var(--muted); pointer-events: none; }
 .graph g.node.selected circle { stroke: var(--ink); stroke-width: 2; }
 .graph g.node:hover text { fill: var(--ink); font-weight: 600; }
 
