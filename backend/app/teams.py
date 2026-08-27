@@ -235,27 +235,39 @@ def _open(i: Invite | None) -> bool:
     return i is not None and i.accepted_by is None and utc(i.expires_at) > now()
 
 
-def _invite_dict(i: Invite) -> dict[str, object]:
+def _invite_dict(i: Invite, accepted_name: str = "") -> dict[str, object]:
+    state = "used" if i.accepted_by else ("open" if _open(i) else "expired")
     return {
         "token": i.token,
         "role": i.role,
         "created_by": i.created_by,
         "expires_at": utc(i.expires_at),
         "accepted_by": i.accepted_by,
+        "accepted_at": utc(i.accepted_at) if i.accepted_at else None,
+        "accepted_name": accepted_name,
+        "state": state,
     }
 
 
 @router.get("/teams/{team}/invites")
 def list_invites(team: str, acting: ActingAs) -> list[dict[str, object]]:
-    """Open invites: not yet accepted, not yet expired."""
+    """Every invite, newest first, with what became of it: open, used (and by whom), or
+    expired. A link that was used stays on the list marked so, rather than vanishing —
+    the person who sent it wants to see that it landed."""
     manages(acting)
     with session() as s:
         rows = (
-            s.execute(select(Invite).where(Invite.team_id == team).order_by(Invite.created_at))
+            s.execute(
+                select(Invite).where(Invite.team_id == team).order_by(Invite.created_at.desc())
+            )
             .scalars()
             .all()
         )
-        return [_invite_dict(i) for i in rows if _open(i)]
+        names = {
+            m.sub: m.name or m.email
+            for m in s.execute(select(Membership).where(Membership.team_id == team)).scalars()
+        }
+        return [_invite_dict(i, names.get(i.accepted_by or "", "")) for i in rows]
 
 
 @router.post("/teams/{team}/invites", status_code=201)

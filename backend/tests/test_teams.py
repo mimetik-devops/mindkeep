@@ -48,11 +48,17 @@ def test_an_invite_link_joins_whoever_opens_it(client):
     assert client.get(f"/teams/{team}/bundles", headers=as_("bob")).json() == ["default"]
     members = client.get(f"/teams/{team}/members").json()
     assert [(m["sub"], m["role"]) for m in members] == [("alice", "owner"), ("bob", "member")]
-    # one use
+    # one use — and the link stays on the list, marked as used and by whom
     assert (
         client.post(f"/invites/{invite['token']}/accept", headers=as_("carol")).status_code == 404
     )
-    assert client.get(f"/teams/{team}/invites").json() == []
+    [used] = client.get(f"/teams/{team}/invites").json()
+    assert (used["state"], used["accepted_by"], used["accepted_name"]) == (
+        "used",
+        "bob",
+        "Ada Lovelace",  # every test user carries the fixture's profile
+    )
+    assert used["accepted_at"] is not None
 
 
 def test_a_personal_team_takes_no_invites(client):
@@ -72,6 +78,7 @@ def test_an_expired_invite_is_not_open(client, monkeypatch):
     token = client.post(f"/teams/{team}/invites").json()["token"]
     assert client.get(f"/invites/{token}", headers=as_("bob")).status_code == 404
     assert client.post(f"/invites/{token}/accept", headers=as_("bob")).status_code == 404
+    assert [i["state"] for i in client.get(f"/teams/{team}/invites").json()] == ["expired"]
 
 
 def test_members_do_not_manage_admins_do_owners_do_everything(client):

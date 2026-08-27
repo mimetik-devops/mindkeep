@@ -515,3 +515,4 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .members select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--cream); color: var(--ink); }
 .members .link { background: none; border: 0; padding: 0; color: var(--clay-ink); font-size: 12px; }
 .members .link:hover { color: #8f4426; }
+.members li.used .path, .members li.expired .path { text-decoration: line-through; opacity: 0.6; }

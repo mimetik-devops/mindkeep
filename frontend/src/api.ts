@@ -229,6 +229,11 @@ export type Invite = {
   created_by: string;
   expires_at: string;
   accepted_by: string | null;
+  accepted_at: string | null;
+  /** The member's name (or email) when the link was used, else "". */
+  accepted_name: string;
+  /** A used link stays on the list, marked, rather than vanishing. */
+  state: "open" | "used" | "expired";
 };
 
 const json = (body: unknown, method = "POST") => ({

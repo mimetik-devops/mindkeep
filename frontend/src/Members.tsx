@@ -27,7 +27,7 @@ const ROLES: Role[] = ["owner", "admin", "member"];
  */
 export function Members({ team }: { team: Team }) {
   const [who, setWho] = useState<Member[]>([]);
-  const [open, setOpen] = useState<Invite[]>([]);
+  const [sent, setSent] = useState<Invite[]>([]);
   const [self, setSelf] = useState("");
   const [role, setRoleToInvite] = useState<Role>("member");
   const [copied, setCopied] = useState("");
@@ -38,7 +38,7 @@ export function Members({ team }: { team: Team }) {
 
   const refresh = () => {
     members(team.id).then(setWho).catch((e) => setError(String(e)));
-    if (invites_) invites(team.id).then(setOpen).catch((e) => setError(String(e)));
+    if (invites_) invites(team.id).then(setSent).catch((e) => setError(String(e)));
   };
 
   useEffect(() => {
@@ -112,27 +112,41 @@ export function Members({ team }: { team: Team }) {
               Make an invite link
             </button>
           </div>
-          {open.length > 0 && (
+          {sent.length > 0 && (
             <ul className="members">
-              {open.map((i) => (
-                <li key={i.token}>
+              {sent.map((i) => (
+                <li key={i.token} className={i.state}>
                   <span className="who">
                     <code className="path">{link(i.token)}</code>
                     <span className="soft"> as {i.role}</span>
                   </span>
-                  <button
-                    className="link"
-                    title="Copy the link"
-                    onClick={() => {
-                      navigator.clipboard.writeText(link(i.token));
-                      setCopied(i.token);
-                    }}
-                  >
-                    {copied === i.token ? "copied" : <Copy />}
-                  </button>
-                  <button className="link" onClick={() => act(revokeInvite(team.id, i.token))}>
-                    Revoke
-                  </button>
+                  {i.state === "used" && (
+                    <span className="role">
+                      used{i.accepted_name ? ` by ${i.accepted_name}` : ""}
+                      {i.accepted_at ? ` · ${new Date(i.accepted_at).toLocaleDateString()}` : ""}
+                    </span>
+                  )}
+                  {i.state === "expired" && <span className="role">expired</span>}
+                  {i.state === "open" && (
+                    <>
+                      <button
+                        className="link"
+                        title="Copy the link"
+                        onClick={() => {
+                          navigator.clipboard.writeText(link(i.token));
+                          setCopied(i.token);
+                        }}
+                      >
+                        {copied === i.token ? "copied" : <Copy />}
+                      </button>
+                      <button
+                        className="link"
+                        onClick={() => act(revokeInvite(team.id, i.token))}
+                      >
+                        Revoke
+                      </button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
