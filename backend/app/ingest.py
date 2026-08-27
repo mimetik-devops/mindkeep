@@ -7,7 +7,7 @@ from pathlib import Path
 import anthropic
 from anthropic import beta_tool
 
-from app import gaps, runs
+from app import gaps, graph, runs
 
 log = logging.getLogger(__name__)
 
@@ -224,6 +224,18 @@ def ingest(
         paths = (p for p in home.rglob("*") if p.is_file())
         return "\n".join(sorted(p.relative_to(home).as_posix() for p in paths))
 
+    def related(path: str) -> str:
+        """The pages connected to one page: what it links to, what links to it, and what
+        cites a source it cites. Given a path under raw/, the pages that cite it. Call it
+        before editing a page — the pages that describe it from the outside are the ones
+        a change to it can put out of date, and neither the page nor index.md names them.
+
+        Args:
+            path: Path relative to the knowledge base root, e.g. wiki/people/jane.md
+        """
+        step(f"looking around {path}")
+        return graph.related(graph.build(home), path)
+
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     if source == LINT:
         hints = ""
@@ -263,6 +275,7 @@ def ingest(
                 beta_tool(edit_file),
                 beta_tool(delete_file),
                 beta_tool(list_files),
+                beta_tool(related),
             ],
             messages=[
                 {

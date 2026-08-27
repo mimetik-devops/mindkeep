@@ -11,23 +11,16 @@ milliseconds — so it happens here, before the run, the way source moves do. Th
 judgement call, what the question is, stays with the agent.
 """
 
-from __future__ import annotations  # nx.Graph[str] exists in the stubs, not at runtime
-
 import logging
-import re
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 
 import networkx as nx
-import yaml
+
+from app import graph
 
 log = logging.getLogger(__name__)
-
-# [text](../people/jane.md), [text](/wiki/people/jane.md#section)
-LINK = re.compile(r"\]\(([^)\s]+?\.md)(?:#[^)]*)?\)")
-# a bundle-absolute path on its own, which is how the manual tells the agent to link
-BARE = re.compile(r"(?<![\w/(])/wiki/[^\s)\]>\"'`#]+\.md")
 
 MIN_PAGES = 3  # fewer than this is a page, not an area
 MAX_GAPS = 3  # per lint: todo.md is a list for a person, not a dump
@@ -51,46 +44,6 @@ class Gap:
     b: list[Page]
 
 
-def frontmatter(text: str) -> dict[str, object]:
-    from app.files import FRONTMATTER  # local import: files.py imports ingest, which imports this
-
-    match = FRONTMATTER.match(text)
-    if not match:
-        return {}
-    try:
-        found = yaml.safe_load(match[1])
-    except yaml.YAMLError:
-        return {}
-    return found if isinstance(found, dict) else {}
-
-
-def graph(home: Path) -> nx.Graph[str]:
-    """Wiki pages as nodes, links between them as edges. Links to pages that do not exist
-    are dropped — the lint already reports those, and a missing page cannot be an area."""
-    wiki = home / "wiki"
-    G: nx.Graph[str] = nx.Graph()
-    if not wiki.is_dir():
-        return G
-    pages: dict[Path, tuple[str, str]] = {}  # resolved path -> (bundle-relative, text)
-    for p in sorted(wiki.rglob("*.md")):
-        text = p.read_text(encoding="utf-8", errors="replace")
-        fm = frontmatter(text)
-        rel = p.relative_to(home).as_posix()
-        pages[p.resolve()] = (rel, text)
-        G.add_node(
-            rel,
-            title=str(fm.get("title") or p.stem),
-            description=str(fm.get("description") or ""),
-        )
-    for full, (rel, text) in pages.items():
-        for target in [*LINK.findall(text), *BARE.findall(text)]:
-            base = home if target.startswith("/") else full.parent
-            linked = (base / target.lstrip("/")).resolve()
-            if linked in pages and linked != full:
-                G.add_edge(rel, pages[linked][0])
-    return G
-
-
 def find(home: Path) -> list[Gap]:
     """The pairs of areas with the fewest links between them, thinnest first.
 
@@ -98,7 +51,8 @@ def find(home: Path) -> list[Gap]:
     every page kept its degree but chose its neighbours at random — which is the same
     yardstick Louvain used to draw the areas in the first place.
     """
-    G = graph(home)
+    # undirected: a link either way says the two areas know about each other
+    G = graph.build(home).to_undirected()
     m = G.number_of_edges()
     if m == 0:
         return []

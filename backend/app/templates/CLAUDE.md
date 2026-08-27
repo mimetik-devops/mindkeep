@@ -87,6 +87,11 @@ When a new file appears in `raw/`:
    it is touched, and every later ingest pays to read it. Reserve `write_file` for pages
    you are creating or genuinely replacing.
 
+   **Call `related` on a page before you change it.** It lists what the page links to,
+   what links to it, and what cites the same source — the pages that describe it from
+   the outside, which neither the page nor `index.md` will show you. Those are the pages
+   a change can put out of date, and the ones you would otherwise never open.
+
    **Batch your work.** Every tool call is a round trip costing seconds, so make all of a
    page's changes in one `edit_file` call, and act on several pages in the same turn
    rather than one per turn. Twenty edits spread over twenty turns is the same work at
@@ -137,8 +142,8 @@ that is when you see the correction.
 
 ## Answering questions
 
-Read `index.md` first, then open only the pages it points you to. When an answer takes
-real synthesis, write it back into `wiki/` as a page — explorations should compound
+Read `index.md` first, then open only the pages it points you to, and `related` on
+those to find their neighbours. When an answer takes real synthesis, write it back into `wiki/` as a page — explorations should compound
 rather than evaporate.
 
 ## Lint

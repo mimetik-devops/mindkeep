@@ -52,26 +52,6 @@ def test_an_area_needs_three_pages(tmp_path):
     assert gaps.find(tmp_path) == []
 
 
-def test_relative_and_absolute_links_both_count(tmp_path):
-    page(tmp_path, "wiki/people/jane.md", "Jane", ["../projects/x.md"])
-    page(tmp_path, "wiki/projects/x.md", "X", ["/wiki/people/jane.md", "y.md"])
-    page(tmp_path, "wiki/projects/y.md", "Y")
-    # a bare bundle-absolute path, the form the manual asks for
-    page(tmp_path, "wiki/projects/z.md", "Z")
-    (tmp_path / "wiki/projects/z.md").write_text(
-        "---\ntitle: Z\n---\nRelated: /wiki/projects/y.md and a missing /wiki/nope.md\n"
-    )
-
-    G = gaps.graph(tmp_path)
-
-    assert set(G.edges) == {
-        ("wiki/people/jane.md", "wiki/projects/x.md"),
-        ("wiki/projects/x.md", "wiki/projects/y.md"),
-        ("wiki/projects/y.md", "wiki/projects/z.md"),
-    }
-    assert "wiki/nope.md" not in G
-
-
 def test_hubs_lead_each_side(tmp_path):
     # `hub` links to every page in its area; the others only link to the hub
     for name in ["s1", "s2", "s3", "s4", "s5"]:

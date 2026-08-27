@@ -24,6 +24,7 @@ from pathlib import Path
 import anthropic
 from anthropic import beta_tool
 
+from app import graph
 from app.ingest import MODEL, enqueue, lock_for
 
 log = logging.getLogger(__name__)
@@ -45,6 +46,8 @@ overwritten the moment its source is read again. Correct the source and the page
 
 **How to work.**
 - Read the question, then read the files it names before saying anything about them.
+  `related` on a source path lists the pages that cite it — check it before editing a
+  source, so you can say what the correction will change.
 - Ask the person what you actually need to know. One question at a time. Do not guess, and
   do not invent facts to make a document consistent.
 - When you have the answer, write it into the source it belongs to with `edit_raw`, in the
@@ -87,6 +90,15 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
         """List every file in the knowledge base."""
         paths = (p for p in home.rglob("*") if p.is_file())
         return "\n".join(sorted(p.relative_to(home).as_posix() for p in paths))
+
+    def related(path: str) -> str:
+        """The pages connected to one page: what it links to, what links to it, and what
+        cites a source it cites. Given a path under raw/, the pages that cite it.
+
+        Args:
+            path: Path relative to the knowledge base root, e.g. raw/notes.md
+        """
+        return graph.related(graph.build(home), path)
 
     def edit_raw(path: str, edits: list[dict[str, str]]) -> str:
         """Change parts of a source document, leaving the rest untouched.
@@ -177,6 +189,7 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
             tools=[
                 beta_tool(read_file),
                 beta_tool(list_files),
+                beta_tool(related),
                 beta_tool(edit_raw),
                 beta_tool(write_raw),
                 beta_tool(resolve),
