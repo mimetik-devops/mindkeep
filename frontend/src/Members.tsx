@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import {
+  can,
   createInvite,
   invites,
   type Invite,
@@ -15,7 +16,7 @@ import {
 } from "./api";
 import { Copy } from "./icons";
 
-const ROLES: Role[] = ["owner", "admin", "member"];
+const ROLES: Role[] = ["owner", "admin", "contributor", "viewer"];
 
 /**
  * Who is in the team, and how to get someone in: the Settings card.
@@ -29,10 +30,10 @@ export function Members({ team }: { team: Team }) {
   const [who, setWho] = useState<Member[]>([]);
   const [sent, setSent] = useState<Invite[]>([]);
   const [self, setSelf] = useState("");
-  const [role, setRoleToInvite] = useState<Role>("member");
+  const [role, setRoleToInvite] = useState<Role>("contributor");
   const [copied, setCopied] = useState("");
   const [error, setError] = useState("");
-  const manages = team.role === "owner" || team.role === "admin";
+  const manages = can(team, "members");
   // a personal team is its owner's alone — the server refuses invites into one
   const invites_ = manages && !team.personal;
 
@@ -60,7 +61,7 @@ export function Members({ team }: { team: Team }) {
       <p>
         {team.personal
           ? "Your own team, yours alone. To work with others, create a team from the team menu and invite them there."
-          : "Everyone here can read and add to this team's bundles."}
+          : "Viewers read this team's bundles; contributors add to them; admins run the team; owners can also rename or delete it."}
       </p>
 
       {error && <div className="banner">{error}</div>}
@@ -104,7 +105,7 @@ export function Members({ team }: { team: Team }) {
           <div className="field">
             <span>Invite someone as</span>
             <select value={role} onChange={(e) => setRoleToInvite(e.target.value as Role)}>
-              {ROLES.filter((r) => team.role === "owner" || r !== "owner").map((r) => (
+              {ROLES.filter((r) => r !== "owner" || can(team, "team")).map((r) => (
                 <option key={r} value={r}>
                   {r}
                 </option>

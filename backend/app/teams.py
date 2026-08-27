@@ -12,9 +12,12 @@ teams *is* its owner's personal team, untouched. Other teams are made on purpose
 joined through an invite link: whoever opens it, signed in with whatever provider, is
 added under the `sub` they signed in with.
 
-Roles are the app's own, for team actions: owner (everything, and cannot be the last
-one removed), admin (members and invites), member (the wiki). The provider's role claim
-is a separate thing, for platform-level gating, and the two do not meet.
+Routes are gated by *permission*, and a role is a named set of permissions (GRANTS), so
+a role can change or a new one appear without a route knowing. Today: viewer reads a
+team's bundles; contributor writes to them — sources, answers, verifications; admin
+runs the team — members, invites, its shelf of bundles; owner also renames and deletes
+it, and a team keeps at least one. The provider's role claim is a separate thing, for
+platform-level gating, and the two do not meet.
 """
 
 import os
@@ -22,7 +25,7 @@ import secrets
 import shutil
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import delete, select
@@ -34,9 +37,35 @@ from app.runs import forget_tenant, utc
 
 router = APIRouter()
 
-Role = Literal["owner", "admin", "member"]
-ROLES: tuple[Role, ...] = ("owner", "admin", "member")
+Role = Literal["owner", "admin", "contributor", "viewer"]
+ROLES: tuple[Role, ...] = ("owner", "admin", "contributor", "viewer")
 INVITE_DAYS = 7
+
+# What a route asks for. Add one here and grant it below; no route names a role.
+Permission = Literal["read", "write", "bundles", "members", "team"]
+GRANTS: dict[str, frozenset[str]] = {
+    "viewer": frozenset({"read"}),
+    "contributor": frozenset({"read", "write"}),
+    "admin": frozenset({"read", "write", "bundles", "members"}),
+    "owner": frozenset({"read", "write", "bundles", "members", "team"}),
+}
+# The sentence a refusal carries, per permission: says who can, not merely that you cannot.
+REFUSED: dict[str, str] = {
+    "read": "not found",
+    "write": "viewers read — ask an admin for the contributor role",
+    "bundles": "only owners and admins change a team's bundles",
+    "members": "only owners and admins manage members",
+    "team": "only an owner renames or deletes a team, or makes another owner",
+}
+
+
+def allowed(role: str | None, permission: Permission) -> bool:
+    return permission in GRANTS.get(role or "", ())
+
+
+def require(role: str | None, permission: Permission) -> None:
+    if not allowed(role, permission):
+        raise HTTPException(403, REFUSED[permission])
 
 
 def personal_id(sub: str) -> str:
@@ -126,14 +155,21 @@ def create(name: str, sub: str, who: Profile) -> Team:
 
 
 def _as_dict(team: Team, role: str) -> dict[str, object]:
-    return {"id": team.id, "name": team.name, "personal": team.personal, "role": role}
+    """With what the role lets you do, so a UI gates on permissions and never on names."""
+    return {
+        "id": team.id,
+        "name": team.name,
+        "personal": team.personal,
+        "role": role,
+        "permissions": sorted(GRANTS.get(role, ())),
+    }
 
 
 @router.get("/teams")
 def list_teams(user: CurrentUser, who: CurrentProfile) -> list[dict[str, object]]:
     """The teams you belong to, personal first. Made on first sight, so never empty."""
     teams = mine(user, who)
-    return [_as_dict(t, role_of(t.id, user) or "member") for t in teams]
+    return [_as_dict(t, role_of(t.id, user) or "viewer") for t in teams]
 
 
 @router.post("/teams", status_code=201)
@@ -165,17 +201,26 @@ def acting_as(team: str, user: CurrentUser) -> Role:
 ActingAs = Annotated[Role, Depends(acting_as)]
 
 
-def manages(role: Role) -> None:
-    if role not in ("owner", "admin"):
-        raise HTTPException(403, "only owners and admins manage members")
+def needs(permission: Permission) -> Any:
+    """A route parameter: `_: Annotated[None, needs("write")]` refuses anyone whose role
+    in the team named by the URL does not carry the permission."""
+
+    def check(role: ActingAs) -> None:
+        require(role, permission)
+
+    return Depends(check)
+
+
+Members = Annotated[None, needs("members")]
+Owns = Annotated[None, needs("team")]
 
 
 @router.put("/teams/{team}")
 def rename_team(
     team: str, acting: ActingAs, name: Annotated[str, Body(embed=True)]
 ) -> dict[str, object]:
-    """Owners and admins rename; a personal team too — it was named from a token."""
-    manages(acting)
+    """Owners rename — a personal team too, since it was named from a token."""
+    require(acting, "team")
     name = name.strip()
     if not 1 <= len(name) <= 80:
         raise HTTPException(400, "a team name is 1 to 80 characters")
@@ -192,8 +237,7 @@ def delete_team(team: str, acting: ActingAs) -> dict[str, str]:
     """Gone: the team, everyone's membership, its invites, its run history — and its
     bundles on disk. Owners only, never a personal team. The UI asks for the team's
     name to be typed first; the server trusts an owner who got that far."""
-    if acting != "owner":
-        raise HTTPException(403, "only an owner can delete a team")
+    require(acting, "team")
     with session() as s:
         found = s.get(Team, team)
         if found is None:
@@ -244,16 +288,16 @@ def _owners(s, team: str) -> int:  # type: ignore[no-untyped-def]
 def set_role(
     team: str, sub: str, acting: ActingAs, role: Annotated[Role, Body(embed=True)]
 ) -> dict[str, str]:
-    """Owners set any role; admins set member or admin, never owner."""
-    manages(acting)
-    if acting == "admin" and role == "owner":
-        raise HTTPException(403, "only an owner can make an owner")
+    """Anyone with `members` sets roles; giving or taking ownership needs `team`."""
+    require(acting, "members")
+    if role == "owner":
+        require(acting, "team")
     with session() as s:
         m = s.scalar(select(Membership).where(Membership.team_id == team, Membership.sub == sub))
         if m is None:
             raise HTTPException(404, "not a member")
-        if acting == "admin" and m.role == "owner":
-            raise HTTPException(403, "only an owner can change an owner")
+        if m.role == "owner":
+            require(acting, "team")
         if m.role == "owner" and role != "owner" and _owners(s, team) == 1:
             raise HTTPException(409, "a team keeps at least one owner")
         m.role = role
@@ -266,7 +310,7 @@ def remove_member(team: str, sub: str, user: CurrentUser, acting: ActingAs) -> d
     """Owners and admins remove others; anyone may leave — except the last owner, and
     except from a personal team, which is its owner and cannot be walked out of."""
     if sub != user:
-        manages(acting)
+        require(acting, "members")
     with session() as s:
         owned = s.get(Team, team)
         if owned is not None and owned.personal:
@@ -274,8 +318,8 @@ def remove_member(team: str, sub: str, user: CurrentUser, acting: ActingAs) -> d
         m = s.scalar(select(Membership).where(Membership.team_id == team, Membership.sub == sub))
         if m is None:
             raise HTTPException(404, "not a member")
-        if acting == "admin" and m.role == "owner":
-            raise HTTPException(403, "only an owner can remove an owner")
+        if m.role == "owner" and sub != user:
+            require(acting, "team")
         if m.role == "owner" and _owners(s, team) == 1:
             raise HTTPException(409, "a team keeps at least one owner")
         s.delete(m)
@@ -308,7 +352,7 @@ def list_invites(team: str, acting: ActingAs) -> list[dict[str, object]]:
     """Every invite, newest first, with what became of it: open, used (and by whom), or
     expired. A link that was used stays on the list marked so, rather than vanishing —
     the person who sent it wants to see that it landed."""
-    manages(acting)
+    require(acting, "members")
     with session() as s:
         rows = (
             s.execute(
@@ -329,7 +373,7 @@ def create_invite(
     team: str,
     user: CurrentUser,
     acting: ActingAs,
-    role: Annotated[Role, Body(embed=True)] = "member",
+    role: Annotated[Role, Body(embed=True)] = "contributor",
 ) -> dict[str, object]:
     """An invite is a link. Whoever opens it, signed in with whatever provider, joins as
     the `sub` they signed in with — which is the whole reason it needs no email and no
@@ -337,9 +381,9 @@ def create_invite(
 
     Not into a personal team: that one is its owner's alone, and a team meant for
     sharing is made on purpose. Ruben's call, 2026-08-27."""
-    manages(acting)
-    if acting == "admin" and role == "owner":
-        raise HTTPException(403, "only an owner can invite an owner")
+    require(acting, "members")
+    if role == "owner":
+        require(acting, "team")
     with session() as s:
         owner_only = s.get(Team, team)
         if owner_only is None or owner_only.personal:
@@ -360,7 +404,7 @@ def create_invite(
 
 @router.delete("/teams/{team}/invites/{token}")
 def revoke_invite(team: str, token: str, acting: ActingAs) -> dict[str, str]:
-    manages(acting)
+    require(acting, "members")
     with session() as s:
         invite = s.scalar(select(Invite).where(Invite.team_id == team, Invite.token == token))
         if invite is None or invite.accepted_by is not None:

@@ -1,11 +1,11 @@
 import { useState } from "react";
 
-import { deleteTeam, me, removeMember, renameTeam, type Team } from "./api";
+import { can, deleteTeam, me, removeMember, renameTeam, type Team } from "./api";
 
 /**
  * The team itself, on the Settings page: its name, your place in it, and its end.
  *
- * Rename is owners and admins. Leave is anyone who is not the last owner. Delete is an
+ * Rename is owners. Leave is anyone who is not the last owner. Delete is an
  * owner typing the team's name, because it takes the bundles on disk with it and there
  * is no undo. None of it applies to a personal team, which is yours to keep — only the
  * name can change there.
@@ -15,7 +15,7 @@ export function TeamSettings({ team, onChanged }: { team: Team; onChanged: () =>
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const manages = team.role === "owner" || team.role === "admin";
+  const owns = can(team, "team");
 
   const act = async (work: () => Promise<unknown>) => {
     setError("");
@@ -46,10 +46,10 @@ export function TeamSettings({ team, onChanged }: { team: Team; onChanged: () =>
         <input
           aria-label="Team name"
           value={name}
-          disabled={!manages || busy}
+          disabled={!owns || busy}
           onChange={(e) => setName(e.target.value)}
         />
-        {manages && (
+        {owns && (
           <button type="submit" className="lint" disabled={busy || name.trim() === team.name}>
             Rename
           </button>
@@ -69,7 +69,7 @@ export function TeamSettings({ team, onChanged }: { team: Team; onChanged: () =>
         </div>
       )}
 
-      {!team.personal && team.role === "owner" && (
+      {!team.personal && owns && (
         <form
           className="field"
           onSubmit={(e) => {

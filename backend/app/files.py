@@ -84,6 +84,13 @@ def tenant(team: str, user: CurrentUser, who: CurrentProfile) -> Path:
 Tenant = Annotated[Path, Depends(tenant)]
 
 
+# Every route that changes a bundle asks for `write`; the ones that change the team's
+# shelf — a bundle made, moved, or scheduled — ask for `bundles`. Which roles carry
+# those is teams.GRANTS, and nothing here knows.
+Writer = Annotated[None, teams.needs("write")]
+Manager = Annotated[None, teams.needs("bundles")]
+
+
 def bundle(name: str, home: Tenant) -> Path:
     """One OKF bundle. `name` comes from the URL, so it is validated before it becomes a path."""
     if not BUNDLE_NAME.match(name):
@@ -187,7 +194,9 @@ def list_bundles(home: Tenant) -> list[str]:
 
 
 @router.post("/bundles", status_code=201)
-def create_bundle(home: Tenant, name: Annotated[str, Body(embed=True)]) -> dict[str, str]:
+def create_bundle(
+    home: Tenant, name: Annotated[str, Body(embed=True)], _: Manager
+) -> dict[str, str]:
     if not BUNDLE_NAME.match(name):
         raise HTTPException(400, "bundle names are lowercase letters, digits and hyphens")
     if (home / name).exists():
@@ -198,7 +207,11 @@ def create_bundle(home: Tenant, name: Annotated[str, Body(embed=True)]) -> dict[
 
 @router.put("/bundles/{name}/team")
 def move_bundle(
-    name: str, home: Bundle, user: CurrentUser, to: Annotated[str, Body(embed=True)]
+    name: str,
+    home: Bundle,
+    user: CurrentUser,
+    to: Annotated[str, Body(embed=True)],
+    _: Manager,
 ) -> dict[str, str]:
     """Move a bundle to another team: a directory rename and its rows re-keyed.
 
@@ -207,9 +220,7 @@ def move_bundle(
     run. The name has to be free over there; bundles are not renamed on the way.
     """
     leaving, joining = home.parent.name, to
-    if teams.role_of(leaving, user) not in ("owner", "admin"):
-        raise HTTPException(403, "only an owner or admin moves a bundle out of a team")
-    if teams.role_of(joining, user) not in ("owner", "admin"):
+    if not teams.allowed(teams.role_of(joining, user), "bundles"):
         raise HTTPException(404, "not found")  # a team you do not manage is not yours to see
     root = home.parent.parent
     target = root / joining / name
@@ -282,7 +293,7 @@ def read_as_text(path: str, home: Bundle) -> Response:
 
 
 @router.put("/bundles/{name}/files/{path:path}")
-async def write(path: str, request: Request, home: Bundle) -> dict[str, str]:
+async def write(path: str, request: Request, home: Bundle, _: Writer) -> dict[str, str]:
     target = safe_path(home, path)
     shared = target == home / TODO  # both agents and the owner write this one
     if not user_owns(home, target) and not shared:
@@ -299,7 +310,7 @@ async def write(path: str, request: Request, home: Bundle) -> dict[str, str]:
 
 
 @router.post("/bundles/{name}/verify/{path:path}")
-def verify(path: str, home: Bundle, who: CurrentIdentity) -> dict[str, str]:
+def verify(path: str, home: Bundle, who: CurrentIdentity, _: Writer) -> dict[str, str]:
     """Stamp a page as human-checked.
 
     The server owns this, not the client: `verified` is the field that separates what
@@ -382,7 +393,9 @@ def list_todos(home: Bundle) -> list[dict[str, object]]:
 
 
 @router.post("/bundles/{name}/todos/{index}")
-def set_todo(index: int, home: Bundle, done: Annotated[bool, Body(embed=True)]) -> dict[str, bool]:
+def set_todo(
+    index: int, home: Bundle, done: Annotated[bool, Body(embed=True)], _: Writer
+) -> dict[str, bool]:
     """Tick a question off by hand, or put it back."""
     target = home / TODO
     if not target.is_file():
@@ -399,6 +412,7 @@ def ask(
     home: Bundle,
     question: Annotated[str, Body()],
     messages: Annotated[list[dict[str, str]], Body()],
+    _: Writer,
 ) -> dict[str, object]:
     """One turn with the assistant. The browser holds the conversation; the server does not.
 
@@ -453,7 +467,9 @@ def lint_state(home: Bundle) -> dict[str, str | int | bool]:
 
 
 @router.put("/bundles/{name}/lint")
-def set_lint_schedule(home: Bundle, hour: Annotated[int, Body(embed=True)]) -> dict[str, int]:
+def set_lint_schedule(
+    home: Bundle, hour: Annotated[int, Body(embed=True)], _: Manager
+) -> dict[str, int]:
     """Choose the hour (UTC) this bundle is linted, or -1 to stop linting it nightly."""
     if hour != LINT_OFF and not 0 <= hour <= 23:
         raise HTTPException(400, "hour is 0-23, or -1 to switch the nightly lint off")
@@ -462,7 +478,7 @@ def set_lint_schedule(home: Bundle, hour: Annotated[int, Body(embed=True)]) -> d
 
 
 @router.post("/bundles/{name}/lint")
-def lint(home: Bundle) -> dict[str, str]:
+def lint(home: Bundle, _: Writer) -> dict[str, str]:
     """Run a maintenance pass now. The nightly one does exactly this, on a timer."""
     if LINT in runs.running_sources(home):
         raise HTTPException(409, "a lint is already running")
@@ -489,7 +505,7 @@ def list_folders(home: Bundle) -> list[str]:
 
 
 @router.post("/bundles/{name}/folders/{path:path}", status_code=201)
-def create_folder(path: str, home: Bundle) -> dict[str, str]:
+def create_folder(path: str, home: Bundle, _: Writer) -> dict[str, str]:
     rel = raw_path(path)
     target = safe_path(home, f"raw/{rel}")
     if target.exists():
@@ -499,7 +515,7 @@ def create_folder(path: str, home: Bundle) -> dict[str, str]:
 
 
 @router.delete("/bundles/{name}/folders/{path:path}")
-def remove_folder(path: str, home: Bundle) -> dict[str, str]:
+def remove_folder(path: str, home: Bundle, _: Writer) -> dict[str, str]:
     """Only an empty one. Deleting sources is the other route, and it asks first."""
     target = safe_path(home, f"raw/{path}")
     if not user_owns(home, target) or not target.is_dir() or target == home / "raw":
@@ -513,7 +529,10 @@ def remove_folder(path: str, home: Bundle) -> dict[str, str]:
 
 @router.post("/bundles/{name}/move")
 def move_raw(
-    home: Bundle, source: Annotated[str, Body()], target: Annotated[str, Body()]
+    home: Bundle,
+    source: Annotated[str, Body()],
+    target: Annotated[str, Body()],
+    _: Writer,
 ) -> dict[str, str]:
     """Move a source. Both ends are under raw/, which is the half the user owns.
 
@@ -547,7 +566,7 @@ def move_raw(
 
 
 @router.post("/bundles/{name}/ingest/{path:path}")
-def reingest(path: str, home: Bundle) -> dict[str, str]:
+def reingest(path: str, home: Bundle, _: Writer) -> dict[str, str]:
     """Run the agent over a source again.
 
     Ingests are long and not durable — a deploy, a crash, or `--reload` in development
@@ -563,7 +582,7 @@ def reingest(path: str, home: Bundle) -> dict[str, str]:
 
 
 @router.delete("/bundles/{name}/raw/{path:path}")
-def remove_raw(path: str, home: Bundle) -> dict[str, str]:
+def remove_raw(path: str, home: Bundle, _: Writer) -> dict[str, str]:
     """Delete a raw source. Only ever raw/ — never a wiki page.
 
     Deleting a source orphans the pages derived from it. That is fine and expected: the
@@ -581,7 +600,7 @@ def remove_raw(path: str, home: Bundle) -> dict[str, str]:
 
 
 @router.post("/bundles/{name}/raw/{path:path}")
-async def add_raw(path: str, home: Bundle, request: Request) -> dict[str, str]:
+async def add_raw(path: str, home: Bundle, request: Request, _: Writer) -> dict[str, str]:
     """Raw documents land here as sent, keeping their own name.
 
     No provenance sidecar: the ingest agent writes a summary page under wiki/ that cites

@@ -4,7 +4,13 @@ import { vi } from "vitest";
 
 import { Invite } from "./Invite";
 
-const acme = { id: "t1", name: "Acme", personal: false, role: "member" as const };
+const acme = {
+  id: "t1",
+  name: "Acme",
+  personal: false,
+  role: "contributor" as const,
+  permissions: ["read" as const, "write" as const],
+};
 vi.mock("./api", () => ({
   peekInvite: vi.fn(async (token: string) => {
     if (token === "spent") throw new Error("404 this invite is not open");

@@ -220,8 +220,17 @@ export type Graph = { pages: Page[]; links: [string, string][]; gaps: Gap[] };
 export const graph = (bundle: string) => call<Graph>(`${at(bundle)}/graph`);
 
 /** A team you belong to, with what you are in it. Personal teams come first. */
-export type Team = { id: string; name: string; personal: boolean; role: Role };
-export type Role = "owner" | "admin" | "member";
+export type Team = {
+  id: string;
+  name: string;
+  personal: boolean;
+  role: Role;
+  /** What the role lets you do here — gate on these, never on the role's name. */
+  permissions: Permission[];
+};
+export type Role = "owner" | "admin" | "contributor" | "viewer";
+export type Permission = "read" | "write" | "bundles" | "members" | "team";
+export const can = (team: Team, p: Permission) => team.permissions.includes(p);
 export type Member = { sub: string; name: string; email: string; role: Role; since: string };
 export type Invite = {
   token: string;

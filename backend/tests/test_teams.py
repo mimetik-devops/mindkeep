@@ -15,6 +15,7 @@ def test_everyone_has_a_personal_team_named_after_them(client):
         "name": "Ada Lovelace",
         "personal": True,
         "role": "owner",
+        "permissions": ["bundles", "members", "read", "team", "write"],
     }
     assert client.get(f"/teams/{team['id']}/bundles").json() == ["default"]
 
@@ -38,16 +39,16 @@ def test_creating_a_team_makes_you_its_owner_with_a_bundle_to_start(client):
 def test_an_invite_link_joins_whoever_opens_it(client):
     """No email, no provider API: the person who accepts is added under their own sub."""
     team = client.post("/teams", json={"name": "Acme"}).json()["id"]
-    invite = client.post(f"/teams/{team}/invites", json={"role": "member"}).json()
+    invite = client.post(f"/teams/{team}/invites", json={"role": "contributor"}).json()
 
     peek = client.get(f"/invites/{invite['token']}", headers=as_("bob")).json()
-    assert peek == {"team": {"id": team, "name": "Acme"}, "role": "member"}
+    assert peek == {"team": {"id": team, "name": "Acme"}, "role": "contributor"}
     joined = client.post(f"/invites/{invite['token']}/accept", headers=as_("bob")).json()
-    assert joined["id"] == team and joined["role"] == "member"
+    assert joined["id"] == team and joined["role"] == "contributor"
 
     assert client.get(f"/teams/{team}/bundles", headers=as_("bob")).json() == ["default"]
     members = client.get(f"/teams/{team}/members").json()
-    assert [(m["sub"], m["role"]) for m in members] == [("alice", "owner"), ("bob", "member")]
+    assert [(m["sub"], m["role"]) for m in members] == [("alice", "owner"), ("bob", "contributor")]
     # one use — and the link stays on the list, marked as used and by whom
     assert (
         client.post(f"/invites/{invite['token']}/accept", headers=as_("carol")).status_code == 404
@@ -179,6 +180,63 @@ def test_a_bundle_move_needs_management_on_both_sides(client):
     )
 
 
+def test_a_role_is_a_named_set_of_permissions(client):
+    """The table is the contract: a route asks for a permission, never a role."""
+    from app import teams
+
+    assert teams.GRANTS == {
+        "viewer": {"read"},
+        "contributor": {"read", "write"},
+        "admin": {"read", "write", "bundles", "members"},
+        "owner": {"read", "write", "bundles", "members", "team"},
+    }
+    [mine] = client.get("/teams").json()
+    assert mine["permissions"] == ["bundles", "members", "read", "team", "write"]
+
+
+def test_a_viewer_reads_and_a_contributor_writes(client):
+    """The four roles, at the bundle: viewer reads, contributor writes, admin shelves."""
+    team = client.post("/teams", json={"name": "Acme"}).json()["id"]
+
+    def join(user: str, role: str) -> dict[str, str]:
+        token = client.post(f"/teams/{team}/invites", json={"role": role}).json()["token"]
+        assert client.post(f"/invites/{token}/accept", headers=as_(user)).status_code == 200
+        return as_(user)
+
+    viewer, contributor, admin = (
+        join("bob", "viewer"),
+        join("carol", "contributor"),
+        join("dan", "admin"),
+    )
+    B = f"/teams/{team}/bundles/default"
+
+    # everyone reads
+    for who in (viewer, contributor, admin):
+        assert client.get(f"{B}/tree", headers=who).status_code == 200
+        assert client.get(f"{B}/files/index.md", headers=who).status_code == 200
+    # a viewer changes nothing
+    refused = client.post(f"{B}/raw/note.md", content=b"x", headers=viewer)
+    assert refused.status_code == 403 and "viewers read" in refused.json()["detail"]
+    assert client.put(f"{B}/files/todo.md", content=b"- [ ] q", headers=viewer).status_code == 403
+    assert client.post(f"{B}/folders/papers", headers=viewer).status_code == 403
+    assert client.post(f"{B}/lint", headers=viewer).status_code == 403
+    # a contributor writes, but does not shelve
+    assert client.post(f"{B}/raw/note.md", content=b"x", headers=contributor).status_code == 200
+    assert (
+        client.post(
+            f"/teams/{team}/bundles", json={"name": "more"}, headers=contributor
+        ).status_code
+        == 403
+    )
+    assert client.put(f"{B}/lint", json={"hour": 4}, headers=contributor).status_code == 403
+    # an admin shelves
+    assert (
+        client.post(f"/teams/{team}/bundles", json={"name": "more"}, headers=admin).status_code
+        == 201
+    )
+    assert client.put(f"{B}/lint", json={"hour": 4}, headers=admin).status_code == 200
+
+
 def test_an_expired_invite_is_not_open(client, monkeypatch):
     from app import teams
 
@@ -190,7 +248,7 @@ def test_an_expired_invite_is_not_open(client, monkeypatch):
     assert [i["state"] for i in client.get(f"/teams/{team}/invites").json()] == ["expired"]
 
 
-def test_members_do_not_manage_admins_do_owners_do_everything(client):
+def test_contributors_do_not_manage_admins_do_owners_do_everything(client):
     team = client.post("/teams", json={"name": "Acme"}).json()["id"]
 
     def join(user: str, role: str) -> None:
@@ -198,9 +256,9 @@ def test_members_do_not_manage_admins_do_owners_do_everything(client):
         assert client.post(f"/invites/{token}/accept", headers=as_(user)).status_code == 200
 
     join("bob", "admin")
-    join("carol", "member")
+    join("carol", "contributor")
 
-    # a member sees the team but manages nothing
+    # a contributor sees the team but manages nothing
     assert client.get(f"/teams/{team}/members", headers=as_("carol")).status_code == 200
     assert client.post(f"/teams/{team}/invites", headers=as_("carol")).status_code == 403
     assert client.delete(f"/teams/{team}/members/bob", headers=as_("carol")).status_code == 403
@@ -226,7 +284,12 @@ def test_members_do_not_manage_admins_do_owners_do_everything(client):
         == 403
     )
 
-    # the owner does, and hands ownership on
+    # an admin does not rename or delete; the owner does, and hands ownership on
+    assert (
+        client.put(f"/teams/{team}", json={"name": "Acme Ltd"}, headers=as_("bob")).status_code
+        == 403
+    )
+    assert client.delete(f"/teams/{team}", headers=as_("bob")).status_code == 403
     assert client.put(f"/teams/{team}/members/bob", json={"role": "owner"}).status_code == 200
     assert client.delete(f"/teams/{team}/members/carol").status_code == 200
     assert [m["sub"] for m in client.get(f"/teams/{team}/members").json()] == ["alice", "bob"]
@@ -234,7 +297,9 @@ def test_members_do_not_manage_admins_do_owners_do_everything(client):
 
 def test_a_team_keeps_at_least_one_owner(client):
     team = client.post("/teams", json={"name": "Acme"}).json()["id"]
-    assert client.put(f"/teams/{team}/members/alice", json={"role": "member"}).status_code == 409
+    assert (
+        client.put(f"/teams/{team}/members/alice", json={"role": "contributor"}).status_code == 409
+    )
     assert client.delete(f"/teams/{team}/members/alice").status_code == 409  # cannot even leave
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { deviceToken, LINT_OFF, moveBundle, setLintHour, startLint, type Team } from "./api";
+import { can, deviceToken, LINT_OFF, moveBundle, setLintHour, startLint, type Team } from "./api";
 import { Members } from "./Members";
 import { TeamSettings } from "./TeamSettings";
 import { Copy } from "./icons";
@@ -48,10 +48,8 @@ export function Settings({
   const { lint, refresh } = useLint(bundle);
   const [error, setError] = useState("");
   const [destination, setDestination] = useState("");
-  const manages = team.role === "owner" || team.role === "admin";
-  const elsewhere = teams.filter(
-    (t) => t.id !== team.id && (t.role === "owner" || t.role === "admin"),
-  );
+  const manages = can(team, "bundles");
+  const elsewhere = teams.filter((t) => t.id !== team.id && can(t, "bundles"));
   const [token, setToken] = useState("");
   const [copied, setCopied] = useState(false);
 
