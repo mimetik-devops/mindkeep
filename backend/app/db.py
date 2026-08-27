@@ -99,7 +99,7 @@ class SourceMove(Base):
 
 
 class Team(Base):
-    """People who share bundles. See teams.py for why this is Mindstash's, not the provider's.
+    """People who share bundles. See teams.py for why this is Mindkeep's, not the provider's.
 
     A personal team's id is the hash that names its owner's directory, so the tenant
     directory and the team are the same thing under two names.

@@ -63,7 +63,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="Mindstash", lifespan=lifespan)
+app = FastAPI(title="Mindkeep", lifespan=lifespan)
 app.include_router(files.router)
 app.include_router(teams.router)
 

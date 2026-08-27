@@ -33,10 +33,10 @@ function Session({ adapter }: { adapter: Adapter }) {
     return (
       <div className="login">
         <Mark size={64} />
-        <h1>Mindstash</h1>
+        <h1>Mindkeep</h1>
         <p>
           {pendingConnect()
-            ? `The Mindstash app on ${pendingConnect()?.name} wants to sign in as you. Sign in to connect it.`
+            ? `The Mindkeep app on ${pendingConnect()?.name} wants to sign in as you. Sign in to connect it.`
             : pending()
               ? "You have been invited to a team. Sign in, or register, to join it."
               : "A second brain that reads what you feed it."}
@@ -56,7 +56,7 @@ export function Gate({ adapter = chosen() }: { adapter?: Adapter | string }) {
     return (
       <div className="login">
         <Mark size={64} />
-        <h1>Mindstash</h1>
+        <h1>Mindkeep</h1>
         <p>
           VITE_AUTH_PROVIDER is {adapter ? `"${adapter}"` : "not set"}. It names the identity
           provider: one of {Object.keys(ADAPTERS).join(", ")}.

@@ -4,7 +4,7 @@ A third kind of file, deliberately. `raw/` is the owner's and `wiki/` is the age
 one is **shared**: the wiki agent appends questions it hit while ingesting, the assistant
 ticks them off as they are answered, and a person can edit it by hand. It is plain
 markdown checkboxes so Claude Code can work through it in the synced folder without
-Mindstash being involved at all — which is the point of keeping it out of the wiki.
+Mindkeep being involved at all — which is the point of keeping it out of the wiki.
 
 Writing to it never triggers an ingest. It is a record about the knowledge, not knowledge.
 """

@@ -216,7 +216,7 @@ export function Settings({
               <h2>Rename this bundle</h2>
               <p>
                 Lowercase letters, digits and hyphens. A desktop client pointed at the old name will
-                need <code>mindstash login</code> again.
+                need <code>mindkeep login</code> again.
               </p>
               <form
                 className="field"
@@ -364,7 +364,7 @@ export function Settings({
               </div>
               <p className="soft">
                 The token for {fresh.name}, shown this once. Paste it into the app, or into{" "}
-                <code>mindstash login</code>.
+                <code>mindkeep login</code>.
               </p>
             </>
           )}

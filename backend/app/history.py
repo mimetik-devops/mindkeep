@@ -23,9 +23,9 @@ log = logging.getLogger(__name__)
 GIT = [
     "git",
     "-c",
-    "user.name=Mindstash",
+    "user.name=Mindkeep",
     "-c",
-    "user.email=agent@mindstash.invalid",
+    "user.email=agent@mindkeep.invalid",
     "-c",
     "core.autocrlf=false",
     "-c",

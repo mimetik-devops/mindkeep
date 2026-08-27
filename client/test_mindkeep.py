@@ -8,7 +8,7 @@ import json
 import re
 import urllib.error
 
-import mindstash.sync as mindstash
+import mindkeep.sync as mindkeep
 
 
 def cleaned(body: bytes) -> bytes:
@@ -26,16 +26,16 @@ def cleaned(body: bytes) -> bytes:
 def fake_server(monkeypatch, tmp_path, tree: dict[str, str], dirs: list[str] | None = None) -> dict:
     """A server reporting `tree` and `dirs`, answering every download with the same bytes."""
     monkeypatch.setattr(
-        mindstash, "call_json", lambda cfg, path: (dirs or []) if path.endswith("folders") else tree
+        mindkeep, "call_json", lambda cfg, path: (dirs or []) if path.endswith("folders") else tree
     )
     monkeypatch.setattr(
-        mindstash,
+        mindkeep,
         "call",
         lambda cfg, path, body=None, method="", kind="", headers=None: (
             cleaned(body) if path == "clean" else b"x"
         ),
     )
-    monkeypatch.setattr(mindstash, "STATE", tmp_path / "state.json")
+    monkeypatch.setattr(mindkeep, "STATE", tmp_path / "state.json")
     return {
         "server": "http://x",
         "token": "t",
@@ -56,7 +56,7 @@ def test_sync_leaves_somewhere_to_drop_a_file(tmp_path, monkeypatch):
     (root / "raw").mkdir(parents=True)
     (root / "stray").mkdir()  # not part of the bundle, so it goes
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert (root / "raw").is_dir()
     assert (root / "wiki").is_dir()
@@ -71,7 +71,7 @@ def test_sync_still_mirrors_deletions(tmp_path, monkeypatch):
     (root / "wiki").mkdir(parents=True)
     (root / "wiki" / "gone.md").write_text("deleted on the server", encoding="utf-8")
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert not (root / "wiki" / "gone.md").exists()
     assert (root / "wiki").is_dir()
@@ -88,7 +88,7 @@ def test_folders_you_make_in_raw_are_uploaded_as_you_made_them(tmp_path, monkeyp
     (root / "raw" / "papers" / "2026" / "synthetic users.md").write_text("x", encoding="utf-8")
     (root / "raw" / "loose.md").write_text("y", encoding="utf-8")
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert sorted(c for c in sent if c != "POST clean") == [
         "POST teams/T/bundles/default/raw/loose.md",
@@ -101,17 +101,17 @@ def test_a_local_rename_is_sent_as_a_move(tmp_path, monkeypatch):
     the pages citing it and writes them again from scratch."""
     calls: list[str] = []
     body = b"the same bytes"
-    hashed = mindstash.hashlib.sha256(body).hexdigest()
+    hashed = mindkeep.hashlib.sha256(body).hexdigest()
 
     cfg = fake_server(monkeypatch, tmp_path, {"raw/note.md": hashed})
     calls_from(monkeypatch, calls)
-    mindstash.remember(cfg, {"raw/note.md": hashed})  # the server had it at the last sync
+    mindkeep.remember(cfg, {"raw/note.md": hashed})  # the server had it at the last sync
 
     root = tmp_path / "mirror"
     (root / "raw" / "papers").mkdir(parents=True)
     (root / "raw" / "papers" / "note.md").write_bytes(body)  # renamed on disk
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert "POST teams/T/bundles/default/move" in calls
     assert not [c for c in calls if c.startswith("DELETE")]
@@ -123,18 +123,18 @@ def test_reorganising_everything_is_not_mistaken_for_losing_everything(tmp_path,
     calls: list[str] = []
     tree = {}
     for name in ("a.md", "b.md"):
-        tree[f"raw/{name}"] = mindstash.hashlib.sha256(name.encode()).hexdigest()
+        tree[f"raw/{name}"] = mindkeep.hashlib.sha256(name.encode()).hexdigest()
 
     cfg = fake_server(monkeypatch, tmp_path, dict(tree))
     calls_from(monkeypatch, calls)
-    mindstash.remember(cfg, dict(tree))
+    mindkeep.remember(cfg, dict(tree))
 
     root = tmp_path / "mirror"
     (root / "raw" / "papers").mkdir(parents=True)
     for name in ("a.md", "b.md"):
         (root / "raw" / "papers" / name).write_bytes(name.encode())
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert calls.count("POST teams/T/bundles/default/move") == 2
     assert not [c for c in calls if c.startswith("DELETE")]
@@ -142,7 +142,7 @@ def test_reorganising_everything_is_not_mistaken_for_losing_everything(tmp_path,
 
 def calls_from(monkeypatch, sink: list[str]) -> None:
     monkeypatch.setattr(
-        mindstash,
+        mindkeep,
         "call",
         lambda cfg, path, body=None, method="", kind="", headers=None: (
             sink.append(f"{method or 'POST'} {path}")
@@ -154,12 +154,12 @@ def calls_from(monkeypatch, sink: list[str]) -> None:
 def test_an_empty_folder_made_on_the_server_appears_on_disk(tmp_path, monkeypatch):
     """No file carries it down, so it has to be asked for and made."""
     cfg = fake_server(monkeypatch, tmp_path, {}, ["papers", "papers/2026"])
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     root = tmp_path / "mirror"
     assert (root / "raw" / "papers" / "2026").is_dir()
 
-    mindstash.sync(cfg)  # and the sweep does not take it away again
+    mindkeep.sync(cfg)  # and the sweep does not take it away again
     assert (root / "raw" / "papers" / "2026").is_dir()
 
 
@@ -169,7 +169,7 @@ def test_an_empty_folder_made_on_disk_is_sent(tmp_path, monkeypatch):
     calls_from(monkeypatch, calls)
 
     (tmp_path / "mirror" / "raw" / "essays").mkdir(parents=True)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert "POST teams/T/bundles/default/folders/essays" in calls
 
@@ -178,12 +178,12 @@ def test_a_folder_deleted_on_disk_is_deleted_on_the_server(tmp_path, monkeypatch
     """The other half of the question: a delete here is a delete there, folders included."""
     calls: list[str] = []
     cfg = fake_server(monkeypatch, tmp_path, {}, ["essays"])
-    mindstash.sync(cfg)  # arrives, and is remembered
+    mindkeep.sync(cfg)  # arrives, and is remembered
 
     root = tmp_path / "mirror"
     (root / "raw" / "essays").rmdir()  # deleted here
     calls_from(monkeypatch, calls)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert "DELETE teams/T/bundles/default/folders/essays" in calls
 
@@ -192,11 +192,11 @@ def test_a_folder_deleted_on_the_server_is_not_resurrected(tmp_path, monkeypatch
     """Without the remembered state this looks identical to a folder you just made."""
     calls: list[str] = []
     cfg = fake_server(monkeypatch, tmp_path, {}, ["essays"])
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     fake_server(monkeypatch, tmp_path, {}, [])  # gone on the server
     calls_from(monkeypatch, calls)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert not (tmp_path / "mirror" / "raw" / "essays").exists()
     assert not [c for c in calls if "folders" in c]  # neither re-made nor re-deleted
@@ -207,14 +207,14 @@ def test_emptying_raw_on_purpose_empties_it_on_the_server(tmp_path, monkeypatch)
     calls: list[str] = []
     tree = {"CLAUDE.md": "c", "raw/a.md": "h1", "raw/b.md": "h2"}
     cfg = fake_server(monkeypatch, tmp_path, dict(tree))
-    mindstash.remember(cfg, dict(tree))
+    mindkeep.remember(cfg, dict(tree))
 
     root = tmp_path / "mirror"
     (root / "raw").mkdir(parents=True)
     (root / "CLAUDE.md").write_text("the manual is still here", encoding="utf-8")
 
     calls_from(monkeypatch, calls)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert sorted(c for c in calls if c.startswith("DELETE")) == [
         "DELETE teams/T/bundles/default/raw/a.md",
@@ -227,10 +227,10 @@ def test_a_folder_that_went_missing_deletes_nothing(tmp_path, monkeypatch):
     calls: list[str] = []
     tree = {"CLAUDE.md": "c", "raw/a.md": "h1", "raw/b.md": "h2"}
     cfg = fake_server(monkeypatch, tmp_path, dict(tree))
-    mindstash.remember(cfg, dict(tree))
+    mindkeep.remember(cfg, dict(tree))
 
     calls_from(monkeypatch, calls)
-    mindstash.sync(cfg)  # nothing on disk at all
+    mindkeep.sync(cfg)  # nothing on disk at all
 
     assert not [c for c in calls if c.startswith("DELETE")]
 
@@ -240,14 +240,14 @@ def test_answers_written_into_todo_md_go_back_up(tmp_path, monkeypatch):
     synced folder with Claude Code, and the answers have to reach the server."""
     calls: list[str] = []
     cfg = fake_server(monkeypatch, tmp_path, {"todo.md": "stale"})
-    mindstash.remember(cfg, {"todo.md": "stale"})
+    mindkeep.remember(cfg, {"todo.md": "stale"})
 
     root = tmp_path / "mirror"
     root.mkdir(parents=True)
     (root / "todo.md").write_text("- [x] answered locally\n", encoding="utf-8")
 
     calls_from(monkeypatch, calls)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert "PUT teams/T/bundles/default/files/todo.md" in calls
 
@@ -261,10 +261,10 @@ def test_a_todo_only_the_server_changed_is_not_pushed_back(tmp_path, monkeypatch
     root.mkdir(parents=True)
     body = b"- [ ] as it was at the last sync\n"
     (root / "todo.md").write_bytes(body)
-    mindstash.remember(cfg, {"todo.md": mindstash.hashlib.sha256(body).hexdigest()})
+    mindkeep.remember(cfg, {"todo.md": mindkeep.hashlib.sha256(body).hexdigest()})
 
     calls_from(monkeypatch, calls)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert not [c for c in calls if c.startswith("PUT")]
 
@@ -280,7 +280,7 @@ def uploads_into(monkeypatch, tree: dict[str, str], sink: list[str]) -> None:
             tree[path.removeprefix("teams/T/bundles/default/")] = hashlib.sha256(body).hexdigest()
         return b"{}"
 
-    monkeypatch.setattr(mindstash, "call", fake)
+    monkeypatch.setattr(mindkeep, "call", fake)
 
 
 def test_a_new_file_is_renamed_the_way_the_server_would_before_it_goes_up(tmp_path, monkeypatch):
@@ -294,7 +294,7 @@ def test_a_new_file_is_renamed_the_way_the_server_would_before_it_goes_up(tmp_pa
     raw.mkdir(parents=True)
     (raw / "Futuros — how it works (architecture, stack).md").write_bytes(b"a")
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     clean = "Futuros - how it works (architecture- stack).md"
     assert f"POST teams/T/bundles/default/raw/{clean}" in calls
@@ -314,7 +314,7 @@ def test_a_twin_already_spelt_the_servers_way_is_not_uploaded_twice(tmp_path, mo
     (raw / "notes, v2.md").write_bytes(b"old")
     (raw / "notes- v2.md").write_bytes(b"new")  # a different document under the clean name
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     uploads = sorted(c for c in calls if c.startswith("POST teams/T/bundles/default/raw/"))
     assert uploads == [
@@ -333,7 +333,7 @@ def test_a_file_the_server_already_has_keeps_its_name(tmp_path, monkeypatch):
     raw.mkdir(parents=True)
     (raw / "kept'.md").write_bytes(b"x")
 
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert (raw / "kept'.md").exists()
 
@@ -381,12 +381,12 @@ class Server:
 
     def install(self, monkeypatch, tmp_path) -> dict:
         monkeypatch.setattr(
-            mindstash,
+            mindkeep,
             "call_json",
             lambda cfg, path: [] if path.endswith("folders") else self.tree(),
         )
-        monkeypatch.setattr(mindstash, "call", self.call)
-        monkeypatch.setattr(mindstash, "STATE", tmp_path / "state.json")
+        monkeypatch.setattr(mindkeep, "call", self.call)
+        monkeypatch.setattr(mindkeep, "STATE", tmp_path / "state.json")
         return {
             "server": "http://x",
             "token": "t",
@@ -400,19 +400,19 @@ def test_a_file_changed_on_both_sides_is_kept_aside_not_overwritten(tmp_path, mo
     """Nobody's edit wins silently: theirs lands in place, yours under .conflicts/."""
     server = Server({"raw/plan.md": b"v1"})
     cfg = server.install(monkeypatch, tmp_path)
-    mindstash.sync(cfg)  # brings v1 down and remembers it
+    mindkeep.sync(cfg)  # brings v1 down and remembers it
     root = tmp_path / "mirror"
 
     (root / "raw" / "plan.md").write_bytes(b"mine")
     server.files["raw/plan.md"] = b"theirs"
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert (root / "raw" / "plan.md").read_bytes() == b"theirs"
     assert (root / ".conflicts" / "raw" / "plan.md").read_bytes() == b"mine"
     assert not any(c.startswith("PUT") for c in server.calls)
     assert server.files["raw/plan.md"] == b"theirs"
 
-    mindstash.sync(cfg)  # the kept copy is neither uploaded nor swept
+    mindkeep.sync(cfg)  # the kept copy is neither uploaded nor swept
     assert (root / ".conflicts" / "raw" / "plan.md").exists()
     assert "raw/.conflicts" not in server.files and ".conflicts/raw/plan.md" not in server.files
 
@@ -420,7 +420,7 @@ def test_a_file_changed_on_both_sides_is_kept_aside_not_overwritten(tmp_path, mo
 def test_the_server_catches_the_race_the_tree_fetch_cannot_see(tmp_path, monkeypatch):
     server = Server({"raw/plan.md": b"v1"})
     cfg = server.install(monkeypatch, tmp_path)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
     root = tmp_path / "mirror"
     (root / "raw" / "plan.md").write_bytes(b"mine")
 
@@ -430,7 +430,7 @@ def test_the_server_catches_the_race_the_tree_fetch_cannot_see(tmp_path, monkeyp
         server, "tree", lambda: real_tree() | {"raw/plan.md": hashlib.sha256(b"v1").hexdigest()}
     )
     server.files["raw/plan.md"] = b"theirs"
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert (root / ".conflicts" / "raw" / "plan.md").read_bytes() == b"mine"
     assert server.files["raw/plan.md"] == b"theirs"
@@ -441,7 +441,7 @@ def test_your_ticks_land_on_the_list_the_agent_added_to(tmp_path, monkeypatch):
     answer under another. Both survive, the answer under its question."""
     server = Server({"todo.md": b"# Todo\n\n- [ ] Which figure?\n- [ ] Who is Jane?\n"})
     cfg = server.install(monkeypatch, tmp_path)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
     root = tmp_path / "mirror"
 
     (root / "todo.md").write_bytes(
@@ -450,7 +450,7 @@ def test_your_ticks_land_on_the_list_the_agent_added_to(tmp_path, monkeypatch):
     server.files["todo.md"] = (
         b"# Todo\n\n- [ ] Which figure?\n- [ ] Who is Jane?\n- [ ] Is the deck current?\n"
     )
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     merged = (
         "# Todo\n\n- [x] Which figure?\n- [ ] Who is Jane?\n  Jane is the CTO.\n"
@@ -464,12 +464,12 @@ def test_your_ticks_land_on_the_list_the_agent_added_to(tmp_path, monkeypatch):
 def test_a_delete_of_a_file_rewritten_over_there_brings_theirs_back(tmp_path, monkeypatch):
     server = Server({"raw/plan.md": b"v1"})
     cfg = server.install(monkeypatch, tmp_path)
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
     root = tmp_path / "mirror"
 
     (root / "raw" / "plan.md").unlink()
     server.files["raw/plan.md"] = b"theirs"
-    mindstash.sync(cfg)
+    mindkeep.sync(cfg)
 
     assert server.files["raw/plan.md"] == b"theirs"
     assert (root / "raw" / "plan.md").read_bytes() == b"theirs"

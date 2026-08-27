@@ -195,7 +195,7 @@ export const lintState = (bundle: string) => call<Lint>(`${at(bundle)}/lint`);
 export const startLint = (bundle: string) =>
   call<{ linting: string }>(`${at(bundle)}/lint`, { method: "POST" });
 
-/** Composed from Kinde on every read — Mindstash keeps no user table of its own. */
+/** Composed from Kinde on every read — Mindkeep keeps no user table of its own. */
 export type Profile = {
   id: string;
   name: string;

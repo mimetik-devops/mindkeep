@@ -4,7 +4,7 @@
  * trip. sessionStorage lives exactly that long — this tab, this visit — and asks nothing
  * of the provider, which keeps the invite flow the app's own.
  */
-const KEY = "mindstash.invite";
+const KEY = "mindkeep.invite";
 
 /** Note the token in the address, if there is one. Runs before any sign-in redirect. */
 export function remember(): void {

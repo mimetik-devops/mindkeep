@@ -93,7 +93,7 @@ jobs:
         run: briefcase package ${{ matrix.platform }} ${{ matrix.format }}
       - uses: actions/upload-artifact@v4
         with:
-          name: mindstash-${{ matrix.platform }}
+          name: mindkeep-${{ matrix.platform }}
           path: client/${{ matrix.installer }}
           if-no-files-found: error
 

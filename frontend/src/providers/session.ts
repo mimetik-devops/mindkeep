@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { Profile } from "../api";
 
 /**
- * What Mindstash needs from an identity provider — all of it.
+ * What Mindkeep needs from an identity provider — all of it.
  *
  * A provider adapter is a React `Provider` that owns the browser session, and a
  * `useSession` hook that reports it in these terms. Everything else in the app talks to

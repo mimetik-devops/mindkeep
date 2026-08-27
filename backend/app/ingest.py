@@ -162,7 +162,7 @@ def ingest(
         text = readable_text(target)
         if text is None:
             return (
-                f"{path} is not readable as text — Mindstash cannot extract "
+                f"{path} is not readable as text — Mindkeep cannot extract "
                 f"{target.suffix or 'this format'} yet. Do not guess at its contents. "
                 "Note it in log.md as awaiting support and stop."
             )

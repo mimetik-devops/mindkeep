@@ -29,7 +29,7 @@ export function Connect({ asked, onDismiss }: { asked: Asked; onDismiss: () => v
   return (
     <div className="login">
       <Mark size={64} />
-      <h1>Mindstash</h1>
+      <h1>Mindkeep</h1>
       {error ? (
         <>
           <p>{error}</p>
@@ -42,7 +42,7 @@ export function Connect({ asked, onDismiss }: { asked: Asked; onDismiss: () => v
       ) : (
         <>
           <p>
-            The Mindstash app on <b>{asked.name}</b> wants to sign in as you. It gets a token of its
+            The Mindkeep app on <b>{asked.name}</b> wants to sign in as you. It gets a token of its
             own, which you can revoke from Settings at any time.
           </p>
           <button className="primary" disabled={busy} onClick={connect}>

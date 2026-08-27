@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 TODO = "todo.md"
 
-ROLE = """You are the assistant in Mindstash, a knowledge base that a second agent builds
+ROLE = """You are the assistant in Mindkeep, a knowledge base that a second agent builds
 from source documents.
 
 That agent reads everything in `raw/` and writes the pages under `wiki/`. When it cannot

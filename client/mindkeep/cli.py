@@ -1,8 +1,8 @@
-"""Mindstash desktop client, from the command line.
+"""Mindkeep desktop client, from the command line.
 
-    mindstash login    once, per machine
-    mindstash sync     pull the wiki down, push anything new in raw/
-    mindstash watch    the same, every 30 seconds
+    mindkeep login    once, per machine
+    mindkeep sync     pull the wiki down, push anything new in raw/
+    mindkeep watch    the same, every 30 seconds
 
 Point Claude at the folder this creates. Drop files in its raw/ folder and they upload.
 
@@ -18,14 +18,14 @@ import time
 import urllib.error
 from pathlib import Path
 
-from mindstash.connect import about, hostname, sign_in
-from mindstash.sync import INTERVAL, LAYOUT, Unreachable, call_json, sync
+from mindkeep.connect import about, hostname, sign_in
+from mindkeep.sync import INTERVAL, LAYOUT, Unreachable, call_json, sync
 
-CONFIG = Path.home() / ".mindstash.json"
+CONFIG = Path.home() / ".mindkeep.json"
 
 
 def login(config: Path) -> None:
-    default_folder = Path.home() / "Mindstash"
+    default_folder = Path.home() / "Mindkeep"
     server = input("API address [http://localhost:8001]: ").strip() or "http://localhost:8001"
     token = input("Sign in through the browser [Enter], or paste a device token: ").strip()
     if not token:
@@ -39,7 +39,7 @@ def login(config: Path) -> None:
         try:
             token = sign_in(web, hostname())
         except TimeoutError:
-            sys.exit("Nobody connected this device in time. Run `mindstash login` again.")
+            sys.exit("Nobody connected this device in time. Run `mindkeep login` again.")
     folder = input(f"Save the wiki in [{default_folder}]: ").strip() or str(default_folder)
 
     # The teams you belong to, personal first — the server makes the personal one on
@@ -71,17 +71,17 @@ def login(config: Path) -> None:
     for name in LAYOUT:
         (Path(folder) / name).mkdir(parents=True, exist_ok=True)
     config.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    print(f"Ready. Run `mindstash watch`, and point Claude at {folder}.")
+    print(f"Ready. Run `mindkeep watch`, and point Claude at {folder}.")
 
 
 def needs_team(cfg: dict) -> None:
     if "team" not in cfg:
-        sys.exit("Bundles now live in teams: run `mindstash login` once more to pick yours.")
+        sys.exit("Bundles now live in teams: run `mindkeep login` once more to pick yours.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="mindstash", description="Mindstash desktop client, from the command line."
+        prog="mindkeep", description="Mindkeep desktop client, from the command line."
     )
     parser.add_argument("command", nargs="?", default="sync", choices=["login", "sync", "watch"])
     parser.add_argument("--config", type=Path, default=CONFIG, help=f"default: {CONFIG}")
@@ -90,7 +90,7 @@ def main() -> None:
     if command == "login":
         return login(config)
     if not config.exists():
-        sys.exit(f"Run `mindstash login` first (config: {config}).")
+        sys.exit(f"Run `mindkeep login` first (config: {config}).")
     cfg = json.loads(config.read_text(encoding="utf-8"))
     needs_team(cfg)
 

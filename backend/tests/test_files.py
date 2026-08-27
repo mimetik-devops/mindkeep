@@ -994,7 +994,7 @@ def test_a_tenant_named_by_its_subject_is_moved_once(client, tmp_path):
 
 
 def test_the_profile_is_whatever_the_token_says(client):
-    """Mindstash keeps no user table, so /me is the token's own claims."""
+    """Mindkeep keeps no user table, so /me is the token's own claims."""
     me = client.get("/me").json()
     assert me["id"] == "alice"
     assert me["name"] == "Ada Lovelace"

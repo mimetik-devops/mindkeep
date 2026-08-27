@@ -3,7 +3,7 @@
     python stamp.py v0.2.0      (from client/)
 
 The tag is the only place a version is typed. In git, pyproject.toml and
-mindstash/__init__.py both say 0.0.0 — what a local build or `pip install -e .` gets —
+mindkeep/__init__.py both say 0.0.0 — what a local build or `pip install -e .` gets —
 and the release workflow stamps the tag's number over both before Briefcase reads
 them, so the installers, the package metadata, the changelog and the app's own "about"
 all carry the tag's version without anyone editing a file.
@@ -16,7 +16,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 FILES = {
     "pyproject.toml": r'^version = "[^"]*"',  # the first one is [project]'s; Briefcase reads it
-    "mindstash/__init__.py": r'^__version__ = "[^"]*"',
+    "mindkeep/__init__.py": r'^__version__ = "[^"]*"',
 }
 
 

@@ -38,7 +38,7 @@ CONFLICTS = ".conflicts"
 # does not have is ambiguous: newly added here, or deleted over there? Guessing "new"
 # resurrects deleted sources; guessing "deleted" destroys your originals. Kept beside the
 # config rather than in the synced folder, so the mirror stays pure wiki.
-STATE = Path.home() / ".mindstash-state.json"
+STATE = Path.home() / ".mindkeep-state.json"
 INTERVAL = 30
 
 

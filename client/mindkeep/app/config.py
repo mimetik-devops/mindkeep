@@ -9,7 +9,7 @@ import json
 import re
 from pathlib import Path
 
-CONFIG = Path.home() / ".mindstash" / "app.json"
+CONFIG = Path.home() / ".mindkeep" / "app.json"
 
 UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
@@ -22,7 +22,7 @@ def load(path: Path = CONFIG) -> dict:
         except (json.JSONDecodeError, OSError):
             pass  # a damaged file is an empty one; the settings window asks again
     if not cfg["root"]:
-        cfg["root"] = str(Path.home() / "Mindstash")
+        cfg["root"] = str(Path.home() / "Mindkeep")
     return cfg
 
 
@@ -65,7 +65,7 @@ def unwatch(cfg: dict, team: str, bundle: str) -> None:
 
 
 def sync_config(cfg: dict, entry: dict) -> dict:
-    """What `mindstash.sync.sync()` takes: one bundle in one folder."""
+    """What `mindkeep.sync.sync()` takes: one bundle in one folder."""
     return {
         "server": cfg["server"],
         "token": cfg["token"],

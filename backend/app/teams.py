@@ -1,6 +1,6 @@
 """Teams: who may open a tenant's bundles.
 
-The identity provider says who a person is; Mindstash says which people work together.
+The identity provider says who a person is; Mindkeep says which people work together.
 That split is what keeps teams provider-agnostic — Kinde, Clerk and Keycloak each have
 their own notion of an organisation with its own API, and building on any of them is
 building on one of them. So membership, roles and invites are three tables here, keyed

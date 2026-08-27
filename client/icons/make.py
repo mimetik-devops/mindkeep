@@ -2,8 +2,8 @@
 
     python icons/make.py        (from client/, with PySide6 installed)
 
-The drawing is `mindstash.app.mark.paint` — the same one the tray and the windows
-use. The PNGs are the Linux sizes, `mindstash.ico` is Windows, `mindstash.icns` is
+The drawing is `mindkeep.app.mark.paint` — the same one the tray and the windows
+use. The PNGs are the Linux sizes, `mindkeep.ico` is Windows, `mindkeep.icns` is
 macOS — the last two are just containers around the same PNGs, so no image library is
 needed beyond Qt. Checked in so a build never depends on this script; rerun it when
 the mark changes.
@@ -17,7 +17,7 @@ from PySide6.QtGui import QGuiApplication, QImage
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))  # the package beside this folder, without installing it
-from mindstash.app.mark import paint  # noqa: E402
+from mindkeep.app.mark import paint  # noqa: E402
 
 SIZES = (16, 32, 48, 64, 128, 256, 512, 1024)
 
@@ -72,10 +72,10 @@ def main() -> None:
     QGuiApplication(sys.argv)
     pngs = {s: draw(s) for s in SIZES}
     for s, data in pngs.items():
-        (HERE / f"mindstash-{s}.png").write_bytes(data)
-    (HERE / "mindstash.png").write_bytes(pngs[512])
-    (HERE / "mindstash.ico").write_bytes(ico(pngs))
-    (HERE / "mindstash.icns").write_bytes(icns(pngs))
+        (HERE / f"mindkeep-{s}.png").write_bytes(data)
+    (HERE / "mindkeep.png").write_bytes(pngs[512])
+    (HERE / "mindkeep.ico").write_bytes(ico(pngs))
+    (HERE / "mindkeep.icns").write_bytes(icns(pngs))
     print("wrote", len(SIZES) + 3, "files to", HERE)
 
 

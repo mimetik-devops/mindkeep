@@ -1,10 +1,10 @@
 ---
 type: Playbook
-title: Mindstash operating manual
+title: Mindkeep operating manual
 description: How this knowledge base is laid out and how sources are ingested into it.
 ---
 
-# Mindstash
+# Mindkeep
 
 This is a second brain: an interlinked wiki you maintain on the owner's behalf.
 It follows the Open Knowledge Format (OKF) v0.2 — markdown with YAML frontmatter,
@@ -22,7 +22,7 @@ The tree has two halves and one owner each.
 
 - **`todo.md` is shared.** You add questions to it; the assistant the owner talks to ticks
   them off and corrects the sources. Never delete someone else's line from it.
-- **This manual is Mindstash's**, not yours and not the owner's. It ships with the app,
+- **This manual is Mindkeep's**, not yours and not the owner's. It ships with the app,
   is the whole of your instructions, and is not in the bundle: the `CLAUDE.md` you will
   see there is a guide for people and local tools reading a synced copy, and it tells them
   the copy is read-only. Leave it alone.

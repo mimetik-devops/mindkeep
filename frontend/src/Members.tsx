@@ -21,7 +21,7 @@ const ROLES: Role[] = ["owner", "admin", "contributor", "viewer"];
 /**
  * Who is in the team, and how to get someone in: the Settings card.
  *
- * Membership is Mindstash's own (see teams.py), so nothing here goes near the identity
+ * Membership is Mindkeep's own (see teams.py), so nothing here goes near the identity
  * provider. An invite is a link — make one, copy it, send it however you like; whoever
  * opens it joins as themselves. What each person may do here is what the server lets
  * them do, and the server says so when it refuses.

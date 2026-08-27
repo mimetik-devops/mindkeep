@@ -4,16 +4,16 @@ title: Reading this knowledge base
 description: What this folder is, how it is laid out, and what to do here and not do.
 ---
 
-# Mindstash
+# Mindkeep
 
-This folder is a **bundle** from Mindstash: a wiki that an agent in the cloud maintains
+This folder is a **bundle** from Mindkeep: a wiki that an agent in the cloud maintains
 from the documents its owner collects. It follows the Open Knowledge Format (OKF) v0.2 —
 markdown with YAML frontmatter, readable without tooling — and you are reading a synced
 copy of it.
 
 **This copy is a mirror. Do not edit it in place.** The agent regenerates `wiki/` from the
 sources, so a page edited here is overwritten the next time its source is read — and the
-sync will remove anything the server does not have. Changes go through Mindstash:
+sync will remove anything the server does not have. Changes go through Mindkeep:
 
 - **To add material**, drop a file into `raw/`. The watcher uploads it and the agent folds
   it into the wiki.
@@ -29,7 +29,7 @@ sync will remove anything the server does not have. Changes go through Mindstash
   `verified` when a person has checked it), and cites its sources in footnotes.
 - `index.md` — the catalog: one line per page. **Read this first**; it says what exists.
 - `log.md` — what changed and why, newest last.
-- `todo.md` — questions the agent could not settle. Answered through Mindstash, not here.
+- `todo.md` — questions the agent could not settle. Answered through Mindkeep, not here.
 
 ## Answering a question from here
 

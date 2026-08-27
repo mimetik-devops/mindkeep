@@ -9,7 +9,7 @@ configurable claim for the role. The desktop client sends a device token instead
 one per machine, minted on the website and revocable there — because a scheduled sync
 cannot do an interactive login.
 
-Mindstash keeps no user table. A person is their `sub`; everything else is read off the
+Mindkeep keeps no user table. A person is their `sub`; everything else is read off the
 token they present, so there is nothing to drift out of step with the provider.
 """
 

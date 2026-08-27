@@ -55,7 +55,7 @@ test("signed out: the sign-in screen, and the button asks the provider", async (
 
 test("signed in: the app, with the provider's claims as the profile fallback", async () => {
   const host = await mount(fake({ signedIn: true, claims: { name: "Ada Lovelace" } }));
-  expect(host.querySelector(".wordmark")?.textContent).toContain("Mindstash");
+  expect(host.querySelector(".wordmark")?.textContent).toContain("Mindkeep");
   expect(host.textContent).not.toContain("Sign in");
 });
 

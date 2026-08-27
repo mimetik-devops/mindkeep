@@ -7,15 +7,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-NAME = "Mindstash"
-LABEL = "io.mindstash.app"
+NAME = "Mindkeep"
+LABEL = "io.mindkeep.app"
 
 
 def command() -> list[str]:
     """How to launch this app again: the frozen binary itself, or the module."""
     if getattr(sys, "frozen", False):
         return [sys.executable]
-    return [sys.executable, "-m", "mindstash.app"]
+    return [sys.executable, "-m", "mindkeep.app"]
 
 
 def plist_for(cmd: list[str]) -> bytes:
@@ -37,7 +37,7 @@ def _plist() -> Path:
 
 
 def _desktop() -> Path:
-    return Path.home() / ".config" / "autostart" / "mindstash.desktop"
+    return Path.home() / ".config" / "autostart" / "mindkeep.desktop"
 
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"

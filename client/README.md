@@ -1,4 +1,4 @@
-# Mindstash on your machine
+# Mindkeep on your machine
 
 Keeps a bundle in a folder Claude can read, and uploads whatever you drop in its `raw/`.
 Two ways to run it: a command-line client with no dependencies, and a tray app.
@@ -9,17 +9,17 @@ Python 3.12 or newer, nothing to install:
 
 ```
 cd client
-python -m mindstash login           # once per machine: API address, sign in, pick a team and bundle
-python -m mindstash sync            # pull the wiki down, push what is new in raw/
-python -m mindstash watch           # the same, every 30 seconds — leave it running
+python -m mindkeep login           # once per machine: API address, sign in, pick a team and bundle
+python -m mindkeep sync            # pull the wiki down, push what is new in raw/
+python -m mindkeep watch           # the same, every 30 seconds — leave it running
 ```
 
 One config is one bundle in one folder. To keep a second bundle, give it its own config
 and its own `watch`:
 
 ```
-python -m mindstash login --config ~/.mindstash-research.json
-python -m mindstash watch --config ~/.mindstash-research.json
+python -m mindkeep login --config ~/.mindkeep-research.json
+python -m mindkeep watch --config ~/.mindkeep-research.json
 ```
 
 `login` opens the website so you can connect the machine with a click; if there is no
@@ -36,7 +36,7 @@ From a checkout:
 ```
 cd client
 pip install -e ".[app]"
-mindstash-app
+mindkeep-app
 ```
 
 Or take an installer from the releases page. They are **unsigned**: Windows will warn
@@ -49,9 +49,9 @@ folder, which bundles to keep) and *Start at login*.
 
 | What | Where |
 |---|---|
-| CLI config (one per bundle) | `~/.mindstash.json`, or whatever `--config` names |
-| Tray app config | `~/.mindstash/app.json` |
-| Sync state — what the server had at the last sync, per folder | `~/.mindstash-state.json` |
+| CLI config (one per bundle) | `~/.mindkeep.json`, or whatever `--config` names |
+| Tray app config | `~/.mindkeep/app.json` |
+| Sync state — what the server had at the last sync, per folder | `~/.mindkeep-state.json` |
 | Your copy of a file that conflicted | `<bundle folder>/.conflicts/…` |
 
 The state file is what tells "new here" from "deleted over there"; delete it and the next

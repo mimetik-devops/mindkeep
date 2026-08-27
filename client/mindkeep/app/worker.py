@@ -11,9 +11,9 @@ import urllib.error
 
 from PySide6.QtCore import QThread, Signal
 
-from mindstash import sync as engine
-from mindstash.app import config
-from mindstash.app.alerts import Alerts
+from mindkeep import sync as engine
+from mindkeep.app import config
+from mindkeep.app.alerts import Alerts
 
 
 class Worker(QThread):
@@ -77,7 +77,7 @@ class Worker(QThread):
                 self.said.emit(f"{key}: {e}")
                 self.status.emit("Cannot reach the server")
                 if self.alerts.unreachable():
-                    self.alert.emit("Cannot reach Mindstash", f"{cfg['server']} is not answering.")
+                    self.alert.emit("Cannot reach Mindkeep", f"{cfg['server']} is not answering.")
                 return
             self.alerts.reachable()
             self.alerts.signed_in()

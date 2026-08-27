@@ -118,7 +118,7 @@ export function App({ user }: { user: User }) {
       <header className="header">
         <div className="wordmark">
           <Mark />
-          Mindstash
+          Mindkeep
         </div>
 
         {team && (

@@ -1,4 +1,4 @@
-"""Mindstash in the tray: keeps every bundle you watch in sync and says so only when a
+"""Mindkeep in the tray: keeps every bundle you watch in sync and says so only when a
 person is needed. One instance per login; a second launch just opens the first's
 settings. Where there is no tray to sit in, the settings window stands in for it."""
 
@@ -7,14 +7,14 @@ import sys
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
-from mindstash import __version__
-from mindstash.app import config, mark
-from mindstash.app.log import Log
-from mindstash.app.settings import Settings
-from mindstash.app.tray import Tray
-from mindstash.app.worker import Worker
+from mindkeep import __version__
+from mindkeep.app import config, mark
+from mindkeep.app.log import Log
+from mindkeep.app.settings import Settings
+from mindkeep.app.tray import Tray
+from mindkeep.app.worker import Worker
 
-INSTANCE = "io.mindstash.app"
+INSTANCE = "io.mindkeep.app"
 
 
 def already_running() -> bool:
@@ -38,7 +38,7 @@ class App:
         self.worker = Worker()
         self.tray = Tray() if QSystemTrayIcon.isSystemTrayAvailable() else None
 
-        self.on_said(f"Mindstash {__version__}")  # the log opens with which release this is
+        self.on_said(f"Mindkeep {__version__}")  # the log opens with which release this is
         self.worker.said.connect(self.on_said)
         self.worker.status.connect(self.on_status)
         self.worker.alert.connect(self.on_alert)
@@ -130,11 +130,11 @@ def main() -> None:
 
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(INSTANCE)
     qt = QApplication(sys.argv)
-    qt.setApplicationName("Mindstash")
+    qt.setApplicationName("Mindkeep")
     qt.setWindowIcon(mark.icon())  # every window's title bar and taskbar entry
     qt.setQuitOnLastWindowClosed(False)
     if already_running():
-        print("Mindstash is already running; its settings are open.", flush=True)
+        print("Mindkeep is already running; its settings are open.", flush=True)
         return
     app = App(qt)
     qt.aboutToQuit.connect(app.worker.stop)

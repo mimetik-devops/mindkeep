@@ -16,7 +16,7 @@ export class Boundary extends Component<{ children: ReactNode }, { failed: Error
   }
 
   componentDidCatch(failed: Error) {
-    console.error("Mindstash stopped rendering:", failed);
+    console.error("Mindkeep stopped rendering:", failed);
   }
 
   render() {

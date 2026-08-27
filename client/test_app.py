@@ -4,16 +4,16 @@ tells the person and how often. Run from client/."""
 import plistlib
 from pathlib import Path
 
-from mindstash import sync as engine
-from mindstash.app import alerts, autostart, config
-from mindstash.app.log import Log
+from mindkeep import sync as engine
+from mindkeep.app import alerts, autostart, config
+from mindkeep.app.log import Log
 from stamp import stamp
 
 
 def test_config_is_saved_where_it_is_loaded_from_and_survives_a_damaged_file(tmp_path):
     path = tmp_path / "app.json"
     cfg = config.load(path)
-    assert cfg["token"] == "" and cfg["watch"] == [] and cfg["root"].endswith("Mindstash")
+    assert cfg["token"] == "" and cfg["watch"] == [] and cfg["root"].endswith("Mindkeep")
     cfg["token"] = "t"
     config.save(cfg, path)
     assert config.load(path)["token"] == "t"
@@ -88,12 +88,12 @@ def test_a_dead_token_is_announced_once_per_signing_out():
 
 
 def test_autostart_entries_launch_the_app_again():
-    cmd = ["/usr/bin/python3", "-m", "mindstash.app"]
+    cmd = ["/usr/bin/python3", "-m", "mindkeep.app"]
     plist = plistlib.loads(autostart.plist_for(cmd))
-    assert plist == {"Label": "io.mindstash.app", "ProgramArguments": cmd, "RunAtLoad": True}
+    assert plist == {"Label": "io.mindkeep.app", "ProgramArguments": cmd, "RunAtLoad": True}
     desktop = autostart.desktop_for(["/opt/Mind stash/app"])
-    assert "Exec='/opt/Mind stash/app'" in desktop and "Name=Mindstash" in desktop
-    assert autostart.command()[-2:] == ["-m", "mindstash.app"]  # not frozen under pytest
+    assert "Exec='/opt/Mind stash/app'" in desktop and "Name=Mindkeep" in desktop
+    assert autostart.command()[-2:] == ["-m", "mindkeep.app"]  # not frozen under pytest
 
 
 def test_the_engine_reports_through_hooks_the_app_can_replace(tmp_path, monkeypatch):
@@ -128,15 +128,15 @@ def test_the_log_keeps_the_last_lines_stamped_with_the_time():
 
 
 def test_the_tag_is_stamped_into_every_file_that_carries_a_version(tmp_path):
-    (tmp_path / "mindstash").mkdir()
+    (tmp_path / "mindkeep").mkdir()
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "x"\nversion = "0.0.0"\n[tool.other]\nversion = "9"\n', encoding="utf-8"
     )
-    (tmp_path / "mindstash" / "__init__.py").write_text('__version__ = "0.0.0"\n', encoding="utf-8")
+    (tmp_path / "mindkeep" / "__init__.py").write_text('__version__ = "0.0.0"\n', encoding="utf-8")
     assert stamp("v1.2.3", tmp_path) == "1.2.3"
     # only [project]'s line is stamped; the other section's is left alone
     stamped = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     assert stamped == '[project]\nname = "x"\nversion = "1.2.3"\n[tool.other]\nversion = "9"\n'
-    assert (tmp_path / "mindstash" / "__init__.py").read_text(
+    assert (tmp_path / "mindkeep" / "__init__.py").read_text(
         encoding="utf-8"
     ) == '__version__ = "1.2.3"\n'

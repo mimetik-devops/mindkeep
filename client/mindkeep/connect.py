@@ -9,7 +9,7 @@ Loopback only: the listener binds 127.0.0.1, and a request without the nonce it 
 started with is ignored, so a page that guesses the port learns nothing and plants
 nothing.
 
-Shared by the CLI (`mindstash login`) and the tray app.
+Shared by the CLI (`mindkeep login`) and the tray app.
 """
 
 import json
@@ -22,9 +22,9 @@ import webbrowser
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-DONE = b"""<!doctype html><meta charset="utf-8"><title>Mindstash</title>
+DONE = b"""<!doctype html><meta charset="utf-8"><title>Mindkeep</title>
 <body style="font-family:system-ui;padding:40px"><h2>Connected.</h2>
-<p>You can close this tab and go back to Mindstash.</p></body>"""
+<p>You can close this tab and go back to Mindkeep.</p></body>"""
 
 
 def about(server: str) -> dict:

@@ -43,7 +43,7 @@ export function Invite({
   return (
     <div className="login">
       <Mark size={64} />
-      <h1>Mindstash</h1>
+      <h1>Mindkeep</h1>
       {error ? (
         <>
           <p>{error}</p>

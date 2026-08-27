@@ -25,10 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mindstash import __version__, connect
-from mindstash import sync as engine
-from mindstash.app import config
-from mindstash.app.log import Log
+from mindkeep import __version__, connect
+from mindkeep import sync as engine
+from mindkeep.app import config
+from mindkeep.app.log import Log
 
 
 class Task(QThread):
@@ -64,7 +64,7 @@ class Settings(QDialog):
 
     def __init__(self, log: Log) -> None:
         super().__init__()
-        self.setWindowTitle(f"Mindstash {__version__}")
+        self.setWindowTitle(f"Mindkeep {__version__}")
         self.setMinimumSize(520, 460)
         self.cfg = config.load()
         self.log = log

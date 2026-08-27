@@ -6,8 +6,8 @@ from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-from mindstash import __version__
-from mindstash.app import autostart, mark
+from mindkeep import __version__
+from mindkeep.app import autostart, mark
 
 
 class Tray(QSystemTrayIcon):
@@ -19,7 +19,7 @@ class Tray(QSystemTrayIcon):
 
     def __init__(self) -> None:
         super().__init__(mark.icon())
-        self.setToolTip(f"Mindstash {__version__}")
+        self.setToolTip(f"Mindkeep {__version__}")
         self.menu = QMenu()
         self.status = self.menu.addAction("Starting…")
         self.status.setEnabled(False)
@@ -49,7 +49,7 @@ class Tray(QSystemTrayIcon):
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)
-        self.setToolTip(f"Mindstash {__version__} — {text}")
+        self.setToolTip(f"Mindkeep {__version__} — {text}")
 
     def set_folders(self, entries: list[dict]) -> None:
         self.folders.clear()

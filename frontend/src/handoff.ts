@@ -4,7 +4,7 @@
  * request has to survive the identity provider's round trip, exactly like an invite
  * link does — same sessionStorage trick, same lifetime: this tab, this visit.
  */
-const KEY = "mindstash.connect";
+const KEY = "mindkeep.connect";
 
 export type Connect = { port: number; nonce: string; name: string };
 

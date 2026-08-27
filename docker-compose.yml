@@ -2,13 +2,13 @@ services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: mindstash
-      POSTGRES_PASSWORD: mindstash
-      POSTGRES_DB: mindstash
+      POSTGRES_USER: mindkeep
+      POSTGRES_PASSWORD: mindkeep
+      POSTGRES_DB: mindkeep
     ports: [ "5433:5432" ]
     volumes: [ pgdata:/var/lib/postgresql/data ]
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U mindstash" ]
+      test: [ "CMD-SHELL", "pg_isready -U mindkeep" ]
       interval: 5s
       retries: 10
 

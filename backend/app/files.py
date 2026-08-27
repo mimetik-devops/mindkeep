@@ -279,7 +279,7 @@ def rename_bundle(
 ) -> dict[str, str]:
     """Rename a bundle: the directory, and its rows. Same rules as a move — not while
     anything is ingesting it, and the new name must be free. Mirrors pointed at the old
-    name will 404 on their next pass and need `mindstash login` again."""
+    name will 404 on their next pass and need `mindkeep login` again."""
     if not BUNDLE_NAME.match(to):
         raise HTTPException(400, "bundle names are lowercase letters, digits and hyphens")
     if to == name:
@@ -399,7 +399,7 @@ def read_as_text(path: str, home: Bundle) -> Response:
         raise HTTPException(404, "not found")
     text = readable_text(target)
     if text is None:
-        raise HTTPException(415, f"Mindstash cannot read {target.suffix or 'this format'} yet")
+        raise HTTPException(415, f"Mindkeep cannot read {target.suffix or 'this format'} yet")
     return Response(text, media_type="text/plain; charset=utf-8")
 
 
