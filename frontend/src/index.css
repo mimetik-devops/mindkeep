@@ -121,6 +121,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .settings h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
 .settings .lede { margin-bottom: 26px; font-size: 16px; }
 .settings .banner { max-width: 620px; }
+.settings .card + .card { margin-top: 18px; }
+.settings .card + .banner, .settings .banner + .card { margin-top: 18px; }
 
 .card {
   display: flex; flex-direction: column; gap: 14px; max-width: 620px; padding: 22px 24px;
@@ -138,6 +140,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding-top: 13px; border-top: 1px solid var(--line);
 }
 .field > span { font-size: 13px; color: var(--slate); }
+.field input:not([type]), .field input[type="text"] {
+  min-width: 200px; padding: 8px 11px; border: 1.2px solid var(--soft); border-radius: 9px;
+  background: none; font: inherit; font-size: 13px; color: var(--ink);
+}
 .field select {
   padding: 8px 11px; border: 1.2px solid var(--soft); border-radius: 9px;
   background: none; font: inherit; font-size: 13px; color: var(--ink);
