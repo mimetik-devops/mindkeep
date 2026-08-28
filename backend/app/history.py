@@ -13,7 +13,9 @@ needs, and both are one command.
 """
 
 import logging
+import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -70,16 +72,41 @@ def blob(home: Path, ref: str, path: str) -> str:
     return out.stdout.strip() if out.returncode == 0 else ""
 
 
-def take_back(
-    home: Path, sha: str, message: str, restore: tuple[str, str] | None = None, remove: str = ""
-) -> str:
-    """Revert a run's commit and, in the same new commit, put its source back: to the
-    version at `restore` (a ref and a path), or remove it. History is kept, so this can
-    itself be reverted. Left exactly as it was on any failure."""
-    out = _git(home, "revert", "--no-commit", sha)
+def reverse(home: Path, sha: str, *paths: str) -> None:
+    """Stage the reverse of what `sha` did under `paths`, and nothing else. All or nothing:
+    a hunk a later commit wrote over fails the whole apply, and Conflict names the files.
+    Bytes end to end: text mode would turn the patch's line ends into the platform's, and
+    git would then find nothing to match."""
+    diff = subprocess.run(
+        [*GIT, "diff", "--binary", f"{sha}^", sha, "--", *paths], cwd=home, capture_output=True
+    ).stdout
+    if not diff.strip():
+        return
+    out = subprocess.run(
+        [*GIT, "apply", "-R", "--index", "-"], cwd=home, input=diff, capture_output=True
+    )
     if out.returncode:
-        _git(home, "revert", "--abort")
-        raise Conflict("later runs changed the same lines — undo those first")
+        said = out.stderr.decode("utf-8", "replace")
+        hit = sorted(set(re.findall(r"error: patch failed: ([^:\n]+)", said)))
+        where = ", ".join(hit) if hit else "the same pages"
+        raise Conflict(f"a later run changed {where} — undo that run first")
+
+
+def take_back(
+    home: Path,
+    sha: str,
+    message: str,
+    restore: tuple[str, str] | None = None,
+    remove: str = "",
+    rebuild: Callable[[Path], object] | None = None,
+    note: str = "",
+) -> str:
+    """Undo a run: reverse what it did to the pages, put its source back — to the version
+    at `restore` (a ref and a path), or remove it — rebuild the index, append `note` to
+    the log, one commit. Only the pages are reverted: index.md is derived and log.md is
+    a timeline, so neither can make an old run un-undoable. History is kept, so this
+    can itself be reversed. Left exactly as it was on any failure."""
+    reverse(home, sha, "wiki")
     try:
         if restore:
             ref, path = restore
@@ -90,13 +117,43 @@ def take_back(
             out = _git(home, "rm", "-q", "--", remove)
             if out.returncode:
                 raise RuntimeError(out.stderr.strip())
-        out = _git(home, "commit", "-q", "-m", message)
-        if out.returncode:
-            raise RuntimeError(out.stderr.strip())
+        _finish(home, message, rebuild, note)
     except Exception:
         _git(home, "reset", "-q", "--hard", "HEAD")
         raise
     return _git(home, "rev-parse", "--short", "HEAD").stdout.strip()
+
+
+def put_back(
+    home: Path,
+    undo_sha: str,
+    message: str,
+    rebuild: Callable[[Path], object] | None = None,
+    note: str = "",
+) -> str:
+    """Redo: reverse an undo's pages and source, rebuild the index, note it, one commit."""
+    reverse(home, undo_sha, "wiki", "raw")
+    try:
+        _finish(home, message, rebuild, note)
+    except Exception:
+        _git(home, "reset", "-q", "--hard", "HEAD")
+        raise
+    return _git(home, "rev-parse", "--short", "HEAD").stdout.strip()
+
+
+def _finish(home: Path, message: str, rebuild: Callable[[Path], object] | None, note: str) -> None:
+    if rebuild:
+        rebuild(home)
+    if note:
+        target = home / "log.md"
+        was = target.read_text(encoding="utf-8") if target.is_file() else "# Log\n"
+        target.write_text(
+            was.rstrip("\n") + "\n\n" + note.strip() + "\n", encoding="utf-8", newline="\n"
+        )
+    _git(home, "add", "-A", "--", "index.md", "log.md")
+    out = _git(home, "commit", "-q", "-m", message)
+    if out.returncode:
+        raise RuntimeError(out.stderr.strip())
 
 
 def record(home: Path, message: str, *paths: str) -> str:
@@ -116,16 +173,6 @@ def record(home: Path, message: str, *paths: str) -> str:
                 raise RuntimeError((out.stderr or out.stdout).strip())
         return ""
     return after
-
-
-def undo(home: Path, sha: str, message: str) -> str:
-    """Revert one commit as a new one. History is kept, so an undo can itself be undone."""
-    out = _git(home, "revert", "--no-edit", sha)
-    if out.returncode:
-        _git(home, "revert", "--abort")
-        raise Conflict("later runs changed the same lines — undo those first")
-    _git(home, "commit", "-q", "--amend", "-m", message)
-    return _git(home, "rev-parse", "--short", "HEAD").stdout.strip()
 
 
 def head(home: Path) -> str:

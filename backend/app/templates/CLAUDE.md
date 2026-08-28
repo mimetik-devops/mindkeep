@@ -28,7 +28,8 @@ sync will remove anything the server does not have. Changes go through Mindkeep:
 - `wiki/` — everything the agent wrote: entity, concept, project and summary pages. Every
   page starts with frontmatter (`type`, `title`, `description`, `tags`, `sources`, and
   `verified` when a person has checked it), and cites its sources in footnotes.
-- `index.md` — the catalog: one line per page. **Read this first**; it says what exists.
+- `index.md` — the catalog: one line per page, kept by Mindkeep from the pages' own
+  frontmatter. **Read this first**; it says what exists.
 - `log.md` — what changed and why, newest last.
 - `questions.md` — questions the agent could not settle. Answered through Mindkeep, not here.
 - `todo.md` — tasks for a person, found by the agent. Ticked in the app, not here.

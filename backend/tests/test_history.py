@@ -35,12 +35,15 @@ def test_undoing_a_run_keeps_what_people_added_and_takes_back_what_the_agent_wro
     (home / "index.md").write_text("# Index\n- deck\n", encoding="utf-8", newline="\n")
     run = history.commit(home, "run 1: raw/deck.md")
 
-    undone = history.undo(home, run, "undo run 1")
+    undone = history.take_back(home, run, "undo run 1", note="## undo | run 1\nback.")
     assert undone and undone != run
     assert (home / "raw" / "deck.md").read_text(encoding="utf-8") == "the deck"  # stays
     assert not (home / "wiki" / "deck.md").exists()  # gone
-    assert (home / "index.md").read_text(encoding="utf-8") == "# Index\n"  # back
-    assert sorted(r["path"] for r in history.changed(home, undone)) == ["index.md", "wiki/deck.md"]
+    # only the pages are reverted: the index is the server's to rebuild, and the log is
+    # a timeline the undo adds to rather than rewrites
+    assert (home / "index.md").read_text(encoding="utf-8") == "# Index\n- deck\n"
+    assert (home / "log.md").read_text(encoding="utf-8").endswith("## undo | run 1\nback.\n")
+    assert sorted(r["path"] for r in history.changed(home, undone)) == ["log.md", "wiki/deck.md"]
 
 
 def test_a_diff_since_a_commit_is_one_file_and_no_header_noise(tmp_path):
@@ -96,8 +99,8 @@ def test_an_undo_that_a_later_run_wrote_over_is_refused_cleanly(tmp_path):
     (home / "wiki" / "jane.md").write_text("Jane is CEO\n", encoding="utf-8")
     history.commit(home, "run 2")
 
-    with pytest.raises(history.Conflict):
-        history.undo(home, first, "undo run 1")
+    with pytest.raises(history.Conflict, match="wiki/jane.md"):
+        history.take_back(home, first, "undo run 1")
     # the tree is left as it was, not half-reverted
     assert (home / "wiki" / "jane.md").read_text(encoding="utf-8") == "Jane is CEO\n"
     assert history.commit(home, "nothing pending") == ""

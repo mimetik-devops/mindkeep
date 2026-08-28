@@ -12,7 +12,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 
-from app import assist, gaps, graph, history, runs, schedule, teams, todos
+from app import assist, gaps, graph, history, index, runs, schedule, teams, todos
 from app.auth import CurrentIdentity, CurrentProfile, CurrentUser
 from app.db import LINT_OFF, IngestRun
 from app.ingest import (
@@ -166,8 +166,8 @@ def seed(home: Path) -> None:
     (home / "raw").mkdir(parents=True, exist_ok=True)
     (home / "wiki").mkdir(exist_ok=True)
     put_text(home / "CLAUDE.md", (TEMPLATES / "CLAUDE.md").read_text("utf-8"))
-    put_text(home / "index.md", '---\nokf_version: "0.2"\n---\n\n# Index\n')
     put_text(home / "log.md", "# Log\n")
+    index.write(home)
     for name in todos.LISTS:
         put_text(home / name, todos.EMPTY[name])
     # the skeleton is the first commit, so the first tick reads as an edit
@@ -698,10 +698,21 @@ def undo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
                 restore = (before.based_on, run.source)  # type: ignore[union-attr]
             else:
                 remove = run.source  # new at this run, or read from before history began
+    fate = "restored" if restore else ("removed" if remove else "left as it was")
+    note = (
+        f"## [{datetime.now(UTC):%Y-%m-%d}] undo | run {run_id}: {run.source}\n"
+        f"The pages as before this run; the source {fate}."
+    )
     with lock_for(home):
         try:
             sha = history.take_back(
-                home, run.commit, f"undo run {run_id}: {run.source}", restore, remove
+                home,
+                run.commit,
+                f"undo run {run_id}: {run.source}",
+                restore,
+                remove,
+                rebuild=index.write,
+                note=note,
             )
         except history.Conflict as e:
             raise HTTPException(409, str(e)) from None
@@ -729,9 +740,19 @@ def redo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
     )
     if undo is None:
         raise HTTPException(409, "the undo is not in the history")
+    note = (
+        f"## [{datetime.now(UTC):%Y-%m-%d}] redo | run {run_id}: {run.source}\n"
+        "The run's pages and source back as it left them."
+    )
     with lock_for(home):
         try:
-            sha = history.undo(home, str(undo["sha"]), f"redo run {run_id}: {run.source}")
+            sha = history.put_back(
+                home,
+                str(undo["sha"]),
+                f"redo run {run_id}: {run.source}",
+                rebuild=index.write,
+                note=note,
+            )
         except history.Conflict as e:
             raise HTTPException(409, str(e)) from None
     runs.mark_redone(run_id)

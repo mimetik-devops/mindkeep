@@ -200,7 +200,7 @@ def test_a_changed_source_is_reingested_with_its_diff(client, tmp_path, monkeypa
 def run_over(client, home, source: str, log: str = "") -> int:
     """What ingest_safely does around a run, without an agent: the before commit, the
     read state, the agent's page, the run commit."""
-    from app import history, runs
+    from app import history, index, runs
 
     run = runs.start(home, source, "m")
     history.commit(home, f"before run {run}")
@@ -213,6 +213,7 @@ def run_over(client, home, source: str, log: str = "") -> int:
     if log:  # the agent's log entry belongs to the run, not to the people before it
         was = (home / "log.md").read_text(encoding="utf-8")
         (home / "log.md").write_text(was + log, encoding="utf-8", newline="\n")
+    index.write(home)  # as ingest_safely does: the catalog follows the pages, in the run
     runs.finish(home, run, turns=1, chars=6, commit=history.commit(home, f"run {run}"))
     return run
 
@@ -626,6 +627,62 @@ def test_a_pdf_source_is_handed_to_the_model_as_a_document(client, tmp_path, mon
     with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
         agent.ingest(home, "raw/note.md")
     assert isinstance(seen["messages"][0]["content"], str)
+
+
+def test_an_old_run_can_be_undone_though_every_later_run_touched_index_and_log(client, tmp_path):
+    """The two files every run edits are out of the revert: index.md is rebuilt from the
+    pages, log.md gets an undo entry. So undo reaches past later runs — and is refused
+    only when a later run changed the same page."""
+    from app import runs
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    for name in ("a.md", "b.md", "c.md"):
+        client.post(f"{B}/raw/{name}", content=name.encode())
+    first = run_over(client, home, "raw/a.md", "\n## [2026-08-28] ingest | a\nwrote a.\n")
+    b_run = run_over(client, home, "raw/b.md", "\n## [2026-08-28] ingest | b\nwrote b.\n")
+    run_over(client, home, "raw/c.md", "\n## [2026-08-28] ingest | c\nwrote c.\n")
+    index_before = (home / "index.md").read_text(encoding="utf-8")
+    assert "[a run" in index_before and "[c run" in index_before  # rebuilt by every run
+
+    done = client.post(f"{B}/runs/{first}/undo").json()
+    assert done["undone"] == first and done["removed"] == "raw/a.md"
+    assert not (home / "wiki" / "a.md").exists() and (home / "wiki" / "c.md").exists()
+    rebuilt = (home / "index.md").read_text(encoding="utf-8")
+    assert "[a run" not in rebuilt and "[b run" in rebuilt and "[c run" in rebuilt
+    log_text = (home / "log.md").read_text(encoding="utf-8")
+    assert "wrote a." in log_text and f"undo | run {first}: raw/a.md" in log_text
+    assert runs.get(home, first).undone_at is not None
+
+    # and back again, past the same later runs
+    back = client.post(f"{B}/runs/{first}/redo").json()
+    assert back["redone"] == first
+    assert (home / "wiki" / "a.md").exists() and (home / "raw" / "a.md").exists()
+    assert "[a run" in (home / "index.md").read_text(encoding="utf-8")
+    assert f"redo | run {first}" in (home / "log.md").read_text(encoding="utf-8")
+
+    # a later run that rewrote the same page: that is a real conflict, named
+    run_over(client, home, "raw/b.md")  # b.md's page again, new content
+    refused = client.post(f"{B}/runs/{b_run}/undo")  # the earlier b run
+    assert refused.status_code == 409 and "wiki/b.md" in refused.json()["detail"]
+
+
+def test_the_index_is_the_pages_frontmatter_grouped_by_folder(client, tmp_path, page):
+    from app import index
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    page("wiki/people/jane.md", "---\ntype: Person\ntitle: Jane Okafor\ndescription: CTO.\n---\n")
+    page("wiki/concepts/rag.md", "---\ntype: Concept\nstatus: draft\n---\n# Retrieval\n")
+    page("wiki/loose.md", "no frontmatter")
+    text = index.build(home)
+    assert text.startswith('---\nokf_version: "0.2"\n---\n\n# Index\n')
+    assert "3 pages" in text
+    assert "## Concepts\n- [Retrieval](/wiki/concepts/rag.md) · draft" in text
+    assert "## People\n- [Jane Okafor](/wiki/people/jane.md) — CTO." in text
+    assert "## Unfiled\n- [loose](/wiki/loose.md)" in text
+    assert index.write(home) is True and index.write(home) is False  # settles
+    assert client.get(f"{B}/files/index.md").text == text
 
 
 def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):

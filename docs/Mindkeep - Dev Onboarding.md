@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `8f5975a` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `0ba674d` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -76,7 +76,8 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 {team}/{bundle}/
   CLAUDE.md       the reader's guide — pushed from the app at every startup; tells a
                   local agent this is a mirror, and where changes go
-  index.md        the catalog: one line per page. Agents read this first.
+  index.md        the catalog: one line per page, rebuilt by the server from the pages'
+                  frontmatter after every run. Agents read this first, nobody writes it.
   log.md          append-only history, one entry per run: "## [date] ingest | title"
   questions.md    open questions the agent could not settle — for someone who knows
   todo.md         tasks for a person, found by the agent — for someone who does
@@ -92,7 +93,8 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 | File | Written by | Notes |
 |---|---|---|
 | `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
-| `wiki/**`, `index.md`, `log.md` | the ingest/lint agent only | regenerated from sources; hand edits are overwritten |
+| `wiki/**`, `log.md` | the ingest/lint agent only | regenerated from sources; hand edits are overwritten |
+| `index.md` | the server (`index.py`), after every run and undo | built from the pages' frontmatter; the agent's tools refuse it |
 | `questions.md` | the agent (questions), the assistant (ticks, new questions) | answered through the assistant or a note in `raw/`; never edited by hand |
 | `todo.md` | the agent and the assistant (tasks) | ticked by a person in the app; never edited by hand |
 | `CLAUDE.md` | the app | overwritten from the template on every backend start |
@@ -122,8 +124,11 @@ A git repository lives inside each bundle (`backend/app/history.py`). Around eac
 server makes two commits — `before run N` (people's changes since the last run) and
 `run N: <source>` (what the agent wrote) — and every action a person takes through the
 app is its own commit (`upload …`, `edit …`, `delete …`, `move …`).
-Undo of a run reverts its commit **and takes the source back** (a new file is removed, an
-edited one restored to the previous clean read); redo re-applies. The `.git` directory is
+Undo of a run reverses **what it did under `wiki/`** and takes the source back (a new file
+is removed, an edited one restored to the previous clean read), rebuilds `index.md`, and
+appends an `undo` entry to `log.md` — one commit; redo reverses that. Only pages are
+reverted, so later runs' edits to the index and the log never block an undo; a later
+run that rewrote the *same page* is a real conflict, and the refusal names it. The `.git` directory is
 excluded from the tree endpoint, from the agent's `list_files`, and from `safe_path`, so
 neither the mirror nor the agent ever sees it.
 
@@ -149,7 +154,8 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `files.py` | Everything under `/teams/{team}/bundles/…`: bundles CRUD, tree, read/write, raw upload/move/delete, sources, activity, undo/redo, todos, assistant, lint schedule, queue/retry, reorganise, folders. Also `safe_path`, `tenant()`, guide refresh, startup re-queue |
 | `ingest.py` | The agent: task texts, the tool set, the per-bundle worker, `ingest_safely`, holds and retries, `busy()` |
 | `runs.py` | The `ingest_run` table and everything derived from it |
-| `history.py` | git inside the bundle: commit, record, undo, take_back, diff, log entries, pending changes |
+| `history.py` | git inside the bundle: commit, record, reverse (path-scoped), take_back (undo), put_back (redo), diff, log entries, pending changes |
+| `index.py` | `index.md` built from the pages' frontmatter, after every run and undo |
 | `graph.py` / `gaps.py` | The link graph built from the files in memory; Louvain areas; structural gaps (thin pairs of areas) |
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |

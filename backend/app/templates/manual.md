@@ -16,9 +16,12 @@ The tree has two halves and one owner each.
 
 - **`raw/` is the owner's.** They add, correct and delete their own material. You read it
   and never write it.
-- **`wiki/` is yours**, along with `index.md` and `log.md`. You create, rewrite and delete
-  pages there. Nobody else can — the API has no route that writes a wiki page, so if a
-  page is wrong, you are the one who fixes it.
+- **`wiki/` is yours**, along with `log.md`. You create, rewrite and delete pages there.
+  Nobody else can — the API has no route that writes a wiki page, so if a page is wrong,
+  you are the one who fixes it.
+- **`index.md` is Mindkeep's.** It is rebuilt from the pages' frontmatter — folder,
+  title, description, status — after every run. Read it first; never write it. To change
+  what it says about a page, change the page.
 
 - **Two lists are yours to add to, never to prune.** `questions.md` holds what you could
   not settle and a person must answer; `todo.md` holds what a person must do. The
@@ -37,7 +40,8 @@ The tree has two halves and one owner each.
   the file itself.
 - `wiki/` — everything you write. Entity, concept, project and summary pages, filed by
   type (see *Where a page goes*).
-- `index.md` — the catalog. Read this first; it tells you what exists before you open anything.
+- `index.md` — the catalog, one line per page, kept by Mindkeep. Read this first; it tells
+  you what exists before you open anything.
 - `log.md` — append-only history of what changed and why.
 - `questions.md` — open questions you could not settle, for someone who knows.
 - `todo.md` — tasks for a person: a source to upload, a draft to verify, a duplicate to
@@ -86,7 +90,7 @@ file it the same way. Nothing lives directly under `wiki/`. Use a type the wiki 
 has before inventing one — a folder holding a single page usually means the type was
 wrong, not the folder. A page in the wrong place is **moved, never copied**: write it at
 the right path unchanged, delete the old file, and repoint every link to it — `related`
-lists them, and `index.md` has one too.
+lists them.
 
 **Keep a page short — a screen, rarely more than 400 words.** A page is a node in a
 graph, not an essay: state the thing, cite it, and link to the pages that carry the
@@ -129,8 +133,7 @@ When a new file appears in `raw/`:
    enough about them to be worth a page. A stub nobody can use is not a contribution.
 6. Stop when the source is exhausted. Re-reading pages you have already checked to look
    busy costs real money and adds nothing.
-7. Update `index.md`.
-8. Append to `log.md`: `## [YYYY-MM-DD] ingest | <source title>` followed by **one line**
+7. Append to `log.md`: `## [YYYY-MM-DD] ingest | <source title>` followed by **one line**
    saying what changed — counts, and anything a person needs to act on. Two at the very
    most. It is a timeline, not a report: your reasoning belongs on the pages you wrote,
    where it is attached to the claim it justifies. A log entry nobody can skim is a log
@@ -141,8 +144,8 @@ When a new file appears in `raw/`:
 When the task says a source has been deleted, you are not ingesting: you are retiring.
 Find the pages that cite it and apply the rules under *It is gone* in the Lint section —
 delete a page whose only source it was, otherwise drop the entry and the claims that
-rested on it alone — then the links and `index.md`, and a one-line log entry. Nothing else
-is yours to touch on that run.
+rested on it alone — then the links, and a one-line log entry. Nothing else is yours to
+touch on that run.
 
 ### A source that changed
 
@@ -208,10 +211,9 @@ When asked to reorganise, apply *Where a page goes* to every page under `wiki/` 
 change nothing else. You are handed the list of misfiled pages and where each goes. For
 each: `move_file` it (one call — never read it and write it back, which pushes the whole
 page through you and runs out of room), then repoint every link to it with `edit_file` —
-the pages `related` lists, and `index.md`. Work in batches of a few pages per turn, all
-of one page's link fixes in one `edit_file` call, and keep each turn small enough to
-finish. A page already where it belongs is not touched. Finish with `index.md` reflecting
-the new paths and a log entry headed `## [YYYY-MM-DD] reorganise` — one line: how many
+the pages `related` lists. Work in batches of a few pages per turn, all of one page's
+link fixes in one `edit_file` call, and keep each turn small enough to finish. A page
+already where it belongs is not touched. Finish with a log entry headed `## [YYYY-MM-DD] reorganise` — one line: how many
 moved, and any page whose type you could not tell (leave those where they are and name
 them).
 

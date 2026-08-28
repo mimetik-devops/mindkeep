@@ -9,7 +9,7 @@ from typing import Any
 import anthropic
 from anthropic import beta_tool
 
-from app import gaps, graph, history, runs
+from app import gaps, graph, history, index, runs
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +122,17 @@ def pages_citing(home: Path, source: str) -> int:
     )
 
 
+KEPT = (
+    "Refused: index.md is kept by Mindkeep from the pages' frontmatter — change a page's "
+    "title or description instead."
+)
+
+
+def kept(home: Path, target: Path) -> bool:
+    """index.md: derived from the pages after every run, written by nobody."""
+    return target == home / "index.md"
+
+
 def agent_owns(home: Path, target: Path) -> bool:
     """The agent writes the wiki and its bookkeeping — everything except raw/."""
     return not target.is_relative_to(home / "raw")
@@ -153,7 +164,7 @@ RETIRE_TASK = (
     "Today is {today}. The source `{source}` has been deleted by its owner. Pages under "
     "`wiki/` still cite it. Follow the manual's rules for a source that is gone — delete "
     "a page whose only source it was; otherwise drop its `sources` entry and the claims "
-    "that rested on it alone — then clean up the links and `index.md`, and write a log "
+    "that rested on it alone — then clean up the links, and write a log "
     "entry headed `## [{today}] retire | {source}`. Touch nothing else."
 )
 
@@ -181,7 +192,7 @@ REORGANISE_TASK = (
     "Today is {today}. Reorganise the wiki, following the Reorganise section of the "
     "manual: every page under `wiki/` goes where *Where a page goes* puts it, moved with "
     "`move_file` — never rewritten, never copied — then its links repointed with "
-    "`edit_file` and `index.md` updated. Change no content. Write the log entry headed "
+    "`edit_file`. Change no content. Write the log entry headed "
     "`## [{today}] reorganise`.{list}"
 )
 
@@ -283,6 +294,8 @@ def ingest(
         written += len(content)
         step(f"writing {path} ({len(content)} chars)")
         target = safe_path(home, path)
+        if kept(home, target):
+            return KEPT
         if not agent_owns(home, target):
             return "Refused: raw/ belongs to the user. Write to wiki/ instead."
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -305,6 +318,8 @@ def ingest(
         written += sum(len(e.get("new", "")) for e in edits)
         step(f"editing {path} ({len(edits)} changes)")
         target = safe_path(home, path)
+        if kept(home, target):
+            return KEPT
         if not agent_owns(home, target):
             return "Refused: raw/ belongs to the user."
         if not target.is_file():
@@ -335,6 +350,8 @@ def ingest(
         """
         step(f"moving {path} -> {to}")
         old, new = safe_path(home, path), safe_path(home, to)
+        if kept(home, old) or kept(home, new):
+            return KEPT
         if not (agent_owns(home, old) and agent_owns(home, new)):
             return "Refused: raw/ belongs to the user."
         if not old.is_file():
@@ -357,6 +374,8 @@ def ingest(
         """
         step(f"deleting {path}")
         target = safe_path(home, path)
+        if kept(home, target):
+            return KEPT
         if not agent_owns(home, target):
             return "Refused: raw/ belongs to the user."
         if not target.is_file():
@@ -679,6 +698,11 @@ def ingest_safely(home: Path, source: str, force: bool = False) -> str:
         message = (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
         error = (message or str(e) or type(e).__name__)[:300]
     finally:
+        # the catalog follows the pages, in the run's own commit
+        try:
+            index.write(home)
+        except Exception:
+            log.exception("could not rebuild index.md in %s", home)
         # committed even when the run failed: half a run is exactly what someone wants to undo
         runs.finish(
             home, run_id, turns, written, error, commit=snapshot(home, f"run {run_id}: {source}")
