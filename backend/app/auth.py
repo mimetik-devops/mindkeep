@@ -7,7 +7,9 @@ published keys, the issuer itself, expiry — and what is read is the standard c
 `sub` for who, `email`/`given_name`/`family_name`/`picture` for the profile, and one
 configurable claim for the role. The desktop client sends a device token instead —
 one per machine, minted on the website and revocable there — because a scheduled sync
-cannot do an interactive login.
+cannot do an interactive login. With `AUTH_PROVIDER=builtin` there is no provider at all:
+accounts.py keeps e-mails and passwords and signs its own session tokens, and this
+module hands those to it to verify.
 
 Mindkeep keeps no user table. A person is their `sub`; everything else is read off the
 token they present, so there is nothing to drift out of step with the provider.
@@ -62,6 +64,12 @@ def _claims(token: str) -> dict[str, Any]:
     Most providers put nothing meaningful in `aud` for a first-party single-page app;
     Kinde's access tokens carry none at all. Set AUTH_AUDIENCE when yours does.
     """
+    if os.environ.get("AUTH_PROVIDER", "oidc") == "builtin":
+        # the built-in provider's own tokens: HS256, verified in accounts.py and only
+        # there, so this path's RS256 pin never has to know about them
+        from app import accounts  # local import: accounts.py imports this module's names
+
+        return accounts.claims(token)
     audience = os.environ.get("AUTH_AUDIENCE")
     try:
         key = _jwks().get_signing_key_from_jwt(token).key
@@ -185,9 +193,15 @@ def profile_from(claims: dict[str, Any]) -> Profile:
     UI falls back to the ID token it already holds, and a `verified` stamp falls back to
     the subject; both are honest, neither is an error.
     """
+    first = str(claims.get("given_name") or claims.get("first_name") or "")
+    last = str(claims.get("family_name") or claims.get("last_name") or "")
+    if not (first or last) and claims.get("name"):
+        # a provider (or the built-in accounts) that carries one `name`: split on the
+        # first space, which is right often enough for a header and a verified stamp
+        first, _, last = str(claims["name"]).strip().partition(" ")
     return Profile(
-        first_name=str(claims.get("given_name") or claims.get("first_name") or ""),
-        last_name=str(claims.get("family_name") or claims.get("last_name") or ""),
+        first_name=first,
+        last_name=last,
         email=str(claims.get("email") or ""),
         picture=str(claims.get("picture") or ""),
     )

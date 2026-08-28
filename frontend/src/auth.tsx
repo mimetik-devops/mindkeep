@@ -3,6 +3,7 @@ import { App } from "./App";
 import { Mark } from "./icons";
 import { pending, remember } from "./invites";
 import { pendingConnect, rememberConnect } from "./handoff";
+import { builtin } from "./providers/builtin";
 import { kinde } from "./providers/kinde";
 import { oidc } from "./providers/oidc";
 import type { Adapter } from "./providers/session";
@@ -12,10 +13,11 @@ import type { Adapter } from "./providers/session";
  * asks it the five things the app needs. A provider's SDK is imported by its adapter
  * under providers/ and by nothing else.
  */
-const ADAPTERS: Record<string, Adapter> = { kinde, oidc };
+const ADAPTERS: Record<string, Adapter> = { builtin, kinde, oidc };
 
 function chosen(): Adapter | string {
-  const name = String(import.meta.env.VITE_AUTH_PROVIDER ?? "");
+  // unset means Mindkeep's own accounts: the build works with no provider configured
+  const name = String(import.meta.env.VITE_AUTH_PROVIDER || "builtin");
   return ADAPTERS[name] ?? name;
 }
 
@@ -41,9 +43,13 @@ function Session({ adapter }: { adapter: Adapter }) {
               ? "You have been invited to a team. Sign in, or register, to join it."
               : "A second brain that reads what you feed it."}
         </p>
-        <button className="primary" onClick={session.login}>
-          Sign in
-        </button>
+        {adapter.Login ? (
+          <adapter.Login />
+        ) : (
+          <button className="primary" onClick={session.login}>
+            Sign in
+          </button>
+        )}
       </div>
     );
   }
@@ -68,8 +74,8 @@ export function Gate({ adapter = chosen() }: { adapter?: Adapter | string }) {
         <Mark size={64} />
         <h1>Mindkeep</h1>
         <p>
-          VITE_AUTH_PROVIDER is {adapter ? `"${adapter}"` : "not set"}. It names the identity
-          provider: one of {Object.keys(ADAPTERS).join(", ")}.
+          VITE_AUTH_PROVIDER is "{adapter}". It names the identity provider: one of{" "}
+          {Object.keys(ADAPTERS).join(", ")}.
         </p>
       </div>
     );

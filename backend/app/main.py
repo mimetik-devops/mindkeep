@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import devices, files, ingest, runs, schedule, teams
+from app import accounts, devices, files, ingest, runs, schedule, teams
 from app.auth import CurrentProfile, CurrentRole, CurrentUser, Person, device_token
 from app.files import raw_path
 
@@ -84,6 +84,8 @@ if origins := [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",
     )
 app.include_router(files.router)
 app.include_router(teams.router)
+if accounts.enabled():
+    app.include_router(accounts.router)
 
 
 @app.get("/health")
@@ -116,6 +118,24 @@ def clean_names(
     rule lives here only — a client with its own copy would drift.
     """
     return {"paths": [raw_path(p) for p in paths]}
+
+
+@app.get("/auth/config")
+def auth_config() -> dict[str, str]:
+    """Which identity provider this deployment uses, for the sign-in page. No auth: the
+    page has to know before anyone is signed in."""
+    return accounts.config()
+
+
+@app.put("/auth/password")
+def set_password(
+    who: Person, current: Annotated[str, Body()], new: Annotated[str, Body()]
+) -> dict[str, bool]:
+    """Change your own password — the built-in provider only."""
+    if not accounts.enabled():
+        raise HTTPException(404, "passwords are the identity provider's here")
+    accounts.change_password(who, current, new)
+    return {"changed": True}
 
 
 @app.get("/about")

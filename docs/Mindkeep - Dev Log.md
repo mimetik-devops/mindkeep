@@ -1314,6 +1314,27 @@ or removes the source, rebuilds the index, commits once; redo (`put_back`) the s
 `wiki/` and `raw/`. A conflict is now only a later run rewriting the same page, named.
 Also: the site renders the agent's `[^src]` footnotes (`marked-footnote`).
 
+### 4.40 A built-in identity provider, so the product works out of the box (2026-08-28)
+
+Ruben: "a basic default built-in auth system so the product works out of the box without
+the need for third party dependencies (other than hosting)". Built as a third adapter
+behind the existing contract, not a special case: `AUTH_PROVIDER=builtin` (explicit — a
+deploy that loses `AUTH_ISSUER` must fail closed, not fall into open registration; unset
+still means `oidc`, so production did not move) turns on `accounts.py`: an `account`
+table (sub `local_<hex>`, e-mail, scrypt hash with its parameters stored in the string so
+they can be raised later, `admin` for the first account), HS256 session tokens signed
+with `AUTH_SECRET` (30 days), verified in that module alone — the RS256 pin in `auth.py`
+dispatches once and never accepts both algorithms. Registration is open only until the
+first account exists, then `AUTH_REGISTRATION=invite` (an invite link from a team lets
+someone in) or `open`. Five wrong passwords in five minutes lock the address out. The
+frontend gained `providers/builtin.tsx` — token in localStorage, profile read off the
+payload, its own sign-in / register form — and the adapter contract an optional `Login`
+component the gate renders instead of the redirect button; `VITE_AUTH_PROVIDER` unset
+now means `builtin`. Settings → Account has a password change. Decided, not omitted: no
+reset, no e-mail verification, logout is forgetting the token, revoke-all is rotating the
+secret. Verified end to end on the local stack switched to builtin (first-account
+registration, sign out, sign in), then switched back to Kinde.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

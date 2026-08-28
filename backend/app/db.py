@@ -173,6 +173,22 @@ class Device(Base):
     __table_args__ = (Index("ix_device_sub", "sub"),)
 
 
+class Account(Base):
+    """A person signed up with the built-in identity provider: e-mail, password hash,
+    the sub their team memberships hang off. Empty when an identity provider is used
+    instead. See accounts.py."""
+
+    __tablename__ = "account"
+
+    sub: Mapped[str] = mapped_column(String(128), primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True)
+    name: Mapped[str] = mapped_column(String(80))
+    password: Mapped[str] = mapped_column(String(256))
+    admin: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
 LINT_OFF = -1
 
 

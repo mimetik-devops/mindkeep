@@ -68,6 +68,6 @@ test("still loading: nothing yet, rather than a sign-in button that will vanish"
 });
 
 test("a provider that is not configured says so instead of a blank page", async () => {
-  expect((await mount("")).textContent).toContain("VITE_AUTH_PROVIDER is not set");
+  expect((await mount("")).textContent).toContain('VITE_AUTH_PROVIDER is ""');
   expect((await mount("okta")).textContent).toContain('"okta"');
 });

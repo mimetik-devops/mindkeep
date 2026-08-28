@@ -25,6 +25,9 @@ export type Session = {
 export type Adapter = {
   Provider: (props: { children: ReactNode }) => ReactNode;
   useSession: () => Session;
+  /** A sign-in form of the adapter's own, for a provider with no redirect to send people
+   * to. Rendered by the gate in place of the "Sign in" button when present. */
+  Login?: () => ReactNode;
 };
 
 /** The settings every adapter reads. The names are the same whichever provider. */

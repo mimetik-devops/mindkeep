@@ -470,10 +470,46 @@ button {
   gap: 6px;
 }
 
-.md .footnotes { margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
-.md .footnotes h2 { display: none; }
-.md .footnotes ol { padding-left: 20px; }
-.md sup a { color: var(--clay-ink); text-decoration: none; font-weight: 600; }
+.md .footnotes {
+  margin-top: 28px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+.md .footnotes h2 {
+  display: none;
+}
+.md .footnotes ol {
+  padding-left: 20px;
+}
+.md sup a {
+  color: var(--clay-ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, 90vw);
+}
+.signin input {
+  padding: 10px 12px;
+  border: 1.2px solid var(--soft);
+  border-radius: 9px;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+}
+.signin .primary {
+  width: 100%;
+}
+.signin .banner {
+  margin: 0;
+}
 
 /* dialogs ---------------------------------------------------------------- */
 

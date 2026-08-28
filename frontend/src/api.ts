@@ -236,6 +236,26 @@ export const startLint = (bundle: string) =>
 export const startReorganise = (bundle: string) =>
   call<{ reorganising: string }>(`${at(bundle)}/reorganise`, { method: "POST" });
 
+/** Which identity provider this deployment uses; `registration` only with the built-in one:
+ * "first" (no accounts yet), "open", or "invite". */
+export const authConfig = () => call<{ provider: string; registration?: string }>("/auth/config");
+const post = <T>(path: string, body: unknown) =>
+  call<T>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+export const signIn = (email: string, password: string) =>
+  post<{ token: string }>("/auth/login", { email, password });
+export const signUp = (email: string, password: string, name: string, invite = "") =>
+  post<{ token: string }>("/auth/register", { email, password, name, invite });
+export const changePassword = (current: string, next: string) =>
+  call<{ changed: boolean }>("/auth/password", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current, new: next }),
+  });
+
 /** Composed from Kinde on every read — Mindkeep keeps no user table of its own. */
 export type Profile = {
   id: string;
