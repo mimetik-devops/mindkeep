@@ -147,6 +147,8 @@ def readable_text(path: Path) -> str | None:
     """
     if path.suffix.lower() == ".docx":
         return docx_text(path)
+    if path.suffix.lower() == ".pdf":
+        return None  # its bytes may decode, and are still not its text
     try:
         return path.read_bytes().decode("utf-8")  # strict: a decode error means binary
     except UnicodeDecodeError:

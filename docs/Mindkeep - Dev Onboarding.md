@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `4ac9efb` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `07b1f8f` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -226,6 +226,14 @@ that is what keeps auth provider-agnostic.
    `files.requeue_unread` re-queues every raw file with no run at all and every source
    whose latest failure was the service's.
 
+**PDF and .docx sources** ride on the task message as a `document` block
+(`ingest.attachment`) rather than through `read_file`: a PDF as itself, which the API
+reads as text *and* as page images — scans, charts and multi-column layouts survive; a
+`.docx` as its text (the API takes PDF and plain text, not Word), under the same shape.
+`read_file` on that path points at the attachment. The API's ceiling is 32 MB and 600
+pages; a larger PDF is refused with a sentence rather than guessed at. Other binaries are
+reported as binary.
+
 **The agent's tools** (closures in `ingest.ingest`): `read_file`, `write_file`,
 `edit_file` (batched exact-match edits, all-or-nothing), `move_file` (rename on disk,
 content never passes through the model — what a reorganise uses), `delete_file` (prunes
@@ -326,7 +334,7 @@ Under `/teams/{team}`, membership required:
 | PUT/DELETE | `/bundles/{b}` | bundles | rename / delete (keeps ≥1) |
 | PUT | `/bundles/{b}/team` | bundles | move to another team |
 | GET | `/bundles/{b}/tree` | read | `path → sha256`, dot dirs excluded |
-| GET | `/bundles/{b}/files/{path}` · `/text/{path}` | read | raw bytes · readable text (`.docx` extracted with the stdlib; other binaries, PDFs included, are reported as binary rather than guessed at) |
+| GET | `/bundles/{b}/files/{path}` · `/text/{path}` | read | raw bytes · readable text (`.docx` extracted with the stdlib; other binaries are reported as binary — a PDF reaches the agent as a document instead, see the ingest pipeline) |
 | PUT | `/bundles/{b}/files/{path}` | write | write a source; `If-Match` honoured. `wiki/`, `questions.md` and `todo.md` are refused (409) |
 | POST | `/bundles/{b}/raw/{path}` | write | upload (name cleaned, ingest queued) |
 | DELETE | `/bundles/{b}/raw/{path}` | write | delete; a cited source starts a retire run |

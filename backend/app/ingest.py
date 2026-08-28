@@ -1,8 +1,10 @@
+import base64
 import logging
 import queue
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import anthropic
 from anthropic import beta_tool
@@ -46,6 +48,47 @@ def destination(home: Path, rel: str) -> str:
     page = home / rel
     fm = graph.frontmatter(page.read_text(encoding="utf-8", errors="replace"))
     return f"wiki/{folder_for(str(fm.get('type') or ''))}/{page.name}"
+
+
+# A document that is not markdown rides on the task message as a document block rather
+# than through read_file. A PDF goes whole: the API reads its text and looks at every
+# page, so a scan, a chart, a two-column layout all survive, which no text extractor
+# manages. A .docx goes as its text — the API takes PDF and plain text, not Word — under
+# the same shape, so the agent handles both the same way. 32 MB is the API's ceiling per
+# request; a PDF past it is refused with a sentence.
+PDF_LIMIT = 32 * 1024 * 1024
+
+
+def attachment(home: Path, source: str) -> dict[str, Any] | None:
+    """The source as a document block for the task message: a PDF as itself, a .docx as
+    its text. None for any other file — or a PDF too large to send."""
+    from app.files import docx_text  # local import: files.py imports this module
+
+    target = home / source
+    kind = target.suffix.lower()
+    if not target.is_file() or kind not in (".pdf", ".docx"):
+        return None
+    if kind == ".pdf":
+        if target.stat().st_size > PDF_LIMIT:
+            return None
+        data = base64.standard_b64encode(target.read_bytes()).decode("ascii")
+        source_block: dict[str, str] = {
+            "type": "base64",
+            "media_type": "application/pdf",
+            "data": data,
+        }
+    else:
+        text = docx_text(target)
+        if text is None:
+            return None
+        source_block = {"type": "text", "media_type": "text/plain", "data": text}
+    return {"type": "document", "source": source_block, "title": target.name}
+
+
+ATTACHED = (
+    "\n\nThe source is attached to this message as a document — read it here; "
+    "`read_file` cannot show it."
+)
 
 
 def lock_for(home: Path) -> threading.Lock:
@@ -183,6 +226,7 @@ def ingest(
     """
     written = 0
     steps = 0
+    attached = attachment(home, source) if source not in MAINTENANCE else None
     # local import: files.py imports this module
     from app.files import TEMPLATES, prune_empty, put_text, readable_text, refresh_guide, safe_path
 
@@ -208,8 +252,15 @@ def ingest(
         target = safe_path(home, path)
         if not target.is_file():
             return f"{path} does not exist yet."
+        if attached is not None and target == home / source:
+            return f"{path} is attached to your task as a document. Read it there."
         text = readable_text(target)
         if text is None:
+            if target.suffix.lower() == ".pdf":
+                return (
+                    f"{path} is a PDF too large to hand to the model (the limit is 32 MB). "
+                    "Do not guess at its contents. Note it in log.md and stop."
+                )
             return (
                 f"{path} is not readable as text — Mindkeep cannot extract "
                 f"{target.suffix or 'this format'} yet. Do not guess at its contents. "
@@ -360,6 +411,7 @@ def ingest(
             source=source, today=today, hints=CHANGED.format(diff=changed) if changed else ""
         )
 
+    content: Any = [attached, {"type": "text", "text": task + ATTACHED}] if attached else task
     client = anthropic.Anthropic()
     with lock_for(home):
         # Two texts, two readers. manual.md is this agent's whole instruction and never
@@ -392,7 +444,8 @@ def ingest(
             messages=[
                 {
                     "role": "user",
-                    "content": task,
+                    # a document rides on the task itself: a tool result cannot carry one
+                    "content": content,
                 }
             ],
         )
@@ -440,7 +493,9 @@ SERVICE_ERROR = (
     "internal server",
     "timed out",
     "timeout",
-    "error code: 4",  # 401, 403, 429 as the SDK renders them
+    "error code: 401",  # as the SDK renders them; a 400 is the request's fault and stays out
+    "error code: 403",
+    "error code: 429",
     "error code: 5",
 )
 

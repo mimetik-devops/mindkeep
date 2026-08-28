@@ -370,6 +370,7 @@ def test_a_failure_that_is_the_services_holds_rather_than_fails_the_next_thirty(
 
     assert service_error("Your credit balance is too low to access the Anthropic API.")
     assert service_error("Error code: 429 - rate_limit_error")
+    assert not service_error("Error code: 400 - too many pages")  # the request's fault
     assert service_error("Connection error.")
     assert not service_error("Edit 2 of 3: `old` appears 0 times, needs 1.")
     assert not service_error("")
@@ -553,6 +554,70 @@ def test_an_assistant_turn_is_a_job_the_browser_polls(client, tmp_path, monkeypa
         threading.Event().wait(0.05)
     assert state == {"done": True, "error": "the model choked"}
     assert client.get(f"{B}/assist/nope").status_code == 404
+
+
+MINIMAL_PDF = (
+    b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+    b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+    b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n"
+    b"trailer<</Root 1 0 R>>\n%%EOF\n"
+)
+
+
+def test_a_pdf_source_is_handed_to_the_model_as_a_document(client, tmp_path, monkeypatch):
+    """Not extracted, not refused: attached to the task message, read as text and as
+    pages. read_file on it points there; a PDF past the API's limit is refused plainly."""
+    import base64
+    from unittest.mock import patch
+
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/guide.pdf", content=MINIMAL_PDF)
+    seen: dict = {}
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest(home, "raw/guide.pdf")
+    content = seen["messages"][0]["content"]
+    assert content[0]["type"] == "document" and content[0]["title"] == "guide.pdf"
+    assert content[0]["source"]["media_type"] == "application/pdf"
+    assert base64.b64decode(content[0]["source"]["data"]) == MINIMAL_PDF
+    assert "attached to this message" in content[1]["text"]
+    read = next(t for t in seen["tools"] if t.name == "read_file")
+    assert "attached to your task" in read.call({"path": "raw/guide.pdf"})
+
+    monkeypatch.setattr(agent, "PDF_LIMIT", 10)  # this one is now too large
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest(home, "raw/guide.pdf")
+    assert isinstance(seen["messages"][0]["content"], str)  # nothing attached
+    read = next(t for t in seen["tools"] if t.name == "read_file")
+    assert "too large" in read.call({"path": "raw/guide.pdf"})
+
+    # a .docx is attached the same way, as its text: the API takes PDF and plain text
+    import io
+    import zipfile
+
+    packed = io.BytesIO()
+    with zipfile.ZipFile(packed, "w") as z:
+        z.writestr("word/document.xml", "<w:document><w:p><w:t>Hello docx</w:t></w:p></w:document>")
+    client.post(f"{B}/raw/memo.docx", content=packed.getvalue())
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest(home, "raw/memo.docx")
+    content = seen["messages"][0]["content"]
+    assert content[0]["source"] == {
+        "type": "text",
+        "media_type": "text/plain",
+        "data": "Hello docx",
+    }
+    assert content[0]["title"] == "memo.docx"
+    read = next(t for t in seen["tools"] if t.name == "read_file")
+    assert "attached to your task" in read.call({"path": "raw/memo.docx"})
+
+    # a markdown source is handed over as before: text through read_file
+    client.post(f"{B}/raw/note.md", content=b"plain")
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest(home, "raw/note.md")
+    assert isinstance(seen["messages"][0]["content"], str)
 
 
 def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):
