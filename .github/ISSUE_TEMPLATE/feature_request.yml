@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a change to what Mindkeep does.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Changes to how the **agent** behaves — what a page is, where it goes, what it may
+        claim — are changes to
+        [the manual](https://github.com/mimetik-devops/mindkeep/blob/main/backend/app/templates/manual.md).
+        Quoting the sentence you would add or change there is the fastest way to make the case.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does Mindkeep get in the way today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried or considered
+      description: Including whether it can already be done another way.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it belongs
+      options:
+        - The agent's manual (page rules, wiki structure)
+        - Backend / API
+        - Web app
+        - Desktop client
+        - Deployment and self-hosting
+        - Not sure
+    validations:
+      required: true
