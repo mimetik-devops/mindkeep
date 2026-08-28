@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `07b1f8f` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `42dae21` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -369,7 +369,7 @@ for prose, sans for UI, mono for paths).
 | `providers/session.ts` · `kinde.tsx` · `oidc.tsx` | the adapter contract (`Provider` + `useSession()`), and the two adapters. Only `kinde.tsx` may import the Kinde SDK; `oidc.tsx` is the standard code flow with PKCE (react-oidc-context) |
 | `api.ts` | every call to the backend; `setTeam`/`at(bundle)` build the prefixed URLs; `can(team, permission)`; types (`Team`, `Entry`, `Queue`, `Device`, `Lint`…) |
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
-| `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, retry |
+| `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Ingest again* (a clean run is skipped by the queue; this is the one way to ask for it) |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
 | `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |
 | `Activity.tsx` | the feed from git history + runs; undo/redo; the ingest-paused and failed banners |

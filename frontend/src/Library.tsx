@@ -319,9 +319,22 @@ export function Library({ bundle }: { bundle: string }) {
             {status?.undone && (
               <div className="step">Its last ingest was undone. Ingest it again when ready.</div>
             )}
-            <button className="primary danger" onClick={remove}>
-              <Trash /> Delete source
-            </button>
+            <div className="row">
+              {/* a run that read it and wrote nothing, or an old one you want redone — a
+                  clean run is skipped by the queue, so this is the one way to ask again */}
+              <button
+                className="primary dark"
+                disabled={status?.ingesting}
+                onClick={() =>
+                  retryIngest(bundle, selected).then(refresh, (e) => setError(String(e)))
+                }
+              >
+                Ingest again
+              </button>
+              <button className="primary danger" onClick={remove}>
+                <Trash /> Delete source
+              </button>
+            </div>
           </section>
         )}
 
