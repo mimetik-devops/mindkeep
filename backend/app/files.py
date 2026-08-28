@@ -887,7 +887,7 @@ def retry(
     else:
         queued = [src for src, _ in runs.failed_sources(home) if (home / src).is_file()]
     for source in queued:
-        enqueue(home, source)
+        enqueue(home, source, force=True)  # asked for: run it even if nothing changed
     resume(home)
     return {"queued": queued}
 
@@ -994,7 +994,7 @@ def reingest(path: str, home: Bundle, _: Writer) -> dict[str, str]:
     if not user_owns(home, target) or not target.is_file():
         raise HTTPException(404, "not found")
     rel = target.relative_to(home).as_posix()
-    enqueue(home, rel)
+    enqueue(home, rel, force=True)
     return {"ingesting": rel}
 
 

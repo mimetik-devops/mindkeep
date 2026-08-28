@@ -538,6 +538,7 @@ def waiting(home: Path) -> int:
 
 _work: dict[str, "queue.Queue[str]"] = {}
 _waiting: dict[str, set[str]] = {}  # what each queue holds, so a source is never in it twice
+_forced: dict[str, set[str]] = {}  # asked for by a person: run even if nothing changed
 _work_lock = threading.Lock()
 
 
@@ -548,14 +549,18 @@ def busy(home: Path) -> bool:
     return lock_for(home).locked() or bool(pending and not pending.empty()) or str(home) in _held
 
 
-def enqueue(home: Path, source: str) -> None:
+def enqueue(home: Path, source: str, force: bool = False) -> None:
     """Hand an ingest to the bundle's worker and return immediately.
 
     A source already waiting is not queued again: five saves of one file during a sync
     are one run, over the file as it is when its turn comes. A source *running* is
     queued — it may have changed since that run read it, and the run cannot tell.
+    `force` is a person asking for the run: it happens even if the file is exactly what
+    the last run read, which the queue would otherwise skip.
     """
     with _work_lock:
+        if force:
+            _forced.setdefault(str(home), set()).add(source)
         pending = _work.get(str(home))
         if pending is None:
             pending = _work[str(home)] = queue.Queue()
@@ -580,12 +585,14 @@ def _worker(home: Path, pending: "queue.Queue[str]") -> None:
     again = ""  # a source held back for another go, ahead of the queue
     while True:
         source = again or pending.get()
-        if not again:
-            with _work_lock:
+        with _work_lock:
+            if not again:
                 _waiting[key].discard(source)
+            force = source in _forced.get(key, ())
+            _forced.get(key, set()).discard(source)
         again = ""
         try:
-            error = ingest_safely(home, source)
+            error = ingest_safely(home, source, force)
         except Exception:  # ingest_safely logs its own failures; this is the last resort
             log.exception("ingest worker survived a failure on %s", source)
             error = ""
@@ -624,9 +631,10 @@ def _already_read(home: Path, source: str) -> bool:
     return bool(last and last.based_on and history.same(home, last.based_on, source))
 
 
-def ingest_safely(home: Path, source: str) -> str:
+def ingest_safely(home: Path, source: str, force: bool = False) -> str:
     """Background entry point: a failed ingest must not lose the source that triggered it.
     Returns the error, or "" — the worker holds the queue when it was the service's.
+    `force` runs the source even when it is what the last run read.
 
     The run row is opened here and closed here, so a source can never be left looking
     like it is still running when nothing is.
@@ -634,7 +642,7 @@ def ingest_safely(home: Path, source: str) -> str:
     # a source queued again that is exactly what the last run read — saved twice, synced
     # twice — has nothing to teach the wiki; a minute of the agent finding that out is the
     # commonest way a team's queue grows
-    if source not in MAINTENANCE and _already_read(home, source):
+    if not force and source not in MAINTENANCE and _already_read(home, source):
         log.info("%s is as the last run read it; nothing to ingest", source)
         return ""
     # read before the run, settled after it: a lint that dies must not lose the hints it

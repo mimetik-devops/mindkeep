@@ -338,6 +338,8 @@ def test_a_source_waiting_its_turn_is_not_queued_twice(tmp_path, monkeypatch):
     agent._waiting[str(home)].clear()  # what the worker does as it takes each one
     agent.enqueue(home, "raw/a.md")  # taken already, so it may be queued again
     assert pending.qsize() == 1
+    agent.enqueue(home, "raw/a.md", force=True)  # a person asking marks it, even while waiting
+    assert "raw/a.md" in agent._forced[str(home)] and pending.qsize() == 1
 
 
 def test_a_source_the_last_run_already_read_is_skipped(client, tmp_path, ingested):
@@ -359,10 +361,16 @@ def test_a_source_the_last_run_already_read_is_skipped(client, tmp_path, ingeste
         agent.ingest_safely(home, "raw/deck.md")
     assert not seen and len(runs.recent(home)) == before  # nothing to teach the wiki
 
+    # asked for by a person — Ingest again, retry — it runs, unchanged or not
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest_safely(home, "raw/deck.md", force=True)
+    assert seen and len(runs.recent(home)) == before + 1
+    seen.clear()
+
     client.put(f"{B}/files/raw/deck.md", content=b"v2")
     with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
         agent.ingest_safely(home, "raw/deck.md")
-    assert seen and len(runs.recent(home)) == before + 1  # changed since: it runs
+    assert seen and len(runs.recent(home)) == before + 2  # changed since: it runs
 
 
 def test_a_failure_that_is_the_services_holds_rather_than_fails_the_next_thirty():
