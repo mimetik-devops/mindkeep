@@ -1,0 +1,573 @@
+# Mindkeep — Developer Onboarding
+
+*Written 2026-08-28 against commit `7c80733` on `main`. Everything here is checkable in
+the repository; where this document and the code disagree, the code is right and this
+document is stale.*
+
+Mindkeep is a team knowledge base that an AI agent maintains. People drop documents into
+a folder; a Claude agent in the cloud reads each one and folds it into a wiki of short,
+linked, cited pages; the wiki syncs back down to every teammate's machine as plain
+markdown that any local tool — Claude Code, Obsidian, `grep` — can read. Nobody writes
+the wiki by hand. The product's one rule, from which most of the architecture follows:
+**the cloud agent is the only writer of `wiki/`; people write only `raw/`.**
+
+---
+
+## 1. The shape of the system
+
+```
+                       ┌──────────────────────────────────────────────────────┐
+   browser ──HTTPS──►  │ frontend  (React SPA, served by Caddy, proxies /api) │
+                       └───────────────────────┬──────────────────────────────┘
+                                               │ private network
+   tray app / CLI ──HTTPS /api──► Caddy ──────►│
+                                               ▼
+                       ┌──────────────────────────────────────────────────────┐
+                       │ backend (FastAPI, one process)                       │
+                       │   • routes: teams, bundles, files, runs, devices     │
+                       │   • per-bundle ingest worker threads (Claude agent)  │
+                       │   • nightly lint scheduler thread                    │
+                       │   • git repo inside every bundle (history, undo)     │
+                       └───────────┬───────────────────────┬──────────────────┘
+                                   │                       │
+                          ┌────────▼────────┐    ┌─────────▼──────────┐
+                          │ volume /data    │    │ Postgres            │
+                          │ the wiki files  │    │ runs, teams,        │
+                          │ (canonical)     │    │ devices — metadata  │
+                          └─────────────────┘    └────────────────────┘
+```
+
+Three deployable things, one repository:
+
+| Part | Directory | Stack | What it is |
+|---|---|---|---|
+| Backend | `backend/` | Python 3.13, FastAPI, SQLAlchemy 2, Alembic, Postgres 17, Anthropic SDK, git | The API, the ingest agent, the scheduler, the history |
+| Frontend | `frontend/` | TypeScript, React 19, Vite 6, Vitest, react-oidc-context / Kinde SDK | The web app |
+| Client | `client/` | Python 3.12+, stdlib (engine + CLI), PySide6 (tray app), Briefcase | The sync engine, the CLI, the desktop tray app |
+
+`docker-compose.yml` at the root runs all three plus Postgres for development.
+
+**Sizes, for orientation:** ~9,400 lines of source across the three parts; 151 backend
+tests, 28 frontend tests, 32 client tests.
+
+---
+
+## 2. Core concepts
+
+### Tenant, team, bundle
+
+- A **team** is the unit of sharing and of tenancy. Every person has a **personal team**
+  created on first sight; teams beyond that are made in the app and joined by invite link.
+- A **bundle** is one knowledge base: one directory, one wiki, one git history. A team
+  holds many bundles (`default` is seeded; more are created in Settings).
+- On disk: `WIKI_ROOT/{team_id}/{bundle}/`. The personal team's id is
+  `sha256(sub)[:32]` of the person's identity-provider subject; other teams get a random
+  32-hex id. **The path prefix is the whole tenancy boundary** — every filesystem access
+  goes through `files.safe_path()`, every DB row carries a `tenant` column, and a team you
+  are not a member of is a 404, never a 403.
+- Every bundle route is `/teams/{team}/bundles/{bundle}/…`.
+
+### The bundle: an OKF bundle
+
+Mindkeep bundles follow the Open Knowledge Format v0.2 — markdown with YAML frontmatter,
+bundle-absolute links, `index.md`/`log.md` reserved. The layout:
+
+```
+{team}/{bundle}/
+  CLAUDE.md       the reader's guide — pushed from the app at every startup; tells a
+                  local agent this is a mirror, and where changes go
+  index.md        the catalog: one line per page. Agents read this first.
+  log.md          append-only history, one entry per run: "## [date] ingest | title"
+  todo.md         open questions the agent could not settle. Agent-owned.
+  raw/            the owner's documents, under their own names. The only human-written half.
+    notes/<person>/…   findings contributed by local agents (see "Notes")
+  wiki/           everything the agent wrote, filed by type:
+    people/  companies/  projects/  concepts/  meetings/  summaries/ …
+  .git/           history (hidden from every listing, never synced)
+```
+
+**Who writes what** (`backend/app/templates/manual.md`, *Who owns what*):
+
+| File | Written by | Notes |
+|---|---|---|
+| `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
+| `wiki/**`, `index.md`, `log.md` | the ingest/lint agent only | regenerated from sources; hand edits are overwritten |
+| `todo.md` | the agent (questions), the assistant (ticks) | a person answers through `raw/`, not by editing it |
+| `CLAUDE.md` | the app | overwritten from the template on every backend start |
+
+**Where a page goes** (*manual.md → Where a page goes*): `wiki/<type-plural>/<title-slug>.md`.
+The folder is the page's `type`, lowercase, plural; the slug is the title. The rule is
+mechanical on purpose — a page's type is a fact about the page, its subject an opinion.
+A bundle written before the rule is put in order by a **reorganise run**.
+
+### Runs
+
+Every piece of agent work is a **run**, a row in `ingest_run`, keyed by tenant + bundle +
+source. Sources are:
+
+- a path under `raw/` — an **ingest** (or a **retire**, when the file is gone);
+- `(lint)` — the nightly maintenance pass;
+- `(reorganise)` — the layout pass.
+
+A run records when it started and finished, turns, characters written, the model, the
+error if any, the agent's own log entry (`note`), and two git commits: `based_on` (what it
+read from) and `commit` (what it wrote). Runs are what the Activity feed, undo, the
+sources' "ingested" state and the queue all read.
+
+### History
+
+A git repository lives inside each bundle (`backend/app/history.py`). Around each run the
+server makes two commits — `before run N` (people's changes since the last run) and
+`run N: <source>` (what the agent wrote) — and every action a person takes through the
+app is its own commit (`upload …`, `edit …`, `delete …`, `move …`, `answer todo.md`).
+Undo of a run reverts its commit **and takes the source back** (a new file is removed, an
+edited one restored to the previous clean read); redo re-applies. The `.git` directory is
+excluded from the tree endpoint, from the agent's `list_files`, and from `safe_path`, so
+neither the mirror nor the agent ever sees it.
+
+### Concurrency: optimistic, never locks
+
+`PUT /files/{path}` and `DELETE /raw/{path}` honour `If-Match` with the sha256 the client
+last saw; a mismatch is a 412. The sync client keeps a both-sides-changed file under
+`.conflicts/` (a dot directory: never uploaded, never swept) and lets the server's copy
+land in place; for `todo.md` it merges ticks instead. The agent side is serialised by
+design: **one worker thread per bundle**, so only one run ever writes a wiki at a time.
+
+---
+
+## 3. Backend
+
+### Modules (`backend/app/`)
+
+| Module | Role |
+|---|---|
+| `main.py` | FastAPI app, lifespan (migrate → sweep interrupted runs → re-queue unread sources → re-key legacy tenants → push the reader's guide → start the scheduler), `/health`, `/me`, `/about`, `/clean`, `/devices` |
+| `auth.py` | Who is asking: provider JWT (browser) or device token (client). `CurrentUser`, `Person` (JWT only), `CurrentRole`, `CurrentProfile`, `CurrentIdentity` |
+| `teams.py` | Teams, memberships, invites, roles → permissions; `needs(permission)` dependencies |
+| `files.py` | Everything under `/teams/{team}/bundles/…`: bundles CRUD, tree, read/write, raw upload/move/delete, sources, activity, undo/redo, todos, assistant, lint schedule, queue/retry, reorganise, folders. Also `safe_path`, `tenant()`, guide refresh, startup re-queue |
+| `ingest.py` | The agent: task texts, the tool set, the per-bundle worker, `ingest_safely`, holds and retries, `busy()` |
+| `runs.py` | The `ingest_run` table and everything derived from it |
+| `history.py` | git inside the bundle: commit, record, undo, take_back, diff, log entries, pending changes |
+| `graph.py` / `gaps.py` | The link graph built from the files in memory; Louvain areas; structural gaps (thin pairs of areas) |
+| `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
+| `todos.py` | `todo.md` as checkbox lines: parse, tick |
+| `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history |
+| `devices.py` | Per-machine tokens: create, holder, mine, forget |
+| `db.py` | SQLAlchemy models and session; `now()` |
+| `templates/manual.md` | The agent's system prompt. Never leaves the server |
+| `templates/CLAUDE.md` | The reader's guide seeded into every bundle |
+
+### Authentication
+
+Two credentials share one `Authorization: Bearer` header:
+
+- **A browser** sends the identity provider's access token. Any OIDC provider that issues
+  RS256 tokens and publishes its keys works: verification is signature against the
+  issuer's JWKS (via discovery, or `AUTH_JWKS_URL`), `iss`, expiry, and `aud` only when
+  `AUTH_AUDIENCE` is set. Profile (`email`, `given_name`, `family_name`, `picture`) and
+  role (`AUTH_ROLE_CLAIM`, default Kinde's `roles`) are read off the claims. **There is no
+  user table** — a person is their `sub`.
+- **A machine** sends a device token, `<device id>.<hmac>`: the HMAC (`DEVICE_SECRET`)
+  proves it was minted here, the `device` row says whose it is, and its absence means
+  revoked. Devices are minted and revoked only with a browser session (`auth.Person`);
+  a device may never mint devices. Rotating `DEVICE_SECRET` revokes everything.
+
+The **connect flow** signs a machine in without typing: the client listens on a loopback
+port with a nonce and opens `https://<site>/?connect=1&port=…&nonce=…&name=…`; the signed-in
+person clicks *Connect*; the site mints a device and sends the browser to
+`http://127.0.0.1:<port>/?token=…&nonce=…`. The request survives the provider's redirect
+through sessionStorage (`frontend/src/handoff.ts`), the same trick invite links use.
+
+### Teams and permissions
+
+Roles are named sets of permissions (`teams.GRANTS`):
+
+| Role | Permissions |
+|---|---|
+| viewer | read |
+| contributor | read, write |
+| admin | + history, bundles, members |
+| owner | + team |
+
+Routes ask for a **permission**, never a role — `Writer`, `Manager`, `Historian` in
+`files.py` are `teams.needs("write" / "bundles" / "history")`. `GET /teams` returns each
+team's `permissions`, and the UI gates with `can(team, "write")`. Personal teams cannot be
+left, deleted, renamed or invited to. Invites are one-use links, 7 days, states
+open/used/expired. Teams are Mindkeep's own tables, never the provider's organisations —
+that is what keeps auth provider-agnostic.
+
+### The ingest pipeline
+
+1. **Trigger.** An upload (`POST …/raw/{path}`), an edit of a source (`PUT …/files/raw/…`),
+   a deletion of a cited source, a manual `POST …/ingest/{path}` or `…/retry`, a lint's
+   hour, a reorganise request — each calls `ingest.enqueue(home, source)`.
+2. **Queue.** One `queue.Queue` and one daemon worker thread per bundle, created on first
+   use. A source already *waiting* is not queued twice; a source *running* is queued
+   again (it may have changed since the run read it). The queue is in-process memory.
+3. **Worker.** `ingest_safely(home, source)`:
+   - a source byte-for-byte what the last clean, not-undone run read is **skipped** before
+     a run row opens (`history.same` against the run's `based_on`);
+   - opens the run row; commits people's changes as `before run N`; records `based_on`;
+   - for a re-ingest, computes `git diff` of the source since the last clean read and hands
+     it to the agent as a `CHANGED` hint (removed lines = withdrawn claims);
+   - calls `ingest()`, which runs Claude (`MODEL`, adaptive thinking, medium effort) with
+     the manual as system prompt and the task text for the source kind;
+   - commits `run N: <source>`, closes the row (turns, chars, error, note).
+4. **Failure classes.** An error that is the **file's** (the agent could not parse it, a
+   tool misuse) marks the run failed and the worker moves on. An error that is the
+   **service's** — credit balance, rate limit, overloaded, connection, auth, 4xx/5xx
+   (`ingest.service_error`) — **holds** the bundle: the source stays at the front and is
+   retried after 1, 2, 4, 8, then 15 minutes; `held(home)` exposes the hold to the UI;
+   `resume(home)` ends the wait early (the *retry now* button, or any `…/retry` call).
+5. **Restart amnesia.** Because the queue is memory, startup repairs what a stop lost:
+   `runs.sweep_interrupted` closes runs that were open and re-queues them;
+   `files.requeue_unread` re-queues every raw file with no run at all and every source
+   whose latest failure was the service's.
+
+**The agent's tools** (closures in `ingest.ingest`): `read_file`, `write_file`,
+`edit_file` (batched exact-match edits, all-or-nothing), `delete_file` (prunes emptied
+folders), `list_files`, `related` (what a page links to, what links to it, what shares a
+source — the pages a change can put out of date). The agent may not touch `raw/`
+(`agent_owns`); the assistant may not touch `wiki/`.
+
+**Task kinds** (`ingest.py` constants): `INGEST_TASK` (+ `CHANGED` hint),
+`RETIRE_TASK` (source deleted while pages cite it: drop the claims that rested on it),
+`LINT_TASK` (+ `MOVED` list of server-recorded source moves, + `GAPS` pairs of thinly
+connected areas), `REORGANISE_TASK`. The manual (`templates/manual.md`) is the
+authoritative description of each; read it end to end once — it is the spec the agent is
+held to, and the tests of ingest behaviour are tests of that text.
+
+### Lint
+
+`schedule.py` wakes every fifteen minutes and asks, per bundle, "linted today?" — decided
+from run history, so a restart at 02:59 does not double-lint and a server down all night
+lints when it comes back. Each bundle picks its hour in Settings (`bundle_setting`);
+`LINT_HOUR` is the default; hours are UTC. A lint reports (contradictions, orphans, stale
+drafts, uncited sources, misfiled pages, future-dated log entries), **fixes only broken
+source links** (moved vs. gone), and turns knowledge gaps into `todo.md` questions.
+
+### Graph and gaps
+
+Nothing is stored: `graph.build(home)` reads every page's links and `sources` and builds
+a NetworkX graph in milliseconds. `graph.areas()` runs a seeded Louvain; `gaps.find()`
+names pairs of sizeable areas with fewer links than chance would give them, and
+`describe()` names the most central pages on each side — what the lint is told, and what
+the Graph tab draws. `graph.related(path)` is the agent's `related` tool.
+
+### The assistant
+
+`POST …/assist` is one synchronous turn: the browser sends the whole conversation, the
+server holds none (no conversation table — deliberately, until someone needs to leave a
+thread and come back). It may write `raw/` and tick `todo.md`; writing a source triggers
+an ingest like any upload. It may not write a wiki page, because a page is derived from
+its source and the next ingest would throw the edit away.
+
+### Database
+
+Postgres holds **metadata only** — the wiki is files. Tables (`db.py`):
+
+| Table | What |
+|---|---|
+| `ingest_run` | every run: tenant, bundle, source, timing, model, error, note, `based_on`, `commit`, `undone_at` |
+| `bundle_setting` | per-bundle lint hour |
+| `source_move` | moves the server performed, handed to the next lint, settled when it acts |
+| `team`, `membership`, `invite` | teams |
+| `device` | per-machine tokens |
+
+Migrations are Alembic (`backend/alembic/versions/`), run **at startup** by `main.migrate()`
+— safe because one replica starts at a time; move it to a release command before scaling
+out. Every query on a tenant table filters on `tenant` (`runs._where`).
+
+### Environment (`backend/.env.example`)
+
+`DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR`,
+`ANTHROPIC_API_KEY`, `DEVICE_SECRET`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_JWKS_URL`,
+`AUTH_ROLE_CLAIM`, `WEB_URL` (where the site is, for the connect page), `ALLOWED_ORIGINS`
+(CORS, only for a split-origin deploy), `HOST`/`PORT` (the deploy image's bind).
+
+### API reference
+
+Unprefixed:
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/health` | — | liveness |
+| GET | `/about` | — | `{web: WEB_URL}` |
+| GET | `/me` | any | id, name, role, profile from the token |
+| POST | `/clean` | any | the names `raw/` paths will be stored under (the client asks before uploading) |
+| GET/POST | `/devices` | person | list / mint (token returned once) |
+| DELETE | `/devices/{id}` | person | revoke |
+| GET/POST | `/teams` | any | list mine (with permissions) / create |
+| PUT/DELETE | `/teams/{team}` | owner | rename / delete (typed-name confirm in the UI) |
+| GET | `/teams/{team}/members` | member | |
+| PUT/DELETE | `/teams/{team}/members/{sub}` | members | set role / remove (or leave) |
+| GET/POST/DELETE | `/teams/{team}/invites[/{token}]` | members | list / make / revoke |
+| GET/POST | `/invites/{token}[/accept]` | any | peek / accept |
+
+Under `/teams/{team}`, membership required:
+
+| Method | Path | Perm | What |
+|---|---|---|---|
+| GET/POST | `/bundles` | read / bundles | list / create |
+| PUT/DELETE | `/bundles/{b}` | bundles | rename / delete (keeps ≥1) |
+| PUT | `/bundles/{b}/team` | bundles | move to another team |
+| GET | `/bundles/{b}/tree` | read | `path → sha256`, dot dirs excluded |
+| GET | `/bundles/{b}/files/{path}` · `/text/{path}` | read | raw bytes · readable text (`.docx` extracted with the stdlib; other binaries, PDFs included, are reported as binary rather than guessed at) |
+| PUT | `/bundles/{b}/files/{path}` | write | write a source or `todo.md`; `If-Match` honoured |
+| POST | `/bundles/{b}/raw/{path}` | write | upload (name cleaned, ingest queued) |
+| DELETE | `/bundles/{b}/raw/{path}` | write | delete; a cited source starts a retire run |
+| POST | `/bundles/{b}/move` | write | move a source; recorded for the lint |
+| GET/POST/DELETE | `/bundles/{b}/folders[/{path}]` | read/write | folders under `raw/` |
+| GET | `/bundles/{b}/sources` | read | every source with its ingest state |
+| POST | `/bundles/{b}/ingest/{path}` · `/retry` | write | ingest again · one or every failed source, ends a hold |
+| GET | `/bundles/{b}/queue` | read | `{held, waiting, failed}` |
+| GET | `/bundles/{b}/activity` · `/runs/{id}` | read | the feed (runs, people's changes, undo/redo, pending) · a run's changed files |
+| POST | `/bundles/{b}/runs/{id}/undo` · `/redo` | history | |
+| GET/PUT/POST | `/bundles/{b}/lint` | read / write | state · set hour · lint now |
+| POST | `/bundles/{b}/reorganise` | write | file every page by its type |
+| GET/POST | `/bundles/{b}/todos[/{index}]` | read / write | list · tick |
+| POST | `/bundles/{b}/assist` | write | one assistant turn |
+| POST | `/bundles/{b}/verify/{path}` | write | stamp a page `verified` by the caller's identity |
+| GET | `/bundles/{b}/graph` | read | nodes, edges, areas, gaps |
+
+---
+
+## 4. Frontend
+
+React 19 + TypeScript + Vite; no router (the app is tabs and query-string pages); no state
+library; no CSS framework — `index.css` with tokens (`--clay`, `--cream`, `--ink`, serif
+for prose, sans for UI, mono for paths).
+
+### Structure (`frontend/src/`)
+
+| File | Role |
+|---|---|
+| `main.tsx` | mounts `<Boundary><Gate/></Boundary>` and the app-wide `<Dialogs/>` |
+| `auth.tsx` | the gate: picks the adapter named by `VITE_AUTH_PROVIDER`, checks `VITE_API_URL`, shows sign-in, remembers invite/connect requests across the redirect |
+| `providers/session.ts` · `kinde.tsx` · `oidc.tsx` | the adapter contract (`Provider` + `useSession()`), and the two adapters. Only `kinde.tsx` may import the Kinde SDK; `oidc.tsx` is the standard code flow with PKCE (react-oidc-context) |
+| `api.ts` | every call to the backend; `setTeam`/`at(bundle)` build the prefixed URLs; `can(team, permission)`; types (`Team`, `Entry`, `Queue`, `Device`, `Lint`…) |
+| `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
+| `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, retry |
+| `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
+| `Todo.tsx` | `todo.md` with the assistant chat |
+| `Activity.tsx` | the feed from git history + runs; undo/redo; the ingest-paused and failed banners |
+| `Settings.tsx` (+ `TeamSettings.tsx`, `Members.tsx`) | tabs Bundle / Team / Account: lint hour, reorganise, rename/move/delete bundle; team rename/delete, members, invites; devices |
+| `Picker.tsx`, `Bundles.tsx`, `Invite.tsx`, `Connect.tsx`, `Profile.tsx` | pickers and the two link-driven pages |
+| `dialog.tsx` | the app's own `confirm()`/`prompt()` — promise-based, one host at the root |
+| `okf.ts` | frontmatter split, markdown render (sanitised — wiki text may quote sources) |
+| `useSources.ts` | polls sources fast while the agent works and slowly when not; `version` bumps when an ingest finishes so views reload; `useLint` |
+| `invites.ts`, `handoff.ts` | sessionStorage stashes for invite and connect links |
+
+### Conventions
+
+- `api.ts` throws `Error("<status> <detail>")`; views strip the status for display.
+- Anything gated is gated by **permission** (`can(team, "history")`), never by role name.
+- `VITE_*` values are **baked at build time**. The Dockerfile's `build` stage declares each
+  as an `ARG`; a new variable needs a new `ARG` line or Railway's value never reaches
+  `vite build`.
+- In development the Vite dev server proxies `/api` → `http://backend:8000`, so the site and
+  API share an origin and there is no CORS to configure.
+- Tests: Vitest + Testing Library + jsdom. `npx tsc --noEmit -p tsconfig.json`, `npx eslint
+  src`, `npx vitest run`, `npx prettier --print-width 100`.
+
+---
+
+## 5. The desktop client (`client/`)
+
+One Python package, `mindkeep/`, three faces:
+
+| Module | What |
+|---|---|
+| `sync.py` | the engine, **stdlib only**: `sync(cfg)` for one bundle in one folder |
+| `cli.py` | `mindkeep login \| sync \| watch [--config PATH]` — one config = one bundle |
+| `connect.py` | the loopback browser sign-in (`about`, `sign_in`), shared by CLI and app |
+| `app/` | the PySide6 tray app |
+| `__init__.py` | `__version__` (0.0.0 in git, stamped from the tag) and `USER_AGENT` |
+
+### The sync engine
+
+`cfg = {server, token, folder, team, bundle}`. Each pass:
+
+1. `GET …/tree` → `path → sha256` for the whole bundle (dot dirs excluded).
+2. **Rename new files first** — `POST /clean` gives the names the server would store them
+   under; the file is renamed on disk before upload so both sides agree.
+3. **Deletions here** — a file that was on the server at the last sync and is gone from
+   disk is deleted over there. The **state file** (`~/.mindkeep-state.json`, keyed by
+   folder|bundle) is what tells "new here" from "deleted there"; without it, guessing
+   either way loses data. A whole-folder disappearance (unmounted drive, moved folder) is
+   detected by the rest of the mirror being gone too, and nothing is deleted.
+4. **Renames** — a local file whose bytes match a server file at another path is sent as a
+   *move* (`POST …/move`), so the lint repoints citations instead of the pages being
+   deleted and rewritten.
+5. **Up** — `raw/` is yours: a file changed *here* since the last sync is uploaded, with
+   `If-Match` of the last-seen hash. If it also changed *there*, yours is kept under
+   `.conflicts/<path>` and theirs lands in place. `todo.md` is the one two-way file outside
+   `raw/`; your ticks are merged onto the server's list.
+6. **Down** — everything else (`wiki/`, `index.md`, `log.md`, `CLAUDE.md`) is overwritten
+   from the server, and files the server no longer has are swept (dot paths excepted).
+
+Hooks `sync.say(*parts)` and `sync.notify(cfg, kind, text)` are module attributes the tray
+app replaces; the CLI prints. Every request carries `User-Agent: Mindkeep/<version>` —
+Cloudflare's browser check, in front of `mindkeep.io`, drops Python's default agent.
+
+### The tray app (`mindkeep/app/`)
+
+| Module | What |
+|---|---|
+| `main.py` | `QApplication`, single instance via `QLocalServer` (`io.mindkeep.app`), AppUserModelID on Windows, wires tray ↔ worker ↔ window |
+| `config.py` | `~/.mindkeep/app.json`: `{server, token, root, watch:[{team, name, bundle, folder}]}`; a folder is fixed when a bundle is added (`<root>/<team>/<bundle>`, suffixed on a name clash) and never re-derived |
+| `worker.py` | **one** `QThread` looping over the watched bundles sequentially (the state file is read-modify-write; parallel syncs would drop each other's state), then `GET …/sources` for failures |
+| `alerts.py` | pure dedupe: a failing ingest once until it stops failing; unreachable once after three misses; dead token once per sign-out |
+| `tray.py` | `QSystemTrayIcon`, menu: status · Sync now · Pause · Open folder ▸ · Settings… · Log… · Start at login · Quit |
+| `settings.py` | the window: Settings tab (API address, sign in via browser or paste a token, root folder, a tree of teams with a checkbox per bundle) and Log tab |
+| `log.py` | the in-memory log buffer (last 500 lines, stamped) |
+| `autostart.py` | Run key / LaunchAgent plist / autostart `.desktop` |
+| `mark.py` | the one icon, drawn with QPainter — tray, windows, taskbar and the installer icons all come from `paint()` |
+
+Balloons appear only when a person is needed: a conflict kept aside, an ingest that
+failed, a token that stopped working, the server unreachable.
+
+**The API address** in the app is where the API answers *from the machine*. Deployed
+behind the site's proxy that is `https://main.mindkeep.io/api`; in development
+`http://localhost:8001`.
+
+### Packaging and release
+
+- `pyproject.toml`: the package (`mindkeep`), scripts `mindkeep` and `mindkeep-app`, the
+  `app` extra (PySide6), ruff config, and `[tool.briefcase]` for app `mindkeep-app`
+  (module `mindkeep_app/`, a two-line shim). Windows installs per user to
+  `%LocalAppData%\Programs\Mimetik\Mindkeep`.
+- **The tag is the version.** `version` is `0.0.0` in git; `stamp.py vX.Y.Z` writes it into
+  `pyproject.toml` and `mindkeep/__init__.py`. `changelog.py` writes `CHANGELOG.md` from the
+  commits that touched `client/` since the previous tag — so commit subjects on the client
+  are written as sentences a user could read. Neither file is typed by hand.
+- `.github/workflows/app.yml`: tests on every push; on a `v*` tag, a matrix builds
+  `.msi` / `.dmg` (ad-hoc signed) / `.deb` (the Linux leg runs Briefcase from the *system*
+  Python, as its `.deb` backend requires) and attaches them to a GitHub release with the
+  generated changelog as notes. **Unsigned**: Windows warns, macOS needs right-click → Open.
+- Releasing: `git tag -a v0.2.0 -m "0.2.0" && git push origin v0.2.0`. That is all.
+
+---
+
+## 6. Local development
+
+**Prerequisites:** Docker Desktop, Node 22 (for running frontend checks on the host),
+Python 3.12+ (for the client and backend tests), git.
+
+```
+cp backend/.env.example backend/.env      # fill ANTHROPIC_API_KEY, DEVICE_SECRET, AUTH_*
+cp frontend/.env.example frontend/.env    # VITE_AUTH_* for your identity provider
+docker compose up -d --build
+```
+
+- Frontend: http://localhost:5163 (Vite dev server, hot reload, proxies `/api`).
+- Backend: http://localhost:8001 (uvicorn `--reload`; the `dev` Dockerfile stage).
+- Postgres: localhost:5433, user/db/password `mindkeep`. Volumes `mindkeep_pgdata`,
+  `mindkeep_wikidata` (the wiki, at `/data` in the container).
+- Compose builds the `dev` **target** of each Dockerfile; the last stage of each is the
+  deploy image (built site behind Caddy; uvicorn without the reloader).
+
+**Checks** (what CI and every commit in the log ran):
+
+```
+# backend — from backend/, in a venv with the dependency list + pytest ruff mypy
+ruff check app tests && ruff format --check app tests && mypy app && pytest -q tests
+# frontend — from frontend/
+npx tsc --noEmit -p tsconfig.json && npx eslint src && npx vitest run
+# client — from client/, `pip install -e ".[app,dev]"`
+ruff check . && pytest -q
+```
+
+**Gotchas**
+
+- The backend package is not pip-installable from the host (setuptools discovery sees
+  `tests/`, `alembic/`…); install its dependency list instead, or run tests in the
+  container. The Docker copy installs fine.
+- After a frontend dependency change, `docker compose up -d -V frontend` — `node_modules`
+  is an anonymous volume that survives image rebuilds.
+- Files are CRLF in working copies on Windows and LF in git (`core.autocrlf`); write
+  files with LF.
+- The dev database was renamed from `mindstash` in place; the old volumes may still exist
+  as `mindstash_*` on a machine that predates the rename.
+- Tests use `tenant_id("alice")` for directories, never a literal name, and `x-test-user`
+  headers to switch identity; new access paths get traversal and cross-tenant tests in
+  `backend/tests/test_files.py`.
+
+---
+
+## 7. Deployment (Railway)
+
+Three services in one project: `db` (Postgres), `backend`, `frontend`. The env files
+`backend/.env.railway` and `frontend/.env.railway` (git-ignored) are the variables to paste.
+
+- **The backend has no public domain.** The frontend image is Caddy (`frontend/Caddyfile`):
+  it serves the built site with SPA fallback and reverse-proxies `/api/*` to
+  `API_UPSTREAM` (`http://<backend service>.railway.internal:8000`) over the private
+  network. One origin, no CORS. The backend binds `HOST=::` there, because Railway's
+  private network is IPv6-only and uvicorn binds one family; `PORT=8000` is fixed so the
+  proxy knows where to find it.
+- `DATABASE_URL` is assembled from `${{db.PGUSER}}` etc. with the `+psycopg` scheme.
+- A volume mounted at `/data` on the backend holds every bundle.
+- The site is behind **Cloudflare**; its Browser Integrity Check drops unknown user
+  agents, which is why every client request names itself.
+- Redeploys kill in-flight work: the running run is re-queued at startup, and so is
+  everything that was waiting (see *restart amnesia*). Migrations run at startup.
+- The identity provider (Kinde today) needs the site's origin in its allowed callback and
+  logout URLs.
+
+---
+
+## 8. How we work
+
+- **Commits are atomic and their subjects are sentences** — "Startup re-queues every
+  source uploaded but never read: a deploy mid-sync forgot 32 of 38". They double as the
+  client's release notes.
+- **Docstrings say why, not what.** A `ponytail:` comment marks a deliberate simplification
+  and the condition under which it should be revisited (`grep -rn ponytail`).
+- **Tests are the spec** for the sync engine and the ingest behaviour; a change to either
+  starts with the test.
+- **The manual is code.** `templates/manual.md` is versioned, reviewed and tested like the
+  rest; a behaviour you want from the agent goes there, in prose it can follow, not in a
+  prompt tweak somewhere else.
+- **Decisions are logged** in the architecture and decisions log (a Mindkeep source itself,
+  §4.x entries) — with the reasoning, so the next person can disagree with the reason
+  rather than the rule.
+
+---
+
+## 9. Glossary
+
+| Term | Meaning |
+|---|---|
+| bundle | one knowledge base: a directory with `raw/`, `wiki/`, `index.md`, `log.md`, `todo.md`, `.git` |
+| source | a file under `raw/`; the unit of ingestion |
+| run | one piece of agent work over a bundle: ingest, retire, lint, reorganise |
+| retire | the run that removes what rested on a deleted source |
+| lint | the nightly maintenance pass |
+| reorganise | the run that files pages by their type |
+| hold | the worker waiting to retry a source after a service failure |
+| area | a Louvain community of the link graph |
+| gap | two sizeable areas with fewer links than chance would give them |
+| note | a finding a local agent contributes, one per file, under `raw/notes/<person>/` |
+| device | a machine's own revocable token |
+| mirror | a synced copy of a bundle on someone's machine |
+| conflict copy | your version of a file both sides changed, under `.conflicts/` |
+| the manual | `templates/manual.md`, the agent's system prompt |
+| the guide | `templates/CLAUDE.md`, seeded into every bundle for local readers |
+
+---
+
+## 10. Known gaps and where to look next
+
+- The ingest queue is per-process memory: one backend replica. Scaling out means moving
+  the queue (and the migration step) out of the process.
+- No global cap on concurrent runs across bundles, and no fairness between teams.
+- The `oidc` adapter has only been exercised against a fake; a Keycloak check is owed.
+  Clerk would be a third adapter in `providers/`, same shape.
+- The web Todo tab and the client still write `todo.md`; the guide now says a question is
+  answered through `raw/`. Whether those write paths go is an open decision.
+- Each hold retry opens a failed run row; a long outage leaves a few per hour in Activity.
+- `edit_file` is occasionally called with `edits` as a JSON string; the SDK rejects it and
+  the model retries — a wasted turn.
+- PDFs are not text-extracted: a PDF source reaches the agent as "binary", so a page is
+  written from its name at best. `.docx` is handled; PDF needs an extractor.
