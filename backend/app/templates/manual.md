@@ -219,7 +219,8 @@ fix:
 - Entities mentioned repeatedly that still have no page.
 - Claims with no `sources` entry.
 - Pages outside their type's folder, or named other than by their title (*Where a page
-  goes*). Report them; moving them is a reorganise run's job, not a lint's.
+  goes*). Report them; moving them is a reorganise run's job, not a lint's — the server
+  queues one after a lint that finds any.
 - `log.md` entries dated after today. Nothing was written in the future; earlier runs
   had no clock and guessed. Report them, and correct a heading date only when the
   entry's own text pins it to a real day.

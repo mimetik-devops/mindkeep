@@ -16,6 +16,31 @@ log = logging.getLogger(__name__)
 _locks: dict[str, threading.Lock] = {}
 
 
+# The manual's layout rule, as the server can check it: the folder is the type, lowercase
+# and plural. Irregular plurals the wiki actually uses; anything else takes an s.
+PLURALS = {"person": "people", "company": "companies", "summary": "summaries", "policy": "policies"}
+
+
+def folder_for(page_type: str) -> str:
+    t = page_type.strip().lower()
+    return PLURALS.get(t, t + "s") if t else ""
+
+
+def misfiled(home: Path) -> list[str]:
+    """Pages under wiki/ that are not in their type's folder — what a reorganise moves.
+    A page with no type cannot be placed and is not counted; the lint reports those."""
+    wrong = []
+    for page in sorted((home / "wiki").rglob("*.md")):
+        rel = page.relative_to(home)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        fm = graph.frontmatter(page.read_text(encoding="utf-8", errors="replace"))
+        want = folder_for(str(fm.get("type") or ""))
+        if want and rel.parent.name != want:
+            wrong.append(rel.as_posix())
+    return wrong
+
+
 def lock_for(home: Path) -> threading.Lock:
     return _locks.setdefault(str(home), threading.Lock())
 
@@ -547,4 +572,8 @@ def ingest_safely(home: Path, source: str) -> str:
         )
         if not error:
             runs.settle_moves([move_id for move_id, _, _ in moves])
+    # a lint reports misfiled pages; the reorganise that fixes them follows on its own,
+    # so nobody has to read the report to press the button it asks for
+    if source == LINT and not error and misfiled(home):
+        enqueue(home, REORGANISE)
     return error

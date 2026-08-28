@@ -431,6 +431,38 @@ def test_sources_no_run_ever_touched_are_queued_again_at_startup(client, tmp_pat
     assert sorted(c[1] for c in ingested) == ["raw/also-lost.md", "raw/lost.md"]
 
 
+def test_a_lint_that_finds_misfiled_pages_queues_the_reorganise_itself(
+    client, tmp_path, monkeypatch, page
+):
+    from unittest.mock import patch
+
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    page("wiki/futuros.md", "---\ntype: Project\ntitle: Futuros\n---\n")
+    page("wiki/people/jane.md", "---\ntype: Person\ntitle: Jane\n---\n")
+    page("wiki/kinde.md", "---\ntype: Company\n---\n")
+    page("wiki/untyped.md", "no frontmatter at all")
+    assert agent.misfiled(home) == ["wiki/futuros.md", "wiki/kinde.md"]
+    assert agent.folder_for("Person") == "people" and agent.folder_for("Meeting") == "meetings"
+
+    queued: list[str] = []
+    monkeypatch.setattr(agent, "enqueue", lambda h, s: queued.append(s))
+    with patch.object(agent, "anthropic", _FakeAnthropic({})):
+        agent.ingest_safely(home, agent.LINT)
+    assert queued == [agent.REORGANISE]
+
+    (home / "wiki" / "projects").mkdir()
+    (home / "wiki" / "futuros.md").rename(home / "wiki" / "projects" / "futuros.md")
+    (home / "wiki" / "companies").mkdir()
+    (home / "wiki" / "kinde.md").rename(home / "wiki" / "companies" / "kinde.md")
+    queued.clear()
+    with patch.object(agent, "anthropic", _FakeAnthropic({})):
+        agent.ingest_safely(home, agent.LINT)
+    assert queued == []  # in order: nothing to follow up
+
+
 def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):
     """Asked for from Settings; the agent is told to apply the layout rule and nothing
     else. A second ask while one runs is refused, like a lint."""
