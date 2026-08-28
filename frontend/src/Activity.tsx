@@ -148,8 +148,17 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
     }
   }
 
-  const shown = entries.filter((e) =>
-    filter === "All" ? true : filter === "Runs" ? e.kind === "run" : e.kind !== "run",
+  // a run still open already has a live card above, with its progress; its row in the
+  // history would be the same run twice. A reorganise has no live card, so it stays.
+  const livePaths = new Set(live.map((s) => s.path));
+  const shownLive = (e: Entry) =>
+    e.kind === "run" &&
+    !e.finished_at &&
+    ((e.source === "(lint)" && !!lint?.linting) || livePaths.has(e.source ?? ""));
+  const shown = entries.filter(
+    (e) =>
+      !shownLive(e) &&
+      (filter === "All" ? true : filter === "Runs" ? e.kind === "run" : e.kind !== "run"),
   );
 
   return (
