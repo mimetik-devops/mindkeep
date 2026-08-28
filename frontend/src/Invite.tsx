@@ -42,7 +42,7 @@ export function Invite({
 
   return (
     <div className="login">
-      <Mark size={64} />
+      <Mark size={72} reverse />
       <h1>Mindkeep</h1>
       {error ? (
         <>
@@ -54,8 +54,8 @@ export function Invite({
       ) : offer ? (
         <>
           <p>
-            You are invited to join <b>{offer.team.name}</b> as {offer.role === "admin" ? "an" : "a"}{" "}
-            {offer.role}.
+            You are invited to join <b>{offer.team.name}</b> as{" "}
+            {offer.role === "admin" ? "an" : "a"} {offer.role}.
           </p>
           <button className="primary" disabled={busy} onClick={join}>
             {busy ? "Joining…" : "Join"}

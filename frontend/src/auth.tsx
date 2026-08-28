@@ -33,7 +33,7 @@ function Session({ adapter }: { adapter: Adapter }) {
     rememberConnect();
     return (
       <div className="login">
-        <Mark size={64} />
+        <Mark size={72} reverse />
         <h1>Mindkeep</h1>
         <p>
           {pendingConnect()
@@ -61,7 +61,7 @@ export function Gate({ adapter = chosen() }: { adapter?: Adapter | string }) {
   if (api) {
     return (
       <div className="login">
-        <Mark size={64} />
+        <Mark size={72} reverse />
         <h1>Mindkeep</h1>
         <p>{api}</p>
       </div>
@@ -70,7 +70,7 @@ export function Gate({ adapter = chosen() }: { adapter?: Adapter | string }) {
   if (typeof adapter === "string") {
     return (
       <div className="login">
-        <Mark size={64} />
+        <Mark size={72} reverse />
         <h1>Mindkeep</h1>
         <p>
           VITE_AUTH_PROVIDER is "{adapter}". It names the identity provider: one of{" "}
