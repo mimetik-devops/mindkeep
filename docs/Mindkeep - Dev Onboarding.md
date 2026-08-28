@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `4b580e3` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `5dc8c1e` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -225,15 +225,20 @@ that is what keeps auth provider-agnostic.
    whose latest failure was the service's.
 
 **The agent's tools** (closures in `ingest.ingest`): `read_file`, `write_file`,
-`edit_file` (batched exact-match edits, all-or-nothing), `delete_file` (prunes emptied
-folders), `list_files`, `related` (what a page links to, what links to it, what shares a
+`edit_file` (batched exact-match edits, all-or-nothing), `move_file` (rename on disk,
+content never passes through the model — what a reorganise uses), `delete_file` (prunes
+emptied folders), `list_files`, `related` (what a page links to, what links to it, what shares a
 source — the pages a change can put out of date). The agent may not touch `raw/`
 (`agent_owns`); the assistant may not touch `wiki/`.
 
 **Task kinds** (`ingest.py` constants): `INGEST_TASK` (+ `CHANGED` hint),
 `RETIRE_TASK` (source deleted while pages cite it: drop the claims that rested on it),
 `LINT_TASK` (+ `MOVED` list of server-recorded source moves, + `GAPS` pairs of thinly
-connected areas), `REORGANISE_TASK`. The manual (`templates/manual.md`) is the
+connected areas), `REORGANISE_TASK` (+ `MISFILED`: the server names every page outside
+its type's folder and where it goes, so the run moves rather than reads). A reply cut off
+at `max_tokens` fails the run with a message rather than ending it silently with nothing
+applied — the output budget is 16k tokens, so a turn that re-emits many whole pages
+cannot finish; the tools are shaped to keep content on the server. The manual (`templates/manual.md`) is the
 authoritative description of each; read it end to end once — it is the spec the agent is
 held to, and the tests of ingest behaviour are tests of that text.
 

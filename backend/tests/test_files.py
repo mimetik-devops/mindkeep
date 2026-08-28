@@ -463,6 +463,52 @@ def test_a_lint_that_finds_misfiled_pages_queues_the_reorganise_itself(
     assert queued == []  # in order: nothing to follow up
 
 
+def test_move_file_moves_a_page_without_passing_it_through_the_model(client, tmp_path, page):
+    """The tool a reorganise uses: rename on disk, content untouched, emptied folder gone."""
+    from unittest.mock import patch
+
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    page("wiki/old/futuros.md", "---\ntype: Project\ntitle: Futuros\n---\nbody\n")
+    page("wiki/projects/taken.md", "---\ntype: Project\n---\n")
+    seen: dict = {}
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest(home, agent.REORGANISE)
+    task = seen["messages"][0]["content"]
+    assert "`wiki/old/futuros.md` -> `wiki/projects/futuros.md`" in task  # told where it goes
+    tool = next(t for t in seen["tools"] if t.name == "move_file")
+    call = tool.call if hasattr(tool, "call") else tool.func
+
+    assert "Refused" in call({"path": "raw/x.md", "to": "wiki/x.md"})
+    assert "already exists" in call({"path": "wiki/old/futuros.md", "to": "wiki/projects/taken.md"})
+    assert call({"path": "wiki/old/futuros.md", "to": "wiki/projects/futuros.md"}).startswith(
+        "Moved"
+    )
+    assert (
+        (home / "wiki" / "projects" / "futuros.md").read_text(encoding="utf-8").endswith("body\n")
+    )
+    assert not (home / "wiki" / "old").exists()  # the emptied folder went with it
+
+
+def test_a_reply_cut_off_at_max_tokens_is_a_failed_run_not_a_silent_one(client, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+
+    class Cut(_FakeAnthropic):
+        def tool_runner(self, **kwargs):
+            return iter([SimpleNamespace(stop_reason="max_tokens")])
+
+    with patch.object(agent, "anthropic", Cut({})), pytest.raises(RuntimeError, match="max_tokens"):
+        agent.ingest(home, agent.REORGANISE)
+
+
 def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):
     """Asked for from Settings; the agent is told to apply the layout rule and nothing
     else. A second ask while one runs is refused, like a lint."""

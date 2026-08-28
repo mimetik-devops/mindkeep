@@ -41,6 +41,13 @@ def misfiled(home: Path) -> list[str]:
     return wrong
 
 
+def destination(home: Path, rel: str) -> str:
+    """Where the layout rule puts this page: its type's folder, its own file name."""
+    page = home / rel
+    fm = graph.frontmatter(page.read_text(encoding="utf-8", errors="replace"))
+    return f"wiki/{folder_for(str(fm.get('type') or ''))}/{page.name}"
+
+
 def lock_for(home: Path) -> threading.Lock:
     return _locks.setdefault(str(home), threading.Lock())
 
@@ -129,10 +136,15 @@ LINT_TASK = (
 # the rule changed. Content is not touched; only where it is filed.
 REORGANISE_TASK = (
     "Today is {today}. Reorganise the wiki, following the Reorganise section of the "
-    "manual: every page under `wiki/` goes where *Where a page goes* puts it, moved — "
-    "never copied — with its links repointed and `index.md` updated. Change no content. "
-    "Write the log entry headed `## [{today}] reorganise`."
+    "manual: every page under `wiki/` goes where *Where a page goes* puts it, moved with "
+    "`move_file` — never rewritten, never copied — then its links repointed with "
+    "`edit_file` and `index.md` updated. Change no content. Write the log entry headed "
+    "`## [{today}] reorganise`.{list}"
 )
+
+# Misfiled pages, named by the server — the model need not read forty pages to find them,
+# and a page's frontmatter type is all it takes to know where each goes.
+MISFILED = "\n\nThese pages are not in their type's folder; each line says where it goes:\n{lines}"
 
 # The server knows exactly what moved, because it did the moving. Telling the agent beats
 # making it rediscover the same fact by comparing every citation against every file.
@@ -259,6 +271,30 @@ def ingest(
         put_text(target, text)
         return f"Edited {path}, {len(edits)} changes."
 
+    def move_file(path: str, to: str) -> str:
+        """Move or rename a wiki page, content untouched. Cannot touch raw/.
+
+        The way to file a page where it belongs: one call, nothing re-emitted. Links to
+        the old path are yours to repoint afterwards with edit_file — `related` lists the
+        pages that carry them, and index.md is one more.
+
+        Args:
+            path: The page as it is now, e.g. wiki/futuros.md
+            to: Where it goes, e.g. wiki/projects/futuros.md
+        """
+        step(f"moving {path} -> {to}")
+        old, new = safe_path(home, path), safe_path(home, to)
+        if not (agent_owns(home, old) and agent_owns(home, new)):
+            return "Refused: raw/ belongs to the user."
+        if not old.is_file():
+            return f"{path} does not exist."
+        if new.exists():
+            return f"{to} already exists; merge or delete it first."
+        new.parent.mkdir(parents=True, exist_ok=True)
+        old.rename(new)
+        prune_empty(old.parent, home / "wiki")
+        return f"Moved {path} to {to}."
+
     def delete_file(path: str) -> str:
         """Delete a wiki page. Cannot touch raw/, which belongs to the user.
 
@@ -312,7 +348,11 @@ def ingest(
             hints += GAPS.format(list=gaps.describe(thin))
         task = LINT_TASK.format(today=today, hints=hints)
     elif source == REORGANISE:
-        task = REORGANISE_TASK.format(today=today)
+        wrong = misfiled(home)
+        lines = "\n".join(f"- `{p}` -> `{destination(home, p)}`" for p in wrong)
+        task = REORGANISE_TASK.format(
+            today=today, list=MISFILED.format(lines=lines) if wrong else ""
+        )
     elif not (home / source).is_file():
         task = RETIRE_TASK.format(source=source, today=today)
     else:
@@ -344,6 +384,7 @@ def ingest(
                 beta_tool(read_file),
                 beta_tool(write_file),
                 beta_tool(edit_file),
+                beta_tool(move_file),
                 beta_tool(delete_file),
                 beta_tool(list_files),
                 beta_tool(related),
@@ -363,6 +404,13 @@ def ingest(
             # the turn count alone, so a turn spent only thinking still shows movement
             if run_id is not None:
                 runs.progress(home, run_id, turns=turns)
+            if message.stop_reason == "max_tokens":
+                # the reply was cut off mid-batch: none of its tool calls ran, and a run
+                # that ends here has silently done nothing. Say so, as a failure to retry.
+                raise RuntimeError(
+                    "The reply hit the output limit before it finished (max_tokens); "
+                    "nothing from that turn was applied. Retry with smaller batches."
+                )
         log.info("%s: done after %d turns, %d steps, %d chars", source, turns, steps, written)
         return turns, written
 

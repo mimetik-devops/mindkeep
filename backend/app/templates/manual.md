@@ -197,13 +197,15 @@ that is when you see the correction.
 ## Reorganise
 
 When asked to reorganise, apply *Where a page goes* to every page under `wiki/` and
-change nothing else. For each page in the wrong place: `read_file` it, `write_file` it
-at the right path with its content untouched, `delete_file` the old path, then repoint
-every link to it — the pages `related` lists, and `index.md`. Do the moves in batches:
-several pages per turn, all of one page's link fixes in one `edit_file` call. A page
-already where it belongs is not touched. Finish with `index.md` reflecting the new paths
-and a log entry headed `## [YYYY-MM-DD] reorganise` — one line: how many moved, and any
-page whose type you could not tell (leave those where they are and name them).
+change nothing else. You are handed the list of misfiled pages and where each goes. For
+each: `move_file` it (one call — never read it and write it back, which pushes the whole
+page through you and runs out of room), then repoint every link to it with `edit_file` —
+the pages `related` lists, and `index.md`. Work in batches of a few pages per turn, all
+of one page's link fixes in one `edit_file` call, and keep each turn small enough to
+finish. A page already where it belongs is not touched. Finish with `index.md` reflecting
+the new paths and a log entry headed `## [YYYY-MM-DD] reorganise` — one line: how many
+moved, and any page whose type you could not tell (leave those where they are and name
+them).
 
 ## Lint
 
