@@ -1,5 +1,5 @@
-# Backend and frontend checks: the same commands CONTRIBUTING.md asks a contributor to
-# run. The desktop client has its own workflow (app.yml), which also builds the installers.
+# Backend, frontend and client checks: the same commands CONTRIBUTING.md asks a
+# contributor to run. The desktop client's installers are built by app.yml, on a tag.
 name: CI
 
 on:
@@ -57,3 +57,18 @@ jobs:
       - run: npx tsc --noEmit -p tsconfig.json
       - run: npx eslint src
       - run: npx vitest run
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # the engine and its tests are stdlib; PySide6 is only needed to run the tray app
+      - run: pip install pytest ruff
+      - run: ruff check .
+      - run: pytest -q

@@ -484,7 +484,7 @@ behind the site's proxy that is `https://main.mindkeep.io/api`; in development
   `pyproject.toml` and `mindkeep/__init__.py`. `changelog.py` writes `CHANGELOG.md` from the
   commits that touched `client/` since the previous tag — so commit subjects on the client
   are written as sentences a user could read. Neither file is typed by hand.
-- `.github/workflows/app.yml`: tests on every push; on a `v*` tag, a matrix builds
+- `.github/workflows/app.yml`: on a `v*` tag (or by hand), a matrix builds
   `.msi` / `.dmg` (ad-hoc signed) / `.deb` (the Linux leg runs Briefcase from the *system*
   Python, as its `.deb` backend requires) and attaches them to a GitHub release with the
   generated changelog as notes. **Unsigned**: Windows warns, macOS needs right-click → Open.

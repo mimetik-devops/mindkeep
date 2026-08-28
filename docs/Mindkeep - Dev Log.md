@@ -1369,6 +1369,14 @@ Two adapters remain: `builtin` (default) and `oidc`. Production's frontend moves
 `oidc` with the same issuer and client id. Not yet seen: a session crossing the 24-hour
 mark on the refresh token, and a first-time registration through Kinde's "Create one".
 
+### 4.44 The client workflow only packages (2026-08-28)
+
+A CI workflow (`ci.yml`, arriving with the open-source release files) runs the backend
+and frontend checks on every push. Ruben: the test job in the desktop client workflow
+does much the same — remove it. `app.yml` now runs on a `v*` tag or by hand and only
+builds the installers; the client's `ruff check . && pytest -q` belongs in `ci.yml` as a
+third job beside backend and frontend, so one workflow answers "is main green".
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

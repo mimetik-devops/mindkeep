@@ -1,4 +1,5 @@
-# The desktop client: tests on every push, installers on a tag.
+# The desktop client's installers, on a tag or by hand. Its checks (ruff, pytest) run in
+# ci.yml with the backend's and the frontend's, on every push.
 #
 # The installers are UNSIGNED. That means: Windows shows a SmartScreen warning ("More info"
 # -> "Run anyway"), macOS refuses to open the app until you right-click it and choose Open
@@ -8,32 +9,11 @@ name: Desktop client
 
 on:
   push:
-    branches: ["**"]
     tags: ["v*"]
-  # a pull request from a fork pushes to no branch here, so without this the client
-  # would go untested on outside contributions
-  pull_request:
   workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: client
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pytest ruff
-      - run: ruff check .
-      - run: pytest -q
-
   package:
-    # installers only for a tag, or when asked for by hand: three runners a push is a lot
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: test
     strategy:
       fail-fast: false
       matrix:
