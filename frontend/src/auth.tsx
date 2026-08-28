@@ -1,4 +1,4 @@
-import { setTokenSource } from "./api";
+import { apiProblem, setTokenSource } from "./api";
 import { App } from "./App";
 import { Mark } from "./icons";
 import { pending, remember } from "./invites";
@@ -52,6 +52,16 @@ function Session({ adapter }: { adapter: Adapter }) {
 }
 
 export function Gate({ adapter = chosen() }: { adapter?: Adapter | string }) {
+  const api = apiProblem();
+  if (api) {
+    return (
+      <div className="login">
+        <Mark size={64} />
+        <h1>Mindkeep</h1>
+        <p>{api}</p>
+      </div>
+    );
+  }
   if (typeof adapter === "string") {
     return (
       <div className="login">

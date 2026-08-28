@@ -6,9 +6,12 @@ import { Gate } from "./auth";
 import type { Adapter, Session } from "./providers/session";
 
 vi.mock("./api", () => ({
+  apiProblem: () => "",
   setTokenSource: vi.fn(),
   setTeam: vi.fn(),
-  listTeams: vi.fn(async () => [{ id: "me", name: "Ada", personal: true, role: "owner", permissions: [] }]),
+  listTeams: vi.fn(async () => [
+    { id: "me", name: "Ada", personal: true, role: "owner", permissions: [] },
+  ]),
   createTeam: vi.fn(),
   listBundles: vi.fn(async () => ["default"]),
   me: vi.fn(async () => ({ id: "u", name: "", role: "", email: "", picture: "" })),

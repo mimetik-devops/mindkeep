@@ -1,5 +1,18 @@
 const BASE = import.meta.env.VITE_API_URL ?? "/api";
 
+/**
+ * Why VITE_API_URL cannot be used, or "" when it can. Checked at the gate so a site
+ * built with a half-resolved value ("https://" when a Railway reference came up empty)
+ * says so in one sentence instead of failing every request with a DNS error.
+ */
+export function apiProblem(base: string = BASE): string {
+  if (base.startsWith("/")) return "";
+  const url = /^https?:\/\/[^/]+/.test(base);
+  return url
+    ? ""
+    : `VITE_API_URL is "${base}". It must be a path like /api or an absolute URL like https://api.example.com.`;
+}
+
 // The identity provider owns the browser session; auth.tsx hands us its token getter.
 // The API also accepts a device token, which is what the desktop client sends.
 let bearer: () => Promise<string | undefined> = async () => undefined;
