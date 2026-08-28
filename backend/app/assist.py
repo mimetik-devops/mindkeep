@@ -23,9 +23,11 @@ import secrets
 import threading
 import time
 from pathlib import Path
+from typing import cast
 
 import anthropic
 from anthropic import beta_tool
+from anthropic.types.beta import BetaMessageParam
 
 from app import graph
 from app.ingest import MODEL, enqueue, lock_for
@@ -174,7 +176,7 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
         hit = next((i for i in items if str(i["text"]).strip() == answered.strip()), None)
         if hit is None:
             return f"No open question reads exactly {answered!r}. Read questions.md again."
-        text = todos.tick(text, int(hit["id"]), True)
+        text = todos.tick(text, int(str(hit["id"])), True)
         if add.strip():
             text = todos.append(text, add)
         put_text(home / QUESTIONS, text)
@@ -217,11 +219,11 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
                 beta_tool(resolve),
                 beta_tool(task),
             ],
-            messages=list(messages),
+            messages=[cast(BetaMessageParam, m) for m in messages],
         )
         said: list[str] = []
         for message in runner:
-            said.extend(b.text for b in message.content if getattr(b, "type", "") == "text")
+            said.extend(b.text for b in message.content if b.type == "text")
 
     # after the lock, so the ingest queue is not started from underneath it
     for rel in touched:

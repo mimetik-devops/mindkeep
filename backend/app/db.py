@@ -5,6 +5,7 @@ from functools import lru_cache
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Engine,
     Index,
     Integer,
     String,
@@ -191,7 +192,7 @@ LINT_OFF = -1
 
 
 @lru_cache
-def engine():
+def engine() -> Engine:
     return create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True)
 
 

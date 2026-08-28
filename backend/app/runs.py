@@ -248,7 +248,7 @@ def running_sources(home: Path) -> set[str]:
         )
 
 
-def last_lint(home: Path):
+def last_lint(home: Path) -> IngestRun | None:
     """The most recent lint of this bundle, or None. Drives the once-a-day check."""
     from app.ingest import LINT
 
