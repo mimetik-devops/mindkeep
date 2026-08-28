@@ -54,7 +54,7 @@ CI runs exactly these, and a pull request is expected to pass them:
 
 ```bash
 # backend — from backend/, in a venv with the dependency list + pytest ruff mypy
-ruff check app tests && ruff format --check app tests && mypy app && pytest -q tests
+ruff check app tests && ruff format --check app tests && mypy app && python -m pytest -q tests
 
 # frontend — from frontend/
 npx tsc --noEmit -p tsconfig.json && npx eslint src && npx vitest run

@@ -35,8 +35,11 @@ jobs:
       - run: ruff check app tests
       - run: ruff format --check app tests
       - run: mypy app
-      # tests point DATABASE_URL at a temporary SQLite file, so there is no service here
-      - run: pytest -q tests
+      # tests point DATABASE_URL at a temporary SQLite file, so there is no service here.
+      # `python -m pytest`, not `pytest`: tests/ is not a package and nothing sets
+      # pythonpath, so conftest's `from tests.test_files import …` needs backend/ on
+      # sys.path — which the -m form puts there and the bare command does not.
+      - run: python -m pytest -q tests
 
   frontend:
     runs-on: ubuntu-latest
