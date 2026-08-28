@@ -22,6 +22,8 @@ import webbrowser
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from mindkeep import USER_AGENT
+
 DONE = b"""<!doctype html><meta charset="utf-8"><title>Mindkeep</title>
 <body style="font-family:system-ui;padding:40px"><h2>Connected.</h2>
 <p>You can close this tab and go back to Mindkeep.</p></body>"""
@@ -29,7 +31,9 @@ DONE = b"""<!doctype html><meta charset="utf-8"><title>Mindkeep</title>
 
 def about(server: str) -> dict:
     """What the API says about itself — the web address, for the connect page."""
-    with urllib.request.urlopen(server.rstrip("/") + "/about") as response:
+    request = urllib.request.Request(server.rstrip("/") + "/about")
+    request.add_header("User-Agent", USER_AGENT)
+    with urllib.request.urlopen(request) as response:
         return json.loads(response.read())
 
 

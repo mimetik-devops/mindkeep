@@ -25,6 +25,10 @@ python -m mindkeep watch --config ~/.mindkeep-research.json
 `login` opens the website so you can connect the machine with a click; if there is no
 browser where you are, paste a device token from **Settings → Account** instead.
 
+The API address is where the API answers *from your machine*. Deployed as in
+`frontend/Caddyfile`, the API has no address of its own: it is the website's, plus
+`/api` — `https://main.mindkeep.io/api`. In development it is `http://localhost:8001`.
+
 ## The tray app
 
 Sits in the taskbar, keeps every bundle you tick in one root folder, and shows a

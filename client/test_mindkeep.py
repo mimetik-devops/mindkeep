@@ -473,3 +473,28 @@ def test_a_delete_of_a_file_rewritten_over_there_brings_theirs_back(tmp_path, mo
 
     assert server.files["raw/plan.md"] == b"theirs"
     assert (root / "raw" / "plan.md").read_bytes() == b"theirs"
+
+
+def test_every_request_says_which_client_it_is(monkeypatch):
+    """Cloudflare's browser check, in front of mindkeep.io, drops Python's default agent."""
+    import io
+
+    seen = []
+
+    class Answer(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def urlopen(request):
+        seen.append(request.get_header("User-agent"))
+        return Answer(b'{"web": "w"}')
+
+    monkeypatch.setattr(mindkeep.urllib.request, "urlopen", urlopen)
+    mindkeep.call({"server": "http://s", "token": "t"}, "teams")
+    from mindkeep import USER_AGENT, connect
+
+    assert connect.about("http://s") == {"web": "w"}
+    assert seen == [USER_AGENT, USER_AGENT] and USER_AGENT.startswith("Mindkeep/")

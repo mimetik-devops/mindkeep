@@ -18,6 +18,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from mindkeep import USER_AGENT
+
 # The bundle's own shape. Recreated on every sync and never swept away: a mirror with
 # nowhere to drop a file is not much use, and an empty directory has no files to carry
 # it, so it cannot arrive by download.
@@ -117,6 +119,7 @@ def call(
         url_for(cfg, path), data=body, method=method or ("POST" if body else "GET")
     )
     request.add_header("Authorization", "Bearer " + cfg["token"])
+    request.add_header("User-Agent", USER_AGENT)
     if kind:
         request.add_header("Content-Type", kind)
     for name, value in (headers or {}).items():
