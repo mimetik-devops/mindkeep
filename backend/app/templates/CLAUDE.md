@@ -39,6 +39,12 @@ over one without. Quote the page's own citations when it matters where a claim c
 If an answer takes real synthesis, do not write it into `wiki/` here — write it up as a
 note, below, so it is ingested and becomes a page the proper way.
 
+**The mirror changes under you.** The sync rewrites files while you work — after an
+ingest, a lint, a teammate's upload. What you read earlier in a session may no longer
+be what is on disk. Start from `index.md` again for each new question, and re-read a
+page before quoting or building on it if any time has passed or a sync could have run.
+Never answer from memory of a page when the page is a read away.
+
 ## Contributing what you worked out
 
 When work here settles something the team should keep — why a thing fails and the fix,
