@@ -220,6 +220,15 @@ def ensure_lists(root: Path) -> int:
     return made
 
 
+def rebuild_indexes(root: Path) -> int:
+    """Every bundle's index.md from its pages — at startup, so a bundle written when the
+    agent kept the index gets the server's on the first deploy after the change."""
+    done = sum(1 for home in bundles_under(root) if index.write(home))
+    if done:
+        log.info("rebuilt index.md in %d bundle(s)", done)
+    return done
+
+
 def requeue_unread(root: Path) -> int:
     """Every raw file no run has ever touched, back in the queue — at startup.
 
