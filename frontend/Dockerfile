@@ -1,6 +1,7 @@
 # Two images from one file. `dev` is what docker-compose runs: the Vite dev server with
-# hot reload over a bind mount. The last stage is what a deploy gets: the built site,
-# served static, single-page fallback — no dev server, no host allow-list, no proxy.
+# hot reload over a bind mount. The last stage is what a deploy gets: the built site
+# served by Caddy, which also proxies /api to the backend (see Caddyfile) — so the API
+# needs no public address and the browser sees one origin.
 
 FROM node:22-alpine AS dev
 WORKDIR /app
@@ -21,9 +22,6 @@ ARG VITE_AUTH_REDIRECT_URI
 ARG VITE_AUTH_LOGOUT_URI
 RUN npm run build
 
-FROM node:22-alpine
-WORKDIR /app
-RUN npm install -g serve@14
-COPY --from=build /app/dist ./dist
-# shell form so $PORT expands: Railway sets it, compose does not
-CMD serve -s dist -l ${PORT:-5163}
+FROM caddy:2-alpine
+COPY --from=build /app/dist /srv
+COPY Caddyfile /etc/caddy/Caddyfile

@@ -14,5 +14,7 @@ FROM base AS dev
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 FROM base
-# shell form so $PORT expands: Railway sets it, compose does not
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# shell form so the variables expand. PORT: Railway sets it. HOST: Railway's private
+# network — how the frontend reaches this — is IPv6, and uvicorn binds one family or
+# the other, so Railway sets HOST=:: and everywhere else keeps IPv4.
+CMD uvicorn app.main:app --host ${HOST:-0.0.0.0} --port ${PORT:-8000}

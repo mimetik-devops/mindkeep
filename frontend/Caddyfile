@@ -1,0 +1,20 @@
+# The deployed site: the built files, and /api handed to the backend over the private
+# network — so the API needs no public address, and the browser sees one origin (no
+# CORS). The same shape the dev server has, with Vite's proxy.
+#
+# PORT: what Railway hands the service. API_UPSTREAM: the backend's private address,
+# e.g. http://mindkeep.railway.internal:8000 (the backend must listen on that port).
+
+:{$PORT:5163}
+
+root * /srv
+encode gzip
+
+handle_path /api/* {
+	reverse_proxy {$API_UPSTREAM:http://backend:8000}
+}
+
+handle {
+	try_files {path} /index.html
+	file_server
+}
