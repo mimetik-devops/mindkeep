@@ -1335,6 +1335,17 @@ reset, no e-mail verification, logout is forgetting the token, revoke-all is rot
 secret. Verified end to end on the local stack switched to builtin (first-account
 registration, sign out, sign in), then switched back to Kinde.
 
+### 4.41 …and then to the bone (2026-08-28)
+
+Ruben: "keep it as simple and as basic as possible, strip out all functionality to keep
+it down to its bones." Gone from the first cut: the registration policy and the
+first-account-is-admin rule (registration is simply open), the login throttle, the
+password change route and its Settings card, `GET /auth/config`, the `admin` and
+`last_seen` columns (a follow-up migration drops them). What is left is two routes —
+register, log in — a scrypt hash with its parameters, and an HS256 session token; the
+frontend form has a sign-in / create-account toggle and nothing else. Each thing removed
+is a decision recorded here so it can be added back when someone actually needs it.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

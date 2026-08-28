@@ -184,9 +184,7 @@ class Account(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True)
     name: Mapped[str] = mapped_column(String(80))
     password: Mapped[str] = mapped_column(String(256))
-    admin: Mapped[bool] = mapped_column(Boolean)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
 LINT_OFF = -1

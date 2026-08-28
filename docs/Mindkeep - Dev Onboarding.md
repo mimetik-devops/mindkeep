@@ -150,7 +150,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 |---|---|
 | `main.py` | FastAPI app, lifespan (migrate → sweep interrupted runs → re-queue unread sources → re-key legacy tenants → push the reader's guide, ensure the lists, rebuild every index → start the scheduler), `/health`, `/me`, `/about`, `/clean`, `/devices` |
 | `auth.py` | Who is asking: a session token (browser) or a device token (client). `CurrentUser`, `Person` (session only), `CurrentRole`, `CurrentProfile`, `CurrentIdentity`. Dispatches once, on `AUTH_PROVIDER`, to the provider's RS256 path or to `accounts.py` |
-| `accounts.py` | The built-in identity provider: e-mail + scrypt password hash, HS256 session tokens, registration policy, login throttle |
+| `accounts.py` | The built-in identity provider: e-mail + scrypt password hash, HS256 session tokens; register and log in, nothing else |
 | `teams.py` | Teams, memberships, invites, roles → permissions; `needs(permission)` dependencies |
 | `files.py` | Everything under `/teams/{team}/bundles/…`: bundles CRUD, tree, read/write, raw upload/move/delete, sources, activity, undo/redo, todos, assistant, lint schedule, queue/retry, reorganise, folders. Also `safe_path`, `tenant()`, guide refresh, startup re-queue |
 | `ingest.py` | The agent: task texts, the tool set, the per-bundle worker, `ingest_safely`, holds and retries, `busy()` |
@@ -181,14 +181,11 @@ never inferred from a missing setting, so a deploy that loses a variable fails c
 - **With `AUTH_PROVIDER=builtin`, the browser sends Mindkeep's own session token.** No
   provider at all: `accounts.py` keeps e-mail + password (scrypt, parameters stored with
   the hash) in the `account` table and signs HS256 tokens with `AUTH_SECRET` (30 days,
-  claims `sub` = `local_…`, `email`, `name`, `roles`). Registration is open until the
-  first account exists — that person is the administrator — then follows
-  `AUTH_REGISTRATION`: `invite` (default; an invite link from a team lets someone
-  register) or `open`. Five wrong passwords in five minutes lock an address out for a
-  while. `GET /auth/config` tells the sign-in page which mode it is in. By decision, not
-  omission: no password reset and no e-mail verification (both need a mail sender);
-  logout is the browser forgetting the token; revoking every session is rotating
-  `AUTH_SECRET`. The HS256 path lives entirely in `accounts.py`; the RS256 pin in
+  claims `sub` = `local_…`, `email`, `name`). Two routes — register, log in — and that is
+  the whole of it: registration is open, there are no roles, no throttle, no reset, no
+  e-mail verification; logout is the browser forgetting the token; revoking every session
+  is rotating `AUTH_SECRET`. Kept to the bone by decision — anything more is added when
+  someone needs it. The HS256 path lives entirely in `accounts.py`; the RS256 pin in
   `auth.py` never sees those tokens.
 - **A machine** sends a device token, `<device id>.<hmac>`: the HMAC (`DEVICE_SECRET`)
   proves it was minted here, the `device` row says whose it is, and its absence means
@@ -326,7 +323,7 @@ out. Every query on a tenant table filters on `tenant` (`runs._where`).
 
 `DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR`,
 `ANTHROPIC_API_KEY`, `DEVICE_SECRET`, `AUTH_PROVIDER` (`builtin` | `oidc`), builtin only:
-`AUTH_SECRET`, `AUTH_REGISTRATION` (`invite` | `open`); oidc only: `AUTH_ISSUER`,
+`AUTH_SECRET`; oidc only: `AUTH_ISSUER`,
 `AUTH_AUDIENCE`, `AUTH_JWKS_URL`, `AUTH_ROLE_CLAIM`; `WEB_URL` (where the site is, for the connect page), `ALLOWED_ORIGINS`
 (CORS, only for a split-origin deploy), `HOST`/`PORT` (the deploy image's bind).
 
@@ -339,9 +336,7 @@ Unprefixed:
 | GET | `/health` | — | liveness |
 | GET | `/about` | — | `{web: WEB_URL}` |
 | GET | `/me` | any | id, name, role, profile from the token |
-| GET | `/auth/config` | — | `{provider}` and, built-in, `registration`: `first` / `invite` / `open` |
-| POST | `/auth/register` · `/auth/login` | — | built-in only: `{token}` (201 / 200); 403 without an invite when registration is by invitation, 429 after five misses |
-| PUT | `/auth/password` | person | built-in only: change your own password |
+| POST | `/auth/register` · `/auth/login` | — | built-in only: `{token}` (201 / 200); 409 for an e-mail already taken, 401 for a wrong password |
 | POST | `/clean` | any | the names `raw/` paths will be stored under (the client asks before uploading) |
 | GET/POST | `/devices` | person | list / mint (token returned once) |
 | DELETE | `/devices/{id}` | person | revoke |
@@ -611,8 +606,8 @@ Three services in one project: `db` (Postgres), `backend`, `frontend`. The env f
 - No global cap on concurrent runs across bundles, and no fairness between teams.
 - The `oidc` adapter has only been exercised against a fake; a Keycloak check is owed.
   Clerk would be a fourth adapter in `providers/`, same shape.
-- The built-in provider has no password reset and no e-mail verification (a mail sender
-  is another dependency); the Settings password change is the only recovery path.
+- The built-in provider is register and log in only: no password change or reset, no
+  e-mail verification, no roles, no throttle — by decision, until someone needs one.
 - Each hold retry opens a failed run row; a long outage leaves a few per hour in Activity.
 - `edit_file` is occasionally called with `edits` as a JSON string; the SDK rejects it and
   the model retries — a wasted turn.

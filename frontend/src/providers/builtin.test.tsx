@@ -4,9 +4,7 @@ import { vi } from "vitest";
 
 import { builtin, payload } from "./builtin";
 
-const config = { provider: "builtin", registration: "first" };
 vi.mock("../api", () => ({
-  authConfig: vi.fn(async () => config),
   signIn: vi.fn(async () => ({
     token: fake({ sub: "local_1", name: "Ada Lovelace", email: "ada@x" }),
   })),
@@ -14,7 +12,6 @@ vi.mock("../api", () => ({
     token: fake({ sub: "local_1", name: "Ada Lovelace", email: "ada@x" }),
   })),
 }));
-vi.mock("../invites", () => ({ pending: () => "" }));
 
 /** A token shaped like the server's, unsigned: the adapter only reads the payload. */
 function fake(claims: Record<string, unknown>, exp = Math.floor(Date.now() / 1000) + 3600) {
@@ -50,13 +47,12 @@ test("a stored, unexpired token is a session; signing out forgets it", async () 
   expect(localStorage.getItem("mindkeep.session")).toBeNull();
 });
 
-test("an expired token is no session, and the payload is read without a signature", () => {
-  localStorage.setItem("mindkeep.session", fake({ name: "Old" }, 1));
+test("the payload is read without a signature, and garbage is nothing", () => {
   expect(payload(fake({ a: 1 })).a).toBe(1);
   expect(payload("garbage")).toEqual({});
 });
 
-test("the login form registers the first account and signs in", async () => {
+test("the form signs in, and can create an account instead", async () => {
   localStorage.removeItem("mindkeep.session");
   const host = document.createElement("div");
   document.body.append(host);
@@ -69,7 +65,12 @@ test("the login form registers the first account and signs in", async () => {
       </builtin.Provider>,
     ),
   );
-  expect(host.textContent).toContain("No accounts yet");
+  expect(host.querySelectorAll("input").length).toBe(2); // e-mail, password
+  const toggle = [...host.querySelectorAll("button")].find(
+    (b) => b.textContent === "Create an account",
+  );
+  await act(async () => toggle!.click());
+  expect(host.querySelectorAll("input").length).toBe(3); // and a name
   const [nameBox, emailBox, passwordBox] = [...host.querySelectorAll("input")];
   await act(async () => {
     const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;

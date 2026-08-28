@@ -1,16 +1,15 @@
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 
-import { authConfig, signIn, signUp } from "../api";
-import { pending } from "../invites";
+import { signIn, signUp } from "../api";
 import type { Adapter } from "./session";
 
 /**
  * Mindkeep's own sign-in: an e-mail and a password, a session token the backend signed.
  *
- * The token lives in localStorage for the browser session; the profile is read off its
- * payload (no verification here — the backend verifies every request). Signing out is
- * forgetting the token. The form is this adapter's own `Login`, which the gate renders
- * in place of the "Sign in" button the redirect-based providers need.
+ * The token lives in localStorage; the profile is read off its payload (no verification
+ * here — the backend verifies every request). Signing out is forgetting the token. The
+ * form is this adapter's own `Login`, which the gate renders in place of the "Sign in"
+ * button the redirect-based providers need.
  */
 const KEY = "mindkeep.session";
 
@@ -79,39 +78,22 @@ function useSession() {
   };
 }
 
-type Mode = "signin" | "register";
-
 function Login() {
   const { setToken } = useContext(Context);
-  const [registration, setRegistration] = useState<string>("");
-  const [mode, setMode] = useState<Mode>("signin");
+  const [creating, setCreating] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    authConfig()
-      .then((c) => {
-        setRegistration(c.registration ?? "");
-        // nobody has an account yet: the person installing this is about to make theirs
-        if (c.registration === "first") setMode("register");
-      })
-      .catch((e) => setError(String(e).replace(/^Error: \d{3} /, "")));
-  }, []);
-
-  const invite = pending();
-  const mayRegister = registration === "first" || registration === "open" || !!invite;
-
   async function submit() {
     setError("");
     setBusy(true);
     try {
-      const { token } =
-        mode === "register"
-          ? await signUp(email, password, name, invite)
-          : await signIn(email, password);
+      const { token } = creating
+        ? await signUp(email, password, name)
+        : await signIn(email, password);
       setToken(token);
     } catch (e) {
       setError(String(e).replace(/^Error: \d{3} /, ""));
@@ -128,10 +110,7 @@ function Login() {
         void submit();
       }}
     >
-      {registration === "first" && (
-        <p className="soft">No accounts yet. The first one is the administrator.</p>
-      )}
-      {mode === "register" && (
+      {creating && (
         <input
           value={name}
           placeholder="Your name"
@@ -150,28 +129,19 @@ function Login() {
       <input
         value={password}
         type="password"
-        placeholder={mode === "register" ? "Password (8 or more characters)" : "Password"}
-        autoComplete={mode === "register" ? "new-password" : "current-password"}
+        placeholder={creating ? "Password (8 or more characters)" : "Password"}
+        autoComplete={creating ? "new-password" : "current-password"}
         required
-        minLength={mode === "register" ? 8 : undefined}
+        minLength={creating ? 8 : undefined}
         onChange={(e) => setPassword(e.target.value)}
       />
       {error && <div className="banner">{error}</div>}
       <button className="primary" disabled={busy}>
-        {busy ? "One moment…" : mode === "register" ? "Create account" : "Sign in"}
+        {busy ? "One moment…" : creating ? "Create account" : "Sign in"}
       </button>
-      {mayRegister && registration !== "first" && (
-        <button
-          type="button"
-          className="plain"
-          onClick={() => setMode(mode === "register" ? "signin" : "register")}
-        >
-          {mode === "register" ? "I have an account" : "Create an account"}
-        </button>
-      )}
-      {!mayRegister && mode === "signin" && (
-        <p className="soft">New here? Ask a team for an invite link.</p>
-      )}
+      <button type="button" className="plain" onClick={() => setCreating(!creating)}>
+        {creating ? "I have an account" : "Create an account"}
+      </button>
     </form>
   );
 }

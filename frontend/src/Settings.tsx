@@ -4,8 +4,6 @@ import {
   can,
   deleteBundle,
   addDevice,
-  authConfig,
-  changePassword,
   type Device,
   devices,
   removeDevice,
@@ -81,28 +79,6 @@ export function Settings({
   const manages = can(team, "bundles");
   const elsewhere = teams.filter((t) => t.id !== team.id && can(t, "bundles"));
   const [mine, setMine] = useState<Device[]>([]);
-  const [builtin, setBuiltin] = useState(false);
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [passwordNote, setPasswordNote] = useState("");
-
-  useEffect(() => {
-    authConfig()
-      .then((c) => setBuiltin(c.provider === "builtin"))
-      .catch(() => setBuiltin(false));
-  }, []);
-
-  async function savePassword() {
-    setPasswordNote("");
-    try {
-      await changePassword(current, next);
-      setCurrent("");
-      setNext("");
-      setPasswordNote("Changed.");
-    } catch (e) {
-      setPasswordNote((e as Error).message.replace(/^\d{3} /, ""));
-    }
-  }
   const [deviceName, setDeviceName] = useState("");
   // a token is shown once, right after it is made; reloading the page loses it for good
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
@@ -354,37 +330,6 @@ export function Settings({
           <TeamSettings team={team} onChanged={onTeamChanged} />
           <Members team={team} />
         </>
-      )}
-
-      {section === "Account" && builtin && (
-        <section className="card">
-          <h2>Password</h2>
-          <p>Your account is Mindkeep's own — an e-mail and a password kept on this server.</p>
-          <div className="row">
-            <input
-              type="password"
-              value={current}
-              placeholder="Current password"
-              autoComplete="current-password"
-              onChange={(e) => setCurrent(e.target.value)}
-            />
-            <input
-              type="password"
-              value={next}
-              placeholder="New password (8 or more characters)"
-              autoComplete="new-password"
-              onChange={(e) => setNext(e.target.value)}
-            />
-            <button
-              className="primary"
-              disabled={!current || next.length < 8}
-              onClick={savePassword}
-            >
-              Change
-            </button>
-          </div>
-          {passwordNote && <p className="soft">{passwordNote}</p>}
-        </section>
       )}
 
       {section === "Account" && (
