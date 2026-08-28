@@ -15,7 +15,17 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from app import assist, gaps, graph, history, runs, schedule, teams, todos
 from app.auth import CurrentIdentity, CurrentProfile, CurrentUser
 from app.db import LINT_OFF, IngestRun
-from app.ingest import LINT, agent_owns, busy, enqueue, lock_for, pages_citing, user_owns
+from app.ingest import (
+    LINT,
+    MAINTENANCE,
+    REORGANISE,
+    agent_owns,
+    busy,
+    enqueue,
+    lock_for,
+    pages_citing,
+    user_owns,
+)
 
 log = logging.getLogger(__name__)
 
@@ -540,8 +550,8 @@ def activity(home: Bundle) -> list[dict[str, object]]:
             "undone": r.undone_at is not None,
             "note": words.get(r.commit, ""),
             # what kind of run: the agent's own log heading says, at no extra cost
-            "task": "lint"
-            if r.source == LINT
+            "task": r.source.strip("()")
+            if r.source in MAINTENANCE
             else ("retire" if "] retire |" in words.get(r.commit, "") else "ingest"),
             "changed": changed or [],
         }
@@ -627,7 +637,7 @@ def undo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
 
     restore: tuple[str, str] | None = None
     remove = ""
-    if run.source != LINT and run.based_on:
+    if run.source not in MAINTENANCE and run.based_on:
         read = history.blob(home, run.based_on, run.source)  # what this run read
         if history.blob(home, "HEAD", run.source) != read:
             raise HTTPException(
@@ -780,6 +790,16 @@ def lint(home: Bundle, _: Writer) -> dict[str, str]:
         raise HTTPException(409, "a lint is already running")
     enqueue(home, LINT)
     return {"linting": home.name}
+
+
+@router.post("/bundles/{name}/reorganise")
+def reorganise(home: Bundle, _: Writer) -> dict[str, str]:
+    """File every page where the manual's layout rule puts it. A run like a lint: one
+    commit, undoable. For a bundle written before the rule, or after it changed."""
+    if REORGANISE in runs.running_sources(home):
+        raise HTTPException(409, "a reorganise is already running")
+    enqueue(home, REORGANISE)
+    return {"reorganising": home.name}
 
 
 @router.get("/bundles/{name}/folders")

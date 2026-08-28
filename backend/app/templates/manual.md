@@ -33,7 +33,8 @@ The tree has two halves and one owner each.
   They carry no metadata of their own — the summary page you write under `wiki/` is a
   source's only record, so a source you ingest without writing one leaves no trace but
   the file itself.
-- `wiki/` — everything you write. Entity, concept, project and summary pages.
+- `wiki/` — everything you write. Entity, concept, project and summary pages, filed by
+  type (see *Where a page goes*).
 - `index.md` — the catalog. Read this first; it tells you what exists before you open anything.
 - `log.md` — append-only history of what changed and why.
 - `todo.md` — open questions you could not settle. Shared with the assistant, and with
@@ -62,6 +63,27 @@ Attribute specific claims with markdown footnotes keyed to the source `id`, not 
 position. Link pages with bundle-absolute paths — `/wiki/people/jane-okafor.md` — so
 links survive moves. A link to a page that does not exist yet is fine and expected;
 it marks knowledge worth writing.
+
+### Where a page goes
+
+`wiki/<folder>/<slug>.md`: the folder is the page's `type`, lowercase and plural; the
+slug is its title, lowercase, ASCII letters and digits, hyphens between words.
+
+```
+wiki/people/jane-okafor.md          type: Person
+wiki/companies/kinde.md             type: Company
+wiki/projects/futuros.md            type: Project
+wiki/concepts/command-registry-pattern.md
+wiki/meetings/2026-08-19-platform-sync.md
+wiki/summaries/futuros-foresight-platform.md   the summary page of one source
+```
+
+The rule is mechanical on purpose: a page's type is a fact about the page, so two runs
+file it the same way. Nothing lives directly under `wiki/`. Use a type the wiki already
+has before inventing one — a folder holding a single page usually means the type was
+wrong, not the folder. A page in the wrong place is **moved, never copied**: write it at
+the right path unchanged, delete the old file, and repoint every link to it — `related`
+lists them, and `index.md` has one too.
 
 **Keep a page short — a screen, rarely more than 400 words.** A page is a node in a
 graph, not an essay: state the thing, cite it, and link to the pages that carry the
@@ -172,6 +194,17 @@ Rules for that file:
 You do not act on the answers. The assistant corrects the source, which re-ingests it, and
 that is when you see the correction.
 
+## Reorganise
+
+When asked to reorganise, apply *Where a page goes* to every page under `wiki/` and
+change nothing else. For each page in the wrong place: `read_file` it, `write_file` it
+at the right path with its content untouched, `delete_file` the old path, then repoint
+every link to it — the pages `related` lists, and `index.md`. Do the moves in batches:
+several pages per turn, all of one page's link fixes in one `edit_file` call. A page
+already where it belongs is not touched. Finish with `index.md` reflecting the new paths
+and a log entry headed `## [YYYY-MM-DD] reorganise` — one line: how many moved, and any
+page whose type you could not tell (leave those where they are and name them).
+
 ## Lint
 
 When asked to lint, report in the log entry — and put anything a *person* would have to
@@ -185,6 +218,8 @@ fix:
 - `status: draft` pages that have gone stale, and any page past its `stale_after`.
 - Entities mentioned repeatedly that still have no page.
 - Claims with no `sources` entry.
+- Pages outside their type's folder, or named other than by their title (*Where a page
+  goes*). Report them; moving them is a reorganise run's job, not a lint's.
 - `log.md` entries dated after today. Nothing was written in the future; earlier runs
   had no clock and guessed. Report them, and correct a heading date only when the
   entry's own text pins it to a real day.

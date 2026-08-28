@@ -197,8 +197,8 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
                 <button className="kind" aria-expanded={open === key} onClick={() => expand(e)}>
                   {isRun ? (
                     <>
-                      {e.task ?? (e.source === "(lint)" ? "lint" : "ingest")}
-                      {e.source !== "(lint)" && <span className="soft"> · {e.source}</span>}
+                      {e.task ?? (e.source?.startsWith("(") ? e.source.slice(1, -1) : "ingest")}
+                      {!e.source?.startsWith("(") && <span className="soft"> · {e.source}</span>}
                       {e.seconds ? <span className="state"> {took(e.seconds)}</span> : null}
                       {state && <span className="state"> · {state}</span>}
                     </>

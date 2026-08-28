@@ -24,6 +24,9 @@ MODEL = "claude-sonnet-5"
 
 # lint runs share the ingest_run table; this stands where a source path would
 LINT = "(lint)"
+REORGANISE = "(reorganise)"
+# runs over the wiki as a whole rather than over one source
+MAINTENANCE = {LINT, REORGANISE}
 
 
 def pages_citing(home: Path, source: str) -> int:
@@ -95,6 +98,15 @@ LINT_TASK = (
     "you find in a log.md entry headed `## [{today}] lint`, and fix only what the manual "
     "tells you to fix — broken source links. Everything else is reported, not changed. "
     "If the wiki is in good order, say so in one line rather than inventing work.{hints}"
+)
+
+# Applies the manual's layout rule to a bundle written before there was one — or after
+# the rule changed. Content is not touched; only where it is filed.
+REORGANISE_TASK = (
+    "Today is {today}. Reorganise the wiki, following the Reorganise section of the "
+    "manual: every page under `wiki/` goes where *Where a page goes* puts it, moved — "
+    "never copied — with its links repointed and `index.md` updated. Change no content. "
+    "Write the log entry headed `## [{today}] reorganise`."
 )
 
 # The server knows exactly what moved, because it did the moving. Telling the agent beats
@@ -272,6 +284,8 @@ def ingest(
         if thin:
             hints += GAPS.format(list=gaps.describe(thin))
         task = LINT_TASK.format(today=today, hints=hints)
+    elif source == REORGANISE:
+        task = REORGANISE_TASK.format(today=today)
     elif not (home / source).is_file():
         task = RETIRE_TASK.format(source=source, today=today)
     else:
@@ -314,7 +328,7 @@ def ingest(
                 }
             ],
         )
-        log.info("%s %s: starting", "lint" if source == LINT else "ingest", source)
+        log.info("%s: starting", source if source in MAINTENANCE else f"ingest {source}")
         turns = 0
         for message in runner:
             turns += 1
@@ -408,7 +422,7 @@ def ingest_safely(home: Path, source: str) -> None:
     # a source queued again that is exactly what the last run read — saved twice, synced
     # twice — has nothing to teach the wiki; a minute of the agent finding that out is the
     # commonest way a team's queue grows
-    if source != LINT and _already_read(home, source):
+    if source not in MAINTENANCE and _already_read(home, source):
         log.info("%s is as the last run read it; nothing to ingest", source)
         return
     # read before the run, settled after it: a lint that dies must not lose the hints it
@@ -425,7 +439,12 @@ def ingest_safely(home: Path, source: str) -> None:
     base = history.head(home)
     runs.set_base(run_id, base)
     changed = ""
-    if source != LINT and base and (last := runs.last_read(home, source)) and last.based_on:
+    if (
+        source not in MAINTENANCE
+        and base
+        and (last := runs.last_read(home, source))
+        and last.based_on
+    ):
         changed = history.diff(home, last.based_on, source)
     turns = written = 0
     error = ""

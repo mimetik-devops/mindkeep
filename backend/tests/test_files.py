@@ -361,6 +361,29 @@ def test_a_source_the_last_run_already_read_is_skipped(client, tmp_path, ingeste
     assert seen and len(runs.recent(home)) == before + 1  # changed since: it runs
 
 
+def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):
+    """Asked for from Settings; the agent is told to apply the layout rule and nothing
+    else. A second ask while one runs is refused, like a lint."""
+    from unittest.mock import patch
+
+    from app import ingest as agent
+    from app import runs
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    assert client.post(f"{B}/reorganise").json() == {"reorganising": "default"}
+    assert [c[1] for c in ingested] == [agent.REORGANISE]
+
+    seen: dict = {}
+    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+        agent.ingest(home, agent.REORGANISE)
+    task = seen["messages"][0]["content"]
+    assert "Reorganise the wiki" in task and "reorganise`" in task and "Change no content" in task
+
+    runs.start(home, agent.REORGANISE, "m")
+    assert client.post(f"{B}/reorganise").status_code == 409
+
+
 def test_deleting_a_cited_source_retires_its_pages_now(client, tmp_path, ingested):
     """Not tonight's lint: a run over the gone source, told exactly what to do."""
     from app import ingest as agent

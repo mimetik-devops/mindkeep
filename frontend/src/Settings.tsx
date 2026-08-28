@@ -12,6 +12,7 @@ import {
   renameBundle,
   setLintHour,
   startLint,
+  startReorganise,
   type Team,
 } from "./api";
 import { Members } from "./Members";
@@ -161,6 +162,23 @@ export function Settings({
 
       {section === "Bundle" && (
         <>
+          <section className="card">
+            <h2>Layout</h2>
+            <p>
+              Every page is filed by its type — <code>wiki/people/</code>,{" "}
+              <code>wiki/projects/</code>,<code>wiki/concepts/</code>… — under its title. A bundle
+              written before that rule, or one that drifted, is put in order by a run: pages move,
+              links follow, nothing is rewritten. It shows in Activity and can be undone like any
+              run.
+            </p>
+            <div className="field">
+              <span>Move every page to where its type says it goes.</span>
+              <button className="lint" onClick={() => act(startReorganise(bundle))}>
+                Reorganise the wiki
+              </button>
+            </div>
+          </section>
+
           <section className="card">
             <h2>Nightly lint</h2>
             <p>

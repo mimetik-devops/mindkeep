@@ -208,6 +208,10 @@ export const lintState = (bundle: string) => call<Lint>(`${at(bundle)}/lint`);
 export const startLint = (bundle: string) =>
   call<{ linting: string }>(`${at(bundle)}/lint`, { method: "POST" });
 
+/** File every wiki page where the layout rule puts it — a run, like a lint. */
+export const startReorganise = (bundle: string) =>
+  call<{ reorganising: string }>(`${at(bundle)}/reorganise`, { method: "POST" });
+
 /** Composed from Kinde on every read — Mindkeep keeps no user table of its own. */
 export type Profile = {
   id: string;
