@@ -152,7 +152,7 @@ npx tsc --noEmit -p tsconfig.json && npx eslint src && npx vitest run
 ruff check . && pytest -q
 ```
 
-CI runs all three on every push and pull request.
+CI runs all three on every pull request.
 
 ## Documentation
 
@@ -174,7 +174,8 @@ the agent's behaviour is a change to its manual.
 
 ## License
 
-Mindkeep is free software under the [GNU Affero General Public License v3.0](LICENSE).
+Copyright © 2026 mimetik. Mindkeep is free software under the
+[GNU Affero General Public License v3.0](LICENSE).
 
 You may run it, study it, modify it and share it. The AGPL adds one condition to the GPL
 that matters here: **if you run a modified Mindkeep as a network service, you must offer

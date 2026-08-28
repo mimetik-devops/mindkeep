@@ -37,7 +37,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately to the maintainers, by direct message on GitHub to [@t3knomanzer](https://github.com/t3knomanzer). All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately to the maintainers through the repository's [private reporting form](https://github.com/mimetik-devops/mindkeep/security/advisories/new) — the project's private channel for anything that should not be public, conduct included. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 
