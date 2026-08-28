@@ -10,7 +10,15 @@ COPY . .
 CMD ["npm", "run", "dev"]
 
 FROM dev AS build
-# VITE_* variables are baked in here: Railway passes service variables to the build.
+# VITE_* values are baked into the site here, not read at runtime. Railway hands a
+# Dockerfile build its service variables as build args — but only the ones declared,
+# so every variable the site is built with is named here.
+ARG VITE_API_URL
+ARG VITE_AUTH_PROVIDER
+ARG VITE_AUTH_ISSUER
+ARG VITE_AUTH_CLIENT_ID
+ARG VITE_AUTH_REDIRECT_URI
+ARG VITE_AUTH_LOGOUT_URI
 RUN npm run build
 
 FROM node:22-alpine
