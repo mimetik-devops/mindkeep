@@ -32,7 +32,9 @@ and every claim that rested on it is withdrawn.
 - **Files, not a database.** Markdown on disk with a git repository inside every knowledge
   base. Every agent run is two commits and can be undone.
 - **Context your other AI tools can read.** A synced folder gives an agent a catalog, short
-  pages, explicit links and a citation under every claim, instead of a pile of PDFs.
+  pages, explicit links and a citation under every claim, instead of a pile of PDFs — and a
+  way to write back what it learns. See
+  [Working with a coding agent](#working-with-a-coding-agent).
 - **Multi-tenant from the first line.** Teams, bundles, roles, invite links, and per-device
   revocable tokens. A team you are not a member of is a 404, never a 403.
 - **Sign-in that needs nothing else.** Built-in e-mail and password accounts by default, or
@@ -104,6 +106,77 @@ mindkeep watch          # or `mindkeep sync` for a single pass
 A file changed on both sides is never lost: your copy is kept under `.conflicts/` and the
 server's lands in place.
 
+## Working with a coding agent
+
+A synced bundle is a folder of markdown, so any agent that can read a directory can use it:
+Claude Code, Cursor, an editor's assistant, `grep`. Point one at the folder and ask.
+
+```bash
+cd ~/Mindkeep/Acme/default
+claude "What did we decide about pricing, and what is that based on?"
+```
+
+The difference from pointing an agent at a shared drive is that a bundle arrives already
+organised — `index.md` says what exists in one line per page, pages are short and linked,
+and every claim carries a footnote to the source it came from. The agent reads a catalog
+instead of guessing which of forty PDFs is relevant.
+
+### The bundle tells the agent how to behave
+
+Every bundle contains a `CLAUDE.md`, written by Mindkeep and refreshed from
+[the template](backend/app/templates/CLAUDE.md) whenever the server starts. Claude Code
+picks it up automatically; for other tools, point them at the file. It is not documentation
+for humans — it is the operating instructions for whatever is reading, and it says four
+things:
+
+- **This copy is a mirror — do not edit it in place.** `wiki/` is regenerated from the
+  sources, so an edited page is overwritten the next time its source is read, and the sync
+  removes anything the server does not have. To fix a wrong page, fix the source it cites.
+- **Read `index.md` first**, then open only the pages it points to and follow their links.
+  Prefer `stable` pages to `draft` ones, and a claim with a `verified` stamp over one
+  without.
+- **The mirror changes underneath you** — a sync rewrites files mid-session after an
+  ingest, a lint, or a teammate's upload. Re-read a page before quoting it rather than
+  answering from memory of what it said earlier.
+- **Contribute findings back as notes**, never by writing into `wiki/`.
+
+Without that last rule an agent does the natural thing — writes its conclusion into the
+wiki as a page — and the next ingest deletes it. The wiki has exactly one writer, and the
+guide exists to tell every other agent how to get knowledge *in* anyway.
+
+### The way back in: notes
+
+When a session settles something worth keeping — why a build fails and the fix, a decision
+and its reasoning, a fact that took an hour to establish — the agent writes it as one
+finding per file under `raw/notes/<person>/`:
+
+```
+raw/notes/ruben/2026-08-27 — why the frontend container lost its packages.md
+```
+
+```yaml
+---
+type: Note
+author: ruben          # the person, not the tool
+via: claude-code       # or whatever wrote it
+about: [docker, frontend]
+supersedes: raw/notes/ruben/2026-08-20 — rebuild the frontend image.md   # optional
+---
+```
+
+That is a source like any other: the watcher uploads it, and the cloud agent folds it into
+the wiki — with three rules that keep an inferred claim from passing as a checked one.
+A page whose only source is a note is **`status: draft`** until a person verifies it, however
+confident the note sounds, and it is cited with the note's `author` and `via`. A note naming
+an earlier one in `supersedes:` **retires** the claims that rested on it. And a note that
+changed on re-ingest has *changed its mind* — what is no longer in it is treated as
+withdrawn, not merely unmentioned.
+
+The result is a loop rather than a folder: your agent reads the team's knowledge, works,
+and writes back what it learned, where the next person's agent will find it. What stays out
+is anything about *your* machine or habits — paths, preferences, tooling quirks. That is
+your agent's own memory, not the team's.
+
 ## How it works
 
 1. **A source arrives** — dropped in the web app, written into a synced folder, or produced
@@ -161,6 +234,7 @@ CI runs all three on every pull request.
 | [Developer onboarding](docs/Mindkeep%20-%20Dev%20Onboarding.md) | the system end to end: concepts, backend, frontend, client, deployment |
 | [Dev log](docs/Mindkeep%20-%20Dev%20Log.md) | every architecture decision, why it was made, and what it replaced |
 | [The agent's manual](backend/app/templates/manual.md) | how the agent decides what a page is, where it goes, and what it may claim |
+| [The bundle guide](backend/app/templates/CLAUDE.md) | the `CLAUDE.md` shipped into every bundle: how a local agent should read a mirror and write back to it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how to propose a change, and the DCO sign-off |
 | [SECURITY.md](SECURITY.md) | how to report a vulnerability |
 
