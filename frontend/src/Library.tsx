@@ -8,6 +8,7 @@ import {
   readAsText,
   readFile,
   removeRaw,
+  retryIngest,
   tree,
   verifyPage,
 } from "./api";
@@ -232,7 +233,15 @@ export function Library({ bundle }: { bundle: string }) {
         {/* failures belong where there is room to read them, not squeezed into the rail */}
         {status?.error && !status.ingesting && (
           <div className="banner">
-            <b>Ingest failed.</b> {status.error}
+            <b>Ingest failed.</b> {status.error}{" "}
+            <button
+              className="more"
+              onClick={() =>
+                retryIngest(bundle, selected).then(refresh, (e) => setError(String(e)))
+              }
+            >
+              retry
+            </button>
           </div>
         )}
         {error && <div className="banner">{error}</div>}

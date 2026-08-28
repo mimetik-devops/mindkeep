@@ -22,9 +22,13 @@ from app.ingest import (
     agent_owns,
     busy,
     enqueue,
+    held,
     lock_for,
     pages_citing,
+    resume,
+    service_error,
     user_owns,
+    waiting,
 )
 
 log = logging.getLogger(__name__)
@@ -222,8 +226,13 @@ def requeue_unread(root: Path) -> int:
             if rel.as_posix() not in seen:
                 enqueue(home, rel.as_posix())
                 count += 1
+        # and what failed for reasons that were never the file's: no credit, an outage
+        for source, error in runs.failed_sources(home):
+            if service_error(error) and (home / source).is_file():
+                enqueue(home, source)
+                count += 1
     if count:
-        log.warning("re-queueing %d source(s) uploaded but never read", count)
+        log.warning("re-queueing %d source(s) never read, or failed by the service", count)
     return count
 
 
@@ -818,6 +827,36 @@ def lint(home: Bundle, _: Writer) -> dict[str, str]:
         raise HTTPException(409, "a lint is already running")
     enqueue(home, LINT)
     return {"linting": home.name}
+
+
+@router.get("/bundles/{name}/queue")
+def queue_state(home: Bundle) -> dict[str, object]:
+    """What the ingest queue is doing: held (waiting to retry after the service failed),
+    how many are waiting, and which sources' latest run failed."""
+    return {
+        "held": held(home),
+        "waiting": waiting(home),
+        "failed": [src for src, _ in runs.failed_sources(home) if (home / src).is_file()],
+    }
+
+
+@router.post("/bundles/{name}/retry")
+def retry(
+    home: Bundle, _: Writer, path: Annotated[str, Body(embed=True)] = ""
+) -> dict[str, list[str]]:
+    """Ingest again: one source, or every source whose latest run failed. Also ends a
+    hold early — the credit is back, no need to wait out the timer."""
+    if path:
+        target = safe_path(home, path)
+        if not user_owns(home, target) or not target.is_file():
+            raise HTTPException(404, "no such source")
+        queued = [target.relative_to(home).as_posix()]
+    else:
+        queued = [src for src, _ in runs.failed_sources(home) if (home / src).is_file()]
+    for source in queued:
+        enqueue(home, source)
+    resume(home)
+    return {"queued": queued}
 
 
 @router.post("/bundles/{name}/reorganise")

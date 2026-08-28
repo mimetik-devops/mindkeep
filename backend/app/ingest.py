@@ -1,7 +1,7 @@
 import logging
 import queue
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import anthropic
@@ -351,6 +351,63 @@ def ingest(
 #
 # ponytail: the queue is in memory, so a restart loses what has not started. The run rows
 # are already swept to "interrupted" at boot, which is where recovery would read from.
+# A failure that is the service's, not the source's: the account out of credit, a rate
+# limit, an outage, the network. The right response is to wait and try the same file
+# again — not to mark it failed and go on to fail the next thirty the same way.
+SERVICE_ERROR = (
+    "credit balance",
+    "rate limit",
+    "rate_limit",
+    "overloaded",
+    "connection",
+    "authentication",
+    "api key",
+    "x-api-key",
+    "permission",
+    "internal server",
+    "timed out",
+    "timeout",
+    "error code: 4",  # 401, 403, 429 as the SDK renders them
+    "error code: 5",
+)
+
+
+def service_error(text: str) -> bool:
+    t = text.lower()
+    return any(m in t for m in SERVICE_ERROR)
+
+
+HOLD_FIRST = 60  # seconds before the first retry
+HOLD_CAP = 900  # and never longer than this between retries
+
+
+def hold_delay(attempts: int) -> int:
+    """1, 2, 4, 8, 15, 15… minutes: quick if it was a blip, patient if it is the bill."""
+    return int(min(HOLD_FIRST * 2 ** (attempts - 1), HOLD_CAP))
+
+
+# home -> what the worker is waiting to retry, and why; gone once it is retrying
+_held: dict[str, dict[str, object]] = {}
+_resume: dict[str, threading.Event] = {}
+
+
+def held(home: Path) -> dict[str, object] | None:
+    return _held.get(str(home))
+
+
+def resume(home: Path) -> bool:
+    """Retry now rather than at the end of the wait — credit was just topped up."""
+    event = _resume.get(str(home))
+    if event is None:
+        return False
+    event.set()
+    return True
+
+
+def waiting(home: Path) -> int:
+    return len(_waiting.get(str(home), ()))
+
+
 _work: dict[str, "queue.Queue[str]"] = {}
 _waiting: dict[str, set[str]] = {}  # what each queue holds, so a source is never in it twice
 _work_lock = threading.Lock()
@@ -359,8 +416,8 @@ _work_lock = threading.Lock()
 def busy(home: Path) -> bool:
     """A run in progress, or one waiting its turn. Moving a bundle under either would
     strand it: the worker holds the old path."""
-    waiting = _work.get(str(home))
-    return lock_for(home).locked() or bool(waiting and not waiting.empty())
+    pending = _work.get(str(home))
+    return lock_for(home).locked() or bool(pending and not pending.empty()) or str(home) in _held
 
 
 def enqueue(home: Path, source: str) -> None:
@@ -390,14 +447,38 @@ def enqueue(home: Path, source: str) -> None:
 
 
 def _worker(home: Path, pending: "queue.Queue[str]") -> None:
+    key = str(home)
+    attempts = 0
+    again = ""  # a source held back for another go, ahead of the queue
     while True:
-        source = pending.get()
-        with _work_lock:
-            _waiting[str(home)].discard(source)
+        source = again or pending.get()
+        if not again:
+            with _work_lock:
+                _waiting[key].discard(source)
+        again = ""
         try:
-            ingest_safely(home, source)
+            error = ingest_safely(home, source)
         except Exception:  # ingest_safely logs its own failures; this is the last resort
             log.exception("ingest worker survived a failure on %s", source)
+            error = ""
+        if error and service_error(error) and source not in MAINTENANCE:
+            attempts += 1
+            delay = hold_delay(attempts)
+            until = datetime.now(UTC) + timedelta(seconds=delay)
+            _held[key] = {
+                "source": source,
+                "reason": error,
+                "until": until.isoformat(),
+                "attempts": attempts,
+            }
+            log.warning("holding %s for %ds after: %s", home.name, delay, error)
+            event = _resume.setdefault(key, threading.Event())
+            event.clear()
+            event.wait(delay)
+            _held.pop(key, None)
+            again = source
+        else:
+            attempts = 0
 
 
 def snapshot(home: Path, message: str) -> str:
@@ -415,8 +496,9 @@ def _already_read(home: Path, source: str) -> bool:
     return bool(last and last.based_on and history.same(home, last.based_on, source))
 
 
-def ingest_safely(home: Path, source: str) -> None:
+def ingest_safely(home: Path, source: str) -> str:
     """Background entry point: a failed ingest must not lose the source that triggered it.
+    Returns the error, or "" — the worker holds the queue when it was the service's.
 
     The run row is opened here and closed here, so a source can never be left looking
     like it is still running when nothing is.
@@ -426,7 +508,7 @@ def ingest_safely(home: Path, source: str) -> None:
     # commonest way a team's queue grows
     if source not in MAINTENANCE and _already_read(home, source):
         log.info("%s is as the last run read it; nothing to ingest", source)
-        return
+        return ""
     # read before the run, settled after it: a lint that dies must not lose the hints it
     # was given, and one that succeeds must not see them again
     moves = runs.pending_moves(home) if source == LINT else []
@@ -465,3 +547,4 @@ def ingest_safely(home: Path, source: str) -> None:
         )
         if not error:
             runs.settle_moves([move_id for move_id, _, _ in moves])
+    return error

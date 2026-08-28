@@ -191,6 +191,22 @@ export type Lint = {
   hour: number;
 };
 
+export type Queue = {
+  /** The worker is waiting to retry a source after the service failed — no credit, an outage. */
+  held: { source: string; reason: string; until: string; attempts: number } | null;
+  waiting: number;
+  /** Sources whose latest run ended in an error. */
+  failed: string[];
+};
+export const queueState = (bundle: string) => call<Queue>(`${at(bundle)}/queue`);
+/** Ingest again: one source, or every failed one. Ends a hold early. */
+export const retryIngest = (bundle: string, path = "") =>
+  call<{ queued: string[] }>(`${at(bundle)}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+
 /** The hour value that means "never lint this bundle on a schedule". */
 export const LINT_OFF = -1;
 

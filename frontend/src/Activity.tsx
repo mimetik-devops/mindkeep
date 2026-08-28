@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
 
-import { activity, can, type Entry, redoRun, runDetail, type Team, tree, undoRun } from "./api";
+import {
+  activity,
+  can,
+  type Entry,
+  type Queue,
+  queueState,
+  redoRun,
+  retryIngest,
+  runDetail,
+  type Team,
+  tree,
+  undoRun,
+} from "./api";
 import { confirm } from "./dialog";
 import { render } from "./okf";
 import { elapsed, took, useLint, useSources, when } from "./useSources";
@@ -43,14 +55,39 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
   const { sources, version } = useSources(bundle);
   const { lint } = useLint(bundle);
   const mayUndo = can(team, "history");
+  const mayWrite = can(team, "write");
+  const [queue, setQueue] = useState<Queue | null>(null);
 
   const refresh = () =>
-    Promise.all([activity(bundle), tree(bundle)])
-      .then(([feed, t]) => {
+    Promise.all([activity(bundle), tree(bundle), queueState(bundle)])
+      .then(([feed, t, q]) => {
         setEntries(feed);
         setPaths(Object.keys(t));
+        setQueue(q);
       })
       .catch((e) => setError(String(e).replace(/^Error: \d{3} /, "")));
+
+  // a hold ends on its own timer, so the banner has to keep looking
+  useEffect(() => {
+    const tick = setInterval(
+      () =>
+        queueState(bundle)
+          .then(setQueue)
+          .catch(() => {}),
+      15000,
+    );
+    return () => clearInterval(tick);
+  }, [bundle]);
+
+  async function retry(path = "") {
+    setError("");
+    try {
+      await retryIngest(bundle, path);
+      setQueue(await queueState(bundle));
+    } catch (err) {
+      setError(String(err).replace(/^Error: \d{3} /, ""));
+    }
+  }
 
   // reload whenever an ingest or a lint finishes — the history and the page count changed
   useEffect(() => {
@@ -135,6 +172,31 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
         </div>
 
         {error && <div className="banner">{error}</div>}
+        {queue?.held ? (
+          <div className="banner">
+            <b>Ingest paused.</b> {queue.held.reason} — retrying {when(queue.held.until)}
+            {queue.waiting > 0 && `, ${queue.waiting + 1} waiting`}.{" "}
+            {mayWrite && (
+              <button className="more" onClick={() => retry()}>
+                retry now
+              </button>
+            )}
+          </div>
+        ) : queue && queue.failed.length > 0 ? (
+          <div className="banner">
+            <b>
+              {queue.failed.length === 1
+                ? "One ingest failed."
+                : `${queue.failed.length} ingests failed.`}
+            </b>{" "}
+            {queue.failed.length === 1 ? queue.failed[0] : "See the sources in the Library."}{" "}
+            {mayWrite && (
+              <button className="more" onClick={() => retry()}>
+                {queue.failed.length === 1 ? "retry" : "retry them all"}
+              </button>
+            )}
+          </div>
+        ) : null}
         {lint?.error && !lint.linting && (
           <div className="banner">
             <b>Lint failed.</b> {lint.error}

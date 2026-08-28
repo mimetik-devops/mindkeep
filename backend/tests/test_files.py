@@ -361,6 +361,56 @@ def test_a_source_the_last_run_already_read_is_skipped(client, tmp_path, ingeste
     assert seen and len(runs.recent(home)) == before + 1  # changed since: it runs
 
 
+def test_a_failure_that_is_the_services_holds_rather_than_fails_the_next_thirty():
+    from app.ingest import hold_delay, service_error
+
+    assert service_error("Your credit balance is too low to access the Anthropic API.")
+    assert service_error("Error code: 429 - rate_limit_error")
+    assert service_error("Connection error.")
+    assert not service_error("Edit 2 of 3: `old` appears 0 times, needs 1.")
+    assert not service_error("")
+    assert [hold_delay(n) for n in (1, 2, 3, 4, 5, 9)] == [60, 120, 240, 480, 900, 900]
+
+
+def test_failed_sources_can_be_retried_one_or_all(client, tmp_path, ingested):
+    """A source whose latest run failed shows in the queue state; retry queues it — one
+    by path, or every failed one at once. A source that went on to succeed is not failed."""
+    from app import runs
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    for name in ("a.md", "b.md", "c.md"):
+        client.post(f"{B}/raw/{name}", content=b"x")
+    runs.finish(home, runs.start(home, "raw/a.md", "m"), 0, 0, error="credit balance too low")
+    runs.finish(home, runs.start(home, "raw/b.md", "m"), 0, 0, error="boom")
+    runs.finish(home, runs.start(home, "raw/b.md", "m"), 1, 10)  # then it worked
+    ingested.clear()
+
+    state = client.get(f"{B}/queue").json()
+    assert state == {"held": None, "waiting": 0, "failed": ["raw/a.md"]}
+    assert client.post(f"{B}/retry", json={"path": "raw/c.md"}).json() == {"queued": ["raw/c.md"]}
+    assert client.post(f"{B}/retry").json() == {"queued": ["raw/a.md"]}
+    assert [c[1] for c in ingested] == ["raw/c.md", "raw/a.md"]
+    assert client.post(f"{B}/retry", json={"path": "raw/nope.md"}).status_code == 404
+
+
+def test_startup_also_requeues_what_the_service_failed(client, tmp_path, ingested):
+    from app import runs
+    from app.files import requeue_unread
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    client.post(f"{B}/raw/credit.md", content=b"x")
+    client.post(f"{B}/raw/bad.md", content=b"x")
+    runs.finish(home, runs.start(home, "raw/credit.md", "m"), 0, 0, error="credit balance too low")
+    runs.finish(
+        home, runs.start(home, "raw/bad.md", "m"), 0, 0, error="the agent could not parse it"
+    )
+    ingested.clear()
+    assert requeue_unread(tmp_path) == 1
+    assert [c[1] for c in ingested] == ["raw/credit.md"]  # the file's own failure stays
+
+
 def test_sources_no_run_ever_touched_are_queued_again_at_startup(client, tmp_path, ingested):
     """The queue is memory: a deploy mid-sync forgets what was waiting. Startup puts back
     every raw file without a run — and only those."""

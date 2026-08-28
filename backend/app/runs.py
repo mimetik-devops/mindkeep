@@ -405,6 +405,24 @@ def attempted_sources(home: Path) -> set[str]:
         )
 
 
+def failed_sources(home: Path) -> list[tuple[str, str]]:
+    """(source, error) for every source whose latest run ended in an error — what a
+    retry button is for. Maintenance runs are not sources."""
+    from app.ingest import MAINTENANCE
+
+    tenant, bundle = _where(home)
+    latest: dict[str, IngestRun] = {}
+    with session() as s:
+        for r in s.scalars(
+            select(IngestRun)
+            .where(IngestRun.tenant == tenant, IngestRun.bundle == bundle)
+            .order_by(IngestRun.started_at.desc(), IngestRun.id.desc())
+        ):
+            if r.source not in MAINTENANCE and r.source not in latest:
+                latest[r.source] = r
+    return [(src, r.error) for src, r in latest.items() if r.finished_at and r.error]
+
+
 def ingested_sources(home: Path) -> set[str]:
     """Sources that have at least one run that finished without an error.
 
