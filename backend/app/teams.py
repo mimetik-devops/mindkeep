@@ -76,14 +76,14 @@ def personal_id(sub: str) -> str:
 
 
 def ensure_personal(sub: str, who: Profile) -> Team:
-    """The personal team, made on first sight. Named after the person when the token
-    says who they are, "Personal" when it does not."""
+    """The personal team, made on first sight, always called "Personal": naming it after
+    the person depended on which claims the provider put in its token (Ruben, 2026-08-28)."""
     with session() as s:
         team = s.get(Team, personal_id(sub))
         if team is None:
             team = Team(
                 id=personal_id(sub),
-                name=who.name or "Personal",
+                name="Personal",
                 personal=True,
                 created_by=sub,
                 created_at=now(),

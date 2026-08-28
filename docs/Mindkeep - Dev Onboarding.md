@@ -57,7 +57,8 @@ tests, 28 frontend tests, 32 client tests.
 ### Tenant, team, bundle
 
 - A **team** is the unit of sharing and of tenancy. Every person has a **personal team**
-  created on first sight; teams beyond that are made in the app and joined by invite link.
+  created on first sight, always named "Personal"; teams beyond that are made in the app
+  and joined by invite link.
 - A **bundle** is one knowledge base: one directory, one wiki, one git history. A team
   holds many bundles (`default` is seeded; more are created in Settings).
 - On disk: `WIKI_ROOT/{team_id}/{bundle}/`. The personal team's id is

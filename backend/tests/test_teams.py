@@ -7,12 +7,13 @@ from app.files import tenant_id
 as_ = lambda user: {"x-test-user": user}  # noqa: E731
 
 
-def test_everyone_has_a_personal_team_named_after_them(client):
-    """Made on first sight; its id is the hash that already names the directory."""
+def test_everyone_has_a_personal_team_called_personal(client):
+    """Made on first sight; its id is the hash that already names the directory. Always
+    "Personal", even though this token carries a name."""
     [team] = client.get("/teams").json()
     assert team == {
         "id": tenant_id("alice"),
-        "name": "Ada Lovelace",
+        "name": "Personal",
         "personal": True,
         "role": "owner",
         "permissions": ["bundles", "history", "members", "read", "team", "write"],
@@ -31,7 +32,7 @@ def test_a_team_you_are_not_in_does_not_exist_for_you(client):
 def test_creating_a_team_makes_you_its_owner_with_a_bundle_to_start(client):
     team = client.post("/teams", json={"name": "Acme"}).json()
     assert team["role"] == "owner" and not team["personal"] and len(team["id"]) == 32
-    assert [t["name"] for t in client.get("/teams").json()] == ["Ada Lovelace", "Acme"]
+    assert [t["name"] for t in client.get("/teams").json()] == ["Personal", "Acme"]
     assert client.get(f"/teams/{team['id']}/bundles").json() == ["default"]
     assert client.post("/teams", json={"name": " "}).status_code == 400
 
@@ -91,7 +92,7 @@ def test_owners_and_admins_rename_a_team_and_members_do_not(client):
     assert client.put(f"/teams/{team}", json={"name": "Acme Ltd"}).json()["name"] == "Acme Ltd"
     assert client.put(f"/teams/{team}", json={"name": " "}).status_code == 400
     assert [t["name"] for t in client.get("/teams", headers=as_("bob")).json()][-1] == "Acme Ltd"
-    # a personal team can be renamed too: its name came from a token
+    # a personal team can be renamed too: it starts as "Personal" for everyone
     [mine] = [t["id"] for t in client.get("/teams").json() if t["personal"]]
     assert client.put(f"/teams/{mine}", json={"name": "Home"}).json()["name"] == "Home"
 

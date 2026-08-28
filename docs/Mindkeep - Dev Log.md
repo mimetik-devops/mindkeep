@@ -1346,6 +1346,15 @@ register, log in — a scrypt hash with its parameters, and an HS256 session tok
 frontend form has a sign-in / create-account toggle and nothing else. Each thing removed
 is a decision recorded here so it can be added back when someone actually needs it.
 
+### 4.42 The personal team is always "Personal" (2026-08-28)
+
+Signing in through the built-in provider, Ruben's personal team came out as "Ruben"; on
+Kinde it had been "Personal". Same rule, different tokens: the team was named after the
+person when the token carried a name, and Kinde's access token carries none unless a
+setting says so. Ruben: remove the logic, always call it Personal. One line in
+`ensure_personal`; the team is named once, on creation, so existing teams keep whatever
+name they have.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every
