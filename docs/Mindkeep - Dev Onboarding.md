@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `f13ef2f` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `680b8e4` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -383,7 +383,7 @@ for prose, sans for UI, mono for paths).
 | `Settings.tsx` (+ `TeamSettings.tsx`, `Members.tsx`) | tabs Bundle / Team / Account: lint hour, reorganise, rename/move/delete bundle; team rename/delete, members, invites; devices |
 | `Picker.tsx`, `Bundles.tsx`, `Invite.tsx`, `Connect.tsx`, `Profile.tsx` | pickers and the two link-driven pages |
 | `dialog.tsx` | the app's own `confirm()`/`prompt()` — promise-based, one host at the root |
-| `okf.ts` | frontmatter split, markdown render (sanitised — wiki text may quote sources) |
+| `okf.ts` | frontmatter split, markdown render (sanitised — wiki text may quote sources; `marked-footnote` turns the agent's `[^src]` citations into references and a footnotes list) |
 | `useSources.ts` | polls sources fast while the agent works and slowly when not; `version` bumps when an ingest finishes so views reload; `useLint` |
 | `invites.ts`, `handoff.ts` | sessionStorage stashes for invite and connect links |
 
