@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `5dc8c1e` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `b516b02` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -263,9 +263,12 @@ the Graph tab draws. `graph.related(path)` is the agent's `related` tool.
 
 ### The assistant
 
-`POST …/assist` is one synchronous turn: the browser sends the whole conversation, the
-server holds none (no conversation table — deliberately, until someone needs to leave a
-thread and come back). It may write `raw/` and tick `todo.md`; writing a source triggers
+`POST …/assist` starts one turn as a **job** and returns its id at once; the browser polls
+`GET …/assist/{job}` every two seconds until it is done. A turn can run for minutes and
+anything in front of the API (Cloudflare cuts a request at 100 s) would give up on it. The
+browser sends the whole conversation each time; the server holds only the turn in flight,
+in memory, for an hour (no conversation table — deliberately, until someone needs to
+leave a thread and come back). It may write `raw/` and tick `todo.md`; writing a source triggers
 an ingest like any upload. It may not write a wiki page, because a page is derived from
 its source and the next ingest would throw the edit away.
 
@@ -333,7 +336,7 @@ Under `/teams/{team}`, membership required:
 | GET/PUT/POST | `/bundles/{b}/lint` | read / write | state · set hour · lint now |
 | POST | `/bundles/{b}/reorganise` | write | file every page by its type |
 | GET/POST | `/bundles/{b}/todos[/{index}]` | read / write | list · tick |
-| POST | `/bundles/{b}/assist` | write | one assistant turn |
+| POST / GET | `/bundles/{b}/assist[/{job}]` | write / read | start one assistant turn (202, `{job}`) · poll it: `{done:false}`, then the reply and what changed, or an error |
 | POST | `/bundles/{b}/verify/{path}` | write | stamp a page `verified` by the caller's identity |
 | GET | `/bundles/{b}/graph` | read | nodes, edges, areas, gaps |
 

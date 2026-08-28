@@ -28,16 +28,24 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     // FastAPI puts the sentence a person can read in `detail`; the JSON around it was
     // going straight into error banners, which helped nobody
     const body = await res.text();
-    let said = body;
-    try {
-      said = (JSON.parse(body) as { detail?: string }).detail ?? body;
-    } catch {
-      /* not JSON — a proxy or a crash, and the raw body is the best we have */
-    }
-    throw new Error(`${res.status} ${said}`);
+    throw new Error(`${res.status} ${sentence(body)}`);
   }
   const type = res.headers.get("content-type") ?? "";
   return (type.includes("json") ? res.json() : res.text()) as Promise<T>;
+}
+
+/** The sentence a person can read out of an error body: FastAPI's `detail`, the title of
+ * an HTML error page (a proxy's timeout, say), or the raw text when it is neither. */
+export function sentence(body: string): string {
+  try {
+    const detail = (JSON.parse(body) as { detail?: string }).detail;
+    if (detail) return detail;
+  } catch {
+    /* not JSON */
+  }
+  const title = /<title>([^<]*)<\/title>/i.exec(body);
+  if (title) return title[1].trim();
+  return body.slice(0, 300);
 }
 
 const segments = (path: string) => path.split("/").map(encodeURIComponent).join("/");
@@ -262,12 +270,24 @@ export type Said = { role: "user" | "assistant"; content: string };
  * is where it lives. `changed` is the raw files it edited, each of which is being
  * re-ingested by the time this returns.
  */
-export const ask = (bundle: string, question: string, messages: Said[]) =>
-  call<{ reply: string; changed: string[] }>(`${at(bundle)}/assist`, {
+export async function ask(bundle: string, question: string, messages: Said[]) {
+  // a turn is a job: started at once, polled until done — a request that waited for the
+  // whole turn would be cut off by whatever sits in front of the API
+  const { job } = await call<{ job: string }>(`${at(bundle)}/assist`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, messages }),
   });
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const state = await call<{ done: boolean; reply?: string; changed?: string[]; error?: string }>(
+      `${at(bundle)}/assist/${job}`,
+    );
+    if (!state.done) continue;
+    if (state.error) throw new Error(state.error);
+    return { reply: state.reply ?? "", changed: state.changed ?? [] };
+  }
+}
 
 /** A wiki page as the graph view draws it. `area` is -1 for a page in no area. */
 export type Page = {

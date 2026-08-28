@@ -509,6 +509,48 @@ def test_a_reply_cut_off_at_max_tokens_is_a_failed_run_not_a_silent_one(client, 
         agent.ingest(home, agent.REORGANISE)
 
 
+def test_an_assistant_turn_is_a_job_the_browser_polls(client, tmp_path, monkeypatch):
+    """Started at once, answered later; a failure is an answer too. A job is its bundle's."""
+    import threading
+
+    from app import assist
+
+    client.get(f"{T}/bundles")
+    gate = threading.Event()
+
+    def slow(home, question, messages):
+        gate.wait(5)
+        if question == "boom":
+            raise RuntimeError("the model choked")
+        return {"reply": f"about {question}", "changed": ["raw/x.md"]}
+
+    monkeypatch.setattr(assist, "reply", slow)
+    started = client.post(
+        f"{B}/assist", json={"question": "q", "messages": [{"role": "user", "content": "q"}]}
+    )
+    assert started.status_code == 202
+    job = started.json()["job"]
+    assert client.get(f"{B}/assist/{job}").json() == {"done": False}
+    gate.set()
+    for _ in range(50):
+        state = client.get(f"{B}/assist/{job}").json()
+        if state["done"]:
+            break
+        threading.Event().wait(0.05)
+    assert state == {"done": True, "reply": "about q", "changed": ["raw/x.md"]}
+
+    failed = client.post(
+        f"{B}/assist", json={"question": "boom", "messages": [{"role": "user", "content": "boom"}]}
+    ).json()["job"]
+    for _ in range(50):
+        state = client.get(f"{B}/assist/{failed}").json()
+        if state["done"]:
+            break
+        threading.Event().wait(0.05)
+    assert state == {"done": True, "error": "the model choked"}
+    assert client.get(f"{B}/assist/nope").status_code == 404
+
+
 def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):
     """Asked for from Settings; the agent is told to apply the layout rule and nothing
     else. A second ask while one runs is refused, like a lint."""

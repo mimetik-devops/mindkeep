@@ -19,6 +19,9 @@ back to it, which is also when it stops being a chat and starts being a ticket.
 """
 
 import logging
+import secrets
+import threading
+import time
 from pathlib import Path
 
 import anthropic
@@ -204,3 +207,48 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
     for rel in touched:
         enqueue(home, rel)
     return {"reply": "\n\n".join(s for s in said if s.strip()), "changed": touched}
+
+
+# --- a turn as a job -----------------------------------------------------------------------
+# A turn can take minutes — reading pages, writing a source — and anything in front of the
+# API (Cloudflare: 100 s) gives up on a request that long. So the browser starts the turn,
+# gets a job id back at once, and polls. Jobs live in memory: one process, and an answer
+# nobody collected within the hour is not worth keeping.
+KEEP = 3600
+_jobs: dict[str, dict[str, object]] = {}
+_jobs_lock = threading.Lock()
+
+
+def start(home: Path, question: str, messages: list[dict[str, str]]) -> str:
+    job = secrets.token_hex(8)
+    with _jobs_lock:
+        stale = [k for k, j in _jobs.items() if time.time() - float(str(j["at"])) > KEEP]
+        for k in stale:
+            del _jobs[k]
+        _jobs[job] = {"home": str(home), "at": time.time(), "done": False}
+
+    def work() -> None:
+        try:
+            result = reply(home, question, messages)
+            outcome: dict[str, object] = {"done": True, **result}
+        except Exception as e:  # noqa: BLE001 - the person sees the sentence, whatever it was
+            log.exception("assistant turn failed in %s", home)
+            body = getattr(e, "body", None)
+            message = (
+                (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
+            )
+            outcome = {"done": True, "error": (message or str(e) or type(e).__name__)[:300]}
+        with _jobs_lock:
+            _jobs[job].update(outcome)
+
+    threading.Thread(target=work, daemon=True, name=f"assist-{job}").start()
+    return job
+
+
+def poll(home: Path, job: str) -> dict[str, object] | None:
+    """The job's state, or None when there is no such job for this bundle."""
+    with _jobs_lock:
+        found = _jobs.get(job)
+        if found is None or found["home"] != str(home):
+            return None
+        return {k: v for k, v in found.items() if k not in ("home", "at")}

@@ -750,21 +750,29 @@ def set_todo(
     return {"done": done}
 
 
-@router.post("/bundles/{name}/assist")
+@router.post("/bundles/{name}/assist", status_code=202)
 def ask(
     home: Bundle,
     question: Annotated[str, Body()],
     messages: Annotated[list[dict[str, str]], Body()],
     _: Writer,
 ) -> dict[str, object]:
-    """One turn with the assistant. The browser holds the conversation; the server does not.
-
-    Synchronous on purpose: this is a chat, and the person is waiting for the answer. The
-    ingests it may trigger are the part that goes on the queue.
-    """
+    """Start one turn with the assistant; poll `GET …/assist/{job}` for the answer. The
+    browser holds the conversation; the server holds only the turn in flight — a turn
+    can outlast what sits in front of the API, so it is a job, not a request."""
     if not messages:
         raise HTTPException(400, "nothing to say")
-    return assist.reply(home, question, messages)
+    return {"job": assist.start(home, question, messages)}
+
+
+@router.get("/bundles/{name}/assist/{job}")
+def asked(home: Bundle, job: str) -> dict[str, object]:
+    """`{done: false}` while the assistant works; then the reply and what it changed, or
+    an error. A job belongs to the bundle it was started in."""
+    state = assist.poll(home, job)
+    if state is None:
+        raise HTTPException(404, "no such turn — it may have expired")
+    return state
 
 
 @router.get("/bundles/{name}/lint")
