@@ -379,8 +379,9 @@ Under `/teams/{team}`, membership required:
 ## 4. Frontend
 
 React 19 + TypeScript + Vite; no router (the app is tabs and query-string pages); no state
-library; no CSS framework — `index.css` with tokens (`--clay`, `--cream`, `--ink`, serif
-for prose, sans for UI, mono for paths).
+library; no CSS framework — `index.css` with the marketing site's tokens (`--clay`,
+`--cream`, `--warm`, `--ink`…) and faces: Instrument Serif for titles, Space Grotesk for
+everything else, mono for paths. The header and the login page are the site's clay field.
 
 ### Structure (`frontend/src/`)
 

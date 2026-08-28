@@ -1411,6 +1411,24 @@ so no address is published or has to be watched, and the Code of Conduct uses th
 private channel. **The repository stays at `mimetik-devops/mindkeep`**, so every URL
 written into those files holds.
 
+### 4.45 The app in the site's clothes (2026-08-29)
+
+Ruben: update the app's look to match the marketing site (`mindkeep-home`, "Direction E:
+warm colour field, Instrument Serif at poster scale"). The app takes the site's tokens
+wholesale — clay `#b0512c` / clay-deep, cream `#fbf6ed`, warm `#f1e7d8`, ink `#191410`,
+muted, faint, line — and its two faces: Instrument Serif (one weight, 400, titles only)
+and Space Grotesk for everything else, IBM Plex Mono kept for paths. Newsreader and Plus
+Jakarta Sans are gone. The header is the site's hero field: clay, the logo in cream, the
+"Mindkeep / BY MIMETIK" lockup, cream tabs with the active one filled. The login, invite
+and connect pages are the same clay field with a door in it. The page view is the site's
+"what a page looks like" card at full width: crumb, uppercase type chip, serif title,
+muted lede, tag pills in warm with clay text, sources as numbered outlines. Everything
+else — sidebar, rails, cards, feed — is cream, warm and paper `#fffdfa` with 8px buttons
+and 999px chips, as on the site. The old stroke mark is replaced by the site's logo
+(`frontend/public/logo*.svg`, favicon too); icons take `currentColor` so they follow the
+button they sit in. Selector-for-selector rewrite of `index.css`; nothing responsive or
+dark-mode was added — neither surface has it.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

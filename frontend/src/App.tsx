@@ -117,8 +117,11 @@ export function App({ user }: { user: User }) {
     <div className="app">
       <header className="header">
         <div className="wordmark">
-          <Mark />
-          Mindkeep
+          <Mark size={30} reverse />
+          <span className="lockup">
+            <span className="name">Mindkeep</span>
+            <span className="by">by mimetik</span>
+          </span>
         </div>
 
         {team && (

@@ -121,7 +121,7 @@ export function FileTree({
                 aria-expanded={open.has(node.path)}
               >
                 <span className={open.has(node.path) ? "twisty open" : "twisty"}>
-                  <Chevron size={11} color="#7d7365" />
+                  <Chevron size={11} />
                 </span>
                 <span className="grow">{node.name}</span>
                 {node.path === "wiki" && <span className="badge">read-only</span>}

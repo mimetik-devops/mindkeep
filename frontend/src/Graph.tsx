@@ -30,8 +30,17 @@ type Node = {
  */
 const slug = (v: Node) => (v.id.split("/").pop() ?? v.id).replace(/\.md$/, "");
 
-const AREAS = ["#c0603d", "#3d6f8c", "#5b7a5e", "#8a6d3b", "#6b5b95", "#a04a6b", "#2f7f7a", "#7a7a3d"];
-const NONE = "#a09584"; // a page in no area, or a source
+const AREAS = [
+  "#b0512c",
+  "#3d6f8c",
+  "#5b7a5e",
+  "#8a6d3b",
+  "#6b5b95",
+  "#a04a6b",
+  "#2f7f7a",
+  "#7a7a3d",
+];
+const NONE = "#a2957f"; // a page in no area, or a source
 const W = 1000;
 const H = 700;
 const PAD = 40;
@@ -359,7 +368,9 @@ export function Graph({ bundle }: { bundle: string }) {
           </>
         ) : showGaps && data ? (
           <>
-            <h2>{gaps.length ? `${gaps.length} ${gaps.length === 1 ? "gap" : "gaps"}` : "No gaps"}</h2>
+            <h2>
+              {gaps.length ? `${gaps.length} ${gaps.length === 1 ? "gap" : "gaps"}` : "No gaps"}
+            </h2>
             <p>
               {gaps.length
                 ? "Two areas the wiki knows about that barely connect: fewer than a third of " +
@@ -376,8 +387,7 @@ export function Graph({ bundle }: { bundle: string }) {
                   onClick={() => setGapAt(i === gapAt ? -1 : i)}
                 >
                   <span className="swatch" style={{ background: AREAS[g.a % AREAS.length] }} />
-                  Area {g.a + 1} ({size(g.a)})
-                  {" ↔ "}
+                  Area {g.a + 1} ({size(g.a)}){" ↔ "}
                   <span className="swatch" style={{ background: AREAS[g.b % AREAS.length] }} />
                   Area {g.b + 1} ({size(g.b)})
                   <span className="soft">
@@ -388,7 +398,11 @@ export function Graph({ bundle }: { bundle: string }) {
               ))}
             </section>
             <label className="toggle">
-              <input type="checkbox" checked={showGaps} onChange={(e) => setShowGaps(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={showGaps}
+                onChange={(e) => setShowGaps(e.target.checked)}
+              />
               Show gaps
             </label>
           </>
@@ -401,9 +415,9 @@ export function Graph({ bundle }: { bundle: string }) {
                 {data.links.length} links · {areas} {areas === 1 ? "area" : "areas"}
               </p>
               <p>
-                Each colour is an area the wiki has grown: pages that link among themselves far
-                more than outward. The lint looks for pairs of areas with almost nothing between
-                them, and asks the question that would connect them.
+                Each colour is an area the wiki has grown: pages that link among themselves far more
+                than outward. The lint looks for pairs of areas with almost nothing between them,
+                and asks the question that would connect them.
               </p>
               <label className="toggle">
                 <input
@@ -414,12 +428,16 @@ export function Graph({ bundle }: { bundle: string }) {
                 Show sources
               </label>
               <label className="toggle">
-                <input type="checkbox" checked={showGaps} onChange={(e) => setShowGaps(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={showGaps}
+                  onChange={(e) => setShowGaps(e.target.checked)}
+                />
                 Show gaps
               </label>
               <p className="soft">
-                Click a page for what links to it. Scroll to zoom — more labels appear as
-                there is room for them — and drag to pan.
+                Click a page for what links to it. Scroll to zoom — more labels appear as there is
+                room for them — and drag to pan.
               </p>
             </>
           )

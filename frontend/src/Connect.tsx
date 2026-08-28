@@ -28,7 +28,7 @@ export function Connect({ asked, onDismiss }: { asked: Asked; onDismiss: () => v
 
   return (
     <div className="login">
-      <Mark size={64} />
+      <Mark size={72} reverse />
       <h1>Mindkeep</h1>
       {error ? (
         <>
