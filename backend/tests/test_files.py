@@ -361,6 +361,26 @@ def test_a_source_the_last_run_already_read_is_skipped(client, tmp_path, ingeste
     assert seen and len(runs.recent(home)) == before + 1  # changed since: it runs
 
 
+def test_sources_no_run_ever_touched_are_queued_again_at_startup(client, tmp_path, ingested):
+    """The queue is memory: a deploy mid-sync forgets what was waiting. Startup puts back
+    every raw file without a run — and only those."""
+    from app import runs
+    from app.files import requeue_unread
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    for name in ("read.md", "failed.md", "lost.md", "also-lost.md"):
+        client.post(f"{B}/raw/{name}", content=b"x")
+    (home / "raw" / ".conflicts").mkdir()
+    (home / "raw" / ".conflicts" / "mine.md").write_text("never a source", encoding="utf-8")
+    run_over(client, home, "raw/read.md")
+    runs.finish(home, runs.start(home, "raw/failed.md", "m"), 0, 0, error="boom")
+    ingested.clear()
+
+    assert requeue_unread(tmp_path) == 2
+    assert sorted(c[1] for c in ingested) == ["raw/also-lost.md", "raw/lost.md"]
+
+
 def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):
     """Asked for from Settings; the agent is told to apply the layout rule and nothing
     else. A second ask while one runs is refused, like a lint."""

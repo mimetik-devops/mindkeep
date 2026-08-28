@@ -391,6 +391,20 @@ def settle_moves(ids: list[int]) -> None:
         s.commit()
 
 
+def attempted_sources(home: Path) -> set[str]:
+    """Sources with any run at all — finished, failed, undone, still open. The complement
+    is what a restart loses: uploaded, queued in memory, never started."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        return set(
+            s.scalars(
+                select(IngestRun.source)
+                .where(IngestRun.tenant == tenant, IngestRun.bundle == bundle)
+                .distinct()
+            )
+        )
+
+
 def ingested_sources(home: Path) -> set[str]:
     """Sources that have at least one run that finished without an error.
 

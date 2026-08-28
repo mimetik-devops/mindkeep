@@ -182,21 +182,49 @@ def refresh_guide(home: Path) -> bool:
     return True
 
 
+def bundles_under(root: Path) -> list[Path]:
+    """Every bundle on the volume: a directory with an index.md, two levels down."""
+    if not root.is_dir():
+        return []
+    return [
+        home
+        for tenant in sorted(root.iterdir())
+        if tenant.is_dir() and not tenant.name.startswith(".")
+        for home in sorted(tenant.iterdir())
+        if home.is_dir() and (home / "index.md").is_file()
+    ]
+
+
 def refresh_guides(root: Path) -> int:
     """Every bundle, at startup — so a deploy is how a change to the guide reaches them,
     quiet bundles included. Sync clients see the new hash on their next pass."""
-    changed = 0
-    if not root.is_dir():
-        return 0
-    for tenant in root.iterdir():
-        if not tenant.is_dir() or tenant.name.startswith("."):
-            continue
-        for home in tenant.iterdir():
-            if home.is_dir() and (home / "index.md").is_file() and refresh_guide(home):
-                changed += 1
+    changed = sum(1 for home in bundles_under(root) if refresh_guide(home))
     if changed:
         log.info("refreshed CLAUDE.md in %d bundle(s)", changed)
     return changed
+
+
+def requeue_unread(root: Path) -> int:
+    """Every raw file no run has ever touched, back in the queue — at startup.
+
+    The queue is memory. A stop with files waiting in it — a deploy landing mid-sync —
+    forgets them, and a source uploaded but never read has nothing in the UI to retry
+    it: thirty-two of thirty-eight, once. Files with a run of any kind are left alone;
+    a queued one that turns out unchanged is skipped before a run row opens.
+    """
+    count = 0
+    for home in bundles_under(root):
+        seen = runs.attempted_sources(home)
+        for p in sorted((home / "raw").rglob("*")):
+            rel = p.relative_to(home)
+            if not p.is_file() or any(part.startswith(".") for part in rel.parts):
+                continue
+            if rel.as_posix() not in seen:
+                enqueue(home, rel.as_posix())
+                count += 1
+    if count:
+        log.warning("re-queueing %d source(s) uploaded but never read", count)
+    return count
 
 
 def unchanged(target: Path, request: Request) -> None:
