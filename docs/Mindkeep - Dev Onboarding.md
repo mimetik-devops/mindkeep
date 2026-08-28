@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `0ba674d` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `f13ef2f` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -148,7 +148,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 
 | Module | Role |
 |---|---|
-| `main.py` | FastAPI app, lifespan (migrate → sweep interrupted runs → re-queue unread sources → re-key legacy tenants → push the reader's guide → start the scheduler), `/health`, `/me`, `/about`, `/clean`, `/devices` |
+| `main.py` | FastAPI app, lifespan (migrate → sweep interrupted runs → re-queue unread sources → re-key legacy tenants → push the reader's guide, ensure the lists, rebuild every index → start the scheduler), `/health`, `/me`, `/about`, `/clean`, `/devices` |
 | `auth.py` | Who is asking: provider JWT (browser) or device token (client). `CurrentUser`, `Person` (JWT only), `CurrentRole`, `CurrentProfile`, `CurrentIdentity` |
 | `teams.py` | Teams, memberships, invites, roles → permissions; `needs(permission)` dependencies |
 | `files.py` | Everything under `/teams/{team}/bundles/…`: bundles CRUD, tree, read/write, raw upload/move/delete, sources, activity, undo/redo, todos, assistant, lint schedule, queue/retry, reorganise, folders. Also `safe_path`, `tenant()`, guide refresh, startup re-queue |
