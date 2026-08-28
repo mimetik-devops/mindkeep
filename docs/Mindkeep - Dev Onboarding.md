@@ -42,7 +42,7 @@ Three deployable things, one repository:
 | Part | Directory | Stack | What it is |
 |---|---|---|---|
 | Backend | `backend/` | Python 3.13, FastAPI, SQLAlchemy 2, Alembic, Postgres 17, Anthropic SDK, git | The API, the ingest agent, the scheduler, the history, the built-in accounts |
-| Frontend | `frontend/` | TypeScript, React 19, Vite 6, Vitest, react-oidc-context / Kinde SDK | The web app |
+| Frontend | `frontend/` | TypeScript, React 19, Vite 6, Vitest, react-oidc-context | The web app |
 | Client | `client/` | Python 3.12+, stdlib (engine + CLI), PySide6 (tray app), Briefcase | The sync engine, the CLI, the desktop tray app |
 
 `docker-compose.yml` at the root runs all three plus Postgres for development.
@@ -388,7 +388,7 @@ for prose, sans for UI, mono for paths).
 |---|---|
 | `main.tsx` | mounts `<Boundary><Gate/></Boundary>` and the app-wide `<Dialogs/>` |
 | `auth.tsx` | the gate: picks the adapter named by `VITE_AUTH_PROVIDER`, checks `VITE_API_URL`, shows sign-in, remembers invite/connect requests across the redirect |
-| `providers/session.ts` · `builtin.tsx` · `kinde.tsx` · `oidc.tsx` | the adapter contract (`Provider` + `useSession()`, optional `Login` form) and three adapters. `builtin` (the default when `VITE_AUTH_PROVIDER` is unset) keeps the session token in localStorage and renders its own sign-in / register form; only `kinde.tsx` may import the Kinde SDK; `oidc.tsx` is the standard code flow with PKCE (react-oidc-context) |
+| `providers/session.ts` · `builtin.tsx` · `oidc.tsx` | the adapter contract (`Provider` + `useSession()`, optional `Login` form) and two adapters. `builtin` (the default when `VITE_AUTH_PROVIDER` is unset) keeps the session token in localStorage and renders its own sign-in / register form; `oidc.tsx` is the standard code flow with PKCE (react-oidc-context) for any provider — Kinde in production, with the `offline` scope for a refresh token |
 | `api.ts` | every call to the backend; `setTeam`/`at(bundle)` build the prefixed URLs; `can(team, permission)`; types (`Team`, `Entry`, `Queue`, `Device`, `Lint`…) |
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Ingest again* (a clean run is skipped by the queue; this is the one way to ask for it) |

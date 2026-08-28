@@ -1355,6 +1355,20 @@ setting says so. Ruben: remove the logic, always call it Personal. One line in
 `ensure_personal`; the team is named once, on creation, so existing teams keep whatever
 name they have.
 
+### 4.43 The Kinde adapter goes; `oidc` is the one redirect adapter (2026-08-28)
+
+Ruben switched the local frontend to `VITE_AUTH_PROVIDER=oidc` against Kinde and saw no
+difference — which was the finding. Checked in the browser: discovery and the token
+exchange come from `oidc-client-ts`, sign-in lands on the team, sign-out ends Kinde's own
+session (the next sign-in shows Kinde's form), the access token lives 24 hours. The one
+gap was no refresh token — the scope lacked `offline`, Kinde's spelling of
+`offline_access` — so the generic adapter now asks for it. `providers/kinde.tsx` and
+`@kinde-oss/kinde-auth-react` are deleted; what the SDK did beyond OIDC was the
+`?account_type=org` registration hook from Futuros, which Mindkeep's own teams replaced.
+Two adapters remain: `builtin` (default) and `oidc`. Production's frontend moves to
+`oidc` with the same issuer and client id. Not yet seen: a session crossing the 24-hour
+mark on the refresh token, and a first-time registration through Kinde's "Create one".
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

@@ -4,7 +4,6 @@ import { Mark } from "./icons";
 import { pending, remember } from "./invites";
 import { pendingConnect, rememberConnect } from "./handoff";
 import { builtin } from "./providers/builtin";
-import { kinde } from "./providers/kinde";
 import { oidc } from "./providers/oidc";
 import type { Adapter } from "./providers/session";
 
@@ -13,7 +12,7 @@ import type { Adapter } from "./providers/session";
  * asks it the five things the app needs. A provider's SDK is imported by its adapter
  * under providers/ and by nothing else.
  */
-const ADAPTERS: Record<string, Adapter> = { builtin, kinde, oidc };
+const ADAPTERS: Record<string, Adapter> = { builtin, oidc };
 
 function chosen(): Adapter | string {
   // unset means Mindkeep's own accounts: the build works with no provider configured

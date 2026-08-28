@@ -5,8 +5,13 @@ import { type Adapter, settings } from "./session";
 
 /**
  * Any OIDC provider, through the standard authorization-code flow with PKCE:
- * Keycloak, Auth0, Zitadel, Logto, Authentik, Kinde itself. Register the app as a
- * public single-page client with the redirect and logout URIs from the settings.
+ * Keycloak, Auth0, Zitadel, Logto, Authentik, Kinde. Register the app as a public
+ * single-page client with the redirect and logout URIs from the settings.
+ *
+ * `offline` asks for a refresh token, so a session outlives the access token instead of
+ * bouncing to the provider once a day. It is Kinde's spelling — the standard one is
+ * `offline_access` — and Kinde is the provider this has been checked against
+ * (2026-08-28, replacing its own SDK). Another provider that refuses the scope: this line.
  *
  * Clerk is not on that list — it is not a generic OIDC login for single-page apps and
  * wants its own SDK — so it would be a third adapter, in this folder, in this shape.
@@ -19,9 +24,11 @@ function Provider({ children }: { children: ReactNode }) {
       client_id={clientId}
       redirect_uri={redirectUri}
       post_logout_redirect_uri={logoutUri}
-      scope="openid profile email"
+      scope="openid profile email offline"
       // the code and state in the URL after the round trip are spent; drop them
-      onSigninCallback={() => window.history.replaceState({}, document.title, window.location.pathname)}
+      onSigninCallback={() =>
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }
     >
       {children}
     </AuthProvider>
