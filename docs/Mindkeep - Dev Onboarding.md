@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `42dae21` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `8f5975a` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -208,7 +208,8 @@ that is what keeps auth provider-agnostic.
    again (it may have changed since the run read it). The queue is in-process memory.
 3. **Worker.** `ingest_safely(home, source)`:
    - a source byte-for-byte what the last clean, not-undone run read is **skipped** before
-     a run row opens (`history.same` against the run's `based_on`);
+     a run row opens (`history.same` against the run's `based_on`) — unless a person asked
+     for it (*Ingest again*, *retry*: `enqueue(…, force=True)`), which runs it regardless;
    - opens the run row; commits people's changes as `before run N`; records `based_on`;
    - for a re-ingest, computes `git diff` of the source since the last clean read and hands
      it to the agent as a `CHANGED` hint (removed lines = withdrawn claims);
