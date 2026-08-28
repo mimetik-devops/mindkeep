@@ -27,10 +27,14 @@ const OPEN = ["raw", "wiki"];
 // folder, which is exactly when you need it most.
 const HALVES = ["raw/", "wiki/"];
 
+// Where you were, per bundle, across tab switches: the tab unmounts this component, and
+// coming back to index.md with every folder closed every time was the cost of that.
+const views = new Map<string, { selected: string; open: string[] }>();
+
 export function Library({ bundle }: { bundle: string }) {
   const [paths, setPaths] = useState<string[]>([]);
   const [dirs, setDirs] = useState<string[]>([]);
-  const [selected, setSelected] = useState("index.md");
+  const [selected, setSelected] = useState(views.get(bundle)?.selected ?? "index.md");
   const [raw, setRaw] = useState("");
   const [error, setError] = useState("");
   const [unreadable, setUnreadable] = useState("");
@@ -39,7 +43,11 @@ export function Library({ bundle }: { bundle: string }) {
   // that opened it, and the change event must read what was chosen at click time.
   const into = useRef("raw");
   const { sources, version } = useSources(bundle);
-  const [open, setOpen] = useState(new Set(OPEN));
+  const [open, setOpen] = useState(new Set(views.get(bundle)?.open ?? OPEN));
+
+  useEffect(() => {
+    views.set(bundle, { selected, open: [...open] });
+  }, [bundle, selected, open]);
 
   // clear on success: a transient failure used to stay on screen until a hard refresh.
   const refresh = () =>
@@ -53,7 +61,8 @@ export function Library({ bundle }: { bundle: string }) {
 
   useEffect(() => {
     refresh();
-    setSelected("index.md");
+    setSelected(views.get(bundle)?.selected ?? "index.md");
+    setOpen(new Set(views.get(bundle)?.open ?? OPEN));
   }, [bundle]);
 
   useEffect(() => {
