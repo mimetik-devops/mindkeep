@@ -470,6 +470,11 @@ button {
   gap: 6px;
 }
 
+.md .footnotes { margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.md .footnotes h2 { display: none; }
+.md .footnotes ol { padding-left: 20px; }
+.md sup a { color: var(--clay-ink); text-decoration: none; font-weight: 600; }
+
 /* dialogs ---------------------------------------------------------------- */
 
 .veil {

@@ -1,6 +1,11 @@
 import DOMPurify from "dompurify";
 import { load } from "js-yaml";
 import { marked } from "marked";
+import markedFootnote from "marked-footnote";
+
+// The agent cites with footnotes - `[^src]` in a claim, `[^src]: ...` at the foot - which
+// marked alone leaves as literal text.
+marked.use(markedFootnote());
 
 export type Source = { id?: string; title?: string; resource?: string };
 export type Actor = { by?: string; at?: string };
