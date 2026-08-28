@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/mimetik-devops/mindkeep/security/advisories/new
+    about: Report privately through a GitHub security advisory. Never in a public issue.
+  - name: Question or idea
+    url: https://github.com/mimetik-devops/mindkeep/discussions
+    about: Ask how something works, or float an idea before writing it up as a request.

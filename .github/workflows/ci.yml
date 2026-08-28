@@ -1,0 +1,59 @@
+# Backend and frontend checks: the same commands CONTRIBUTING.md asks a contributor to
+# run. The desktop client has its own workflow (app.yml), which also builds the installers.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # The package is not installable from a full checkout (setuptools discovery finds
+      # tests/ and alembic/), so install the dependency list rather than the project —
+      # read out of pyproject.toml so this file never drifts from it.
+      - name: Install dependencies
+        run: |
+          python - <<'PY' > requirements.ci.txt
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              p = tomllib.load(f)
+          for dep in p["project"]["dependencies"] + p["dependency-groups"]["dev"]:
+              print(dep)
+          PY
+          pip install -r requirements.ci.txt
+      - run: ruff check app tests
+      - run: ruff format --check app tests
+      - run: mypy app
+      # tests point DATABASE_URL at a temporary SQLite file, so there is no service here.
+      # `python -m pytest`, not `pytest`: tests/ is not a package and nothing sets
+      # pythonpath, so conftest's `from tests.test_files import …` needs backend/ on
+      # sys.path — which the -m form puts there and the bare command does not.
+      - run: python -m pytest -q tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.json
+      - run: npx eslint src
+      - run: npx vitest run

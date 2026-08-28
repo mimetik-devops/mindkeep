@@ -10,6 +10,9 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+  # a pull request from a fork pushes to no branch here, so without this the client
+  # would go untested on outside contributions
+  pull_request:
   workflow_dispatch:
 
 jobs:
