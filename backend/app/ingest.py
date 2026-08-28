@@ -147,7 +147,7 @@ def ingest(
     written = 0
     steps = 0
     # local import: files.py imports this module
-    from app.files import TEMPLATES, put_text, readable_text, refresh_guide, safe_path
+    from app.files import TEMPLATES, prune_empty, put_text, readable_text, refresh_guide, safe_path
 
     def step(what: str) -> None:
         """Say what just happened, to the server log and to the row the UI reads.
@@ -250,6 +250,8 @@ def ingest(
         if not target.is_file():
             return f"{path} does not exist."
         target.unlink()
+        # a folder emptied by a move or a delete is clutter in every synced copy
+        prune_empty(target.parent, home / "wiki")
         return f"Deleted {path}."
 
     def list_files() -> str:
