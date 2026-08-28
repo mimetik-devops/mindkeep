@@ -592,7 +592,9 @@ def _worker(home: Path, pending: "queue.Queue[str]") -> None:
             _forced.get(key, set()).discard(source)
         again = ""
         try:
-            error = ingest_safely(home, source, force)
+            # the extra argument only when it means something: what stands in for
+            # ingest_safely elsewhere takes the two the worker always passed
+            error = ingest_safely(home, source, True) if force else ingest_safely(home, source)
         except Exception:  # ingest_safely logs its own failures; this is the last resort
             log.exception("ingest worker survived a failure on %s", source)
             error = ""
