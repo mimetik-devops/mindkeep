@@ -3,7 +3,7 @@
 **A team knowledge base that an AI agent writes and keeps current, from the documents you
 already have.**
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](LICENSE)
 [![Desktop client](https://github.com/mimetik-devops/mindkeep/actions/workflows/app.yml/badge.svg)](https://github.com/mimetik-devops/mindkeep/actions/workflows/app.yml)
 [![CI](https://github.com/mimetik-devops/mindkeep/actions/workflows/ci.yml/badge.svg)](https://github.com/mimetik-devops/mindkeep/actions/workflows/ci.yml)
 
@@ -249,12 +249,12 @@ the agent's behaviour is a change to its manual.
 ## License
 
 Copyright © 2026 mimetik. Mindkeep is free software under the
-[GNU Affero General Public License v3.0](LICENSE).
+[GNU General Public License v3.0](LICENSE).
 
-You may run it, study it, modify it and share it. The AGPL adds one condition to the GPL
-that matters here: **if you run a modified Mindkeep as a network service, you must offer
-its users the source of your modifications.** Running it unmodified for your own team asks
-nothing of you.
+You may run it, study it, modify it and share it, for any purpose including a commercial
+one. The condition is copyleft: **if you distribute Mindkeep or a modified version of it,
+you must do so under the GPL and make the source available.** Running it for your own
+team, modified or not, asks nothing of you.
 
 A fully managed, hosted Mindkeep is planned as a paid option from
 [mimetik](https://mimetik.ai) — the same code, the same files, and the same right to take

@@ -29,7 +29,7 @@ The name and e-mail must be real and must match your git configuration. Forgot i
 last commit with `git commit --amend -s`, or a branch with
 `git rebase --signoff main`.
 
-Contributions are made under the [AGPL-3.0](LICENSE), the same licence as the project.
+Contributions are made under the [GPL-3.0](LICENSE), the same licence as the project.
 
 ## Getting set up
 
