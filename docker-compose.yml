@@ -12,8 +12,9 @@ services:
       interval: 5s
       retries: 10
 
+  # the `dev` stages: reloading servers over bind mounts. A deploy builds the last stage.
   backend:
-    build: ./backend
+    build: { context: ./backend, target: dev }
     env_file: ./backend/.env
     ports: [ "8001:8000" ]
     volumes: [ "./backend:/app", "wikidata:/data" ]
@@ -21,7 +22,7 @@ services:
       db: { condition: service_healthy }
 
   frontend:
-    build: ./frontend
+    build: { context: ./frontend, target: dev }
     env_file: ./frontend/.env
     ports: [ "5163:5163" ]
     volumes: [ "./frontend:/app", "/app/node_modules" ]

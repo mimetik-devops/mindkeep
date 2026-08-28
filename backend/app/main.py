@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Body, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app import devices, files, ingest, runs, schedule, teams
 from app.auth import CurrentProfile, CurrentRole, CurrentUser, Person, device_token
@@ -64,6 +65,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Mindkeep", lifespan=lifespan)
+# In development the dev server proxies /api, so browser and API share an origin and
+# nothing is needed. Deployed, the site and the API are two hosts, and the browser asks
+# the API whether the site may call it: ALLOWED_ORIGINS, comma-separated, says yes.
+if origins := [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 app.include_router(files.router)
 app.include_router(teams.router)
 
