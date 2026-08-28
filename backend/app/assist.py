@@ -1,7 +1,7 @@
 """The assistant: the agent you talk to about an open question.
 
 A second role, with a second set of permissions. The wiki agent owns `wiki/` and may not
-touch `raw/`; this one is the mirror image — it may write `raw/` and `todo.md`, and it may
+touch `raw/`; this one is the mirror image — it may write `raw/` and the two lists, and it may
 not write a single wiki page.
 
 **Why it must not edit the wiki.** A page is derived from a source. Editing the page and
@@ -29,21 +29,22 @@ from anthropic import beta_tool
 
 from app import graph
 from app.ingest import MODEL, enqueue, lock_for
+from app.todos import QUESTIONS, TODO
 
 log = logging.getLogger(__name__)
 
-TODO = "todo.md"
 
 ROLE = """You are the assistant in Mindkeep, a knowledge base that a second agent builds
 from source documents.
 
 That agent reads everything in `raw/` and writes the pages under `wiki/`. When it cannot
 settle something — two sources disagree, a claim has no support, a name is ambiguous — it
-writes the question down in `todo.md` and moves on. You are what happens next: the person
+writes the question down in `questions.md` and moves on. You are what happens next: the person
 you are talking to knows the answer, and your job is to get that answer into the sources
 so the wiki can be rebuilt from them correctly.
 
-**What you may write.** Files under `raw/`, and `todo.md`. Nothing else — the wiki is the
+**What you may write.** Files under `raw/`, and the two lists — `questions.md`, `todo.md`.
+Nothing else — the wiki is the
 other agent's, and it is regenerated from `raw/`, so a page you edited by hand would be
 overwritten the moment its source is read again. Correct the source and the page follows.
 
@@ -57,8 +58,11 @@ overwritten the moment its source is read again. Correct the source and the page
   document's own voice. A correction is part of the document, not a note bolted onto it.
 - If the answer belongs to no existing source, `write_raw` a short new one that says where
   it came from — "clarified by <person>, <date>" — so the wiki agent can cite it.
-- Then tick the question off in `todo.md` with `resolve`, and say in one line what changed.
-- If the person's answer raises a new question, add it to `todo.md` rather than losing it.
+- Then tick the question off in `questions.md` with `resolve`, and say in one line what
+  changed.
+- If the person's answer raises a new question, add it with `resolve` rather than losing
+  it. If it produces work for a person — a document to upload, a page to check — put that
+  in `todo.md` with `task`; a task is not a question.
 
 Editing a source re-ingests it automatically, so the wiki updates itself. Say so plainly
 rather than promising to update pages yourself; you cannot.
@@ -74,7 +78,7 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
 
     def writable(target: Path) -> bool:
         """raw/ and the question list. The mirror image of the wiki agent's permissions."""
-        return target.is_relative_to(home / "raw") or target == home / TODO
+        return target.is_relative_to(home / "raw") or target.name in (QUESTIONS, TODO)
 
     def read_file(path: str) -> str:
         """Read any file in the knowledge base — sources, wiki pages, the index.
@@ -117,7 +121,9 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
         log.info("  assist edit %s (%d changes)", path, len(edits))
         target = safe_path(home, path)
         if not writable(target):
-            return "Refused: you may only write raw/ and todo.md. The wiki is not yours."
+            return (
+                "Refused: you may only write raw/, questions.md and todo.md. The wiki is not yours."
+            )
         if not target.is_file():
             return f"{path} does not exist."
 
@@ -146,14 +152,16 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
         log.info("  assist write %s (%d chars)", path, len(content))
         target = safe_path(home, path)
         if not writable(target):
-            return "Refused: you may only write raw/ and todo.md. The wiki is not yours."
+            return (
+                "Refused: you may only write raw/, questions.md and todo.md. The wiki is not yours."
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         put_text(target, content)
         _changed(target)
         return f"Wrote {path}. It will be ingested, so the wiki will pick it up."
 
     def resolve(answered: str, add: str = "") -> str:
-        """Tick a question off in todo.md, and optionally add one the answer raised.
+        """Tick a question off in questions.md, and optionally add one the answer raised.
 
         Args:
             answered: The exact text of the question line to tick off.
@@ -161,18 +169,29 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
         """
         from app import todos
 
-        target = home / TODO
-        text = target.read_text(encoding="utf-8") if target.is_file() else todos.EMPTY
+        text = todos.read(home, QUESTIONS)
         items = todos.parse(text)
         hit = next((i for i in items if str(i["text"]).strip() == answered.strip()), None)
         if hit is None:
-            return f"No open question reads exactly {answered!r}. Read todo.md again."
+            return f"No open question reads exactly {answered!r}. Read questions.md again."
         text = todos.tick(text, int(hit["id"]), True)
         if add.strip():
-            text = text.rstrip("\n") + f"\n- [ ] {add.strip()}\n"
-        put_text(target, text)
+            text = todos.append(text, add)
+        put_text(home / QUESTIONS, text)
         log.info("  assist resolved %r", answered[:60])
-        return "Ticked off in todo.md."
+        return "Ticked off in questions.md."
+
+    def task(text: str) -> str:
+        """Add a task for a person to todo.md — work the answer produced, not a question.
+
+        Args:
+            text: One line, phrased so someone who was not here can do it.
+        """
+        from app import todos
+
+        put_text(home / TODO, todos.append(todos.read(home, TODO), text))
+        log.info("  assist added a task %r", text[:60])
+        return "Added to todo.md."
 
     def _changed(target: Path) -> None:
         rel = target.relative_to(home).as_posix()
@@ -196,6 +215,7 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
                 beta_tool(edit_raw),
                 beta_tool(write_raw),
                 beta_tool(resolve),
+                beta_tool(task),
             ],
             messages=list(messages),
         )

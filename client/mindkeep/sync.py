@@ -3,8 +3,8 @@
 `sync(cfg)` pulls the wiki down and pushes anything new in raw/. `cfg` is a dict with
 server, token, folder, team and bundle — the CLI keeps one in a file, the desktop app
 keeps one per watched bundle. When you and someone else changed the same file, yours
-is kept under .conflicts/ and theirs lands in place; for todo.md your ticks are merged
-onto their list instead.
+is kept under .conflicts/ and theirs lands in place. Everything outside raw/ — the
+wiki, the lists — is the agent's and comes down as it is.
 
 ponytail: stdlib only, so the CLI works with nothing installed and the app's only
 dependency is Qt.
@@ -24,12 +24,6 @@ from mindkeep import USER_AGENT
 # nowhere to drop a file is not much use, and an empty directory has no files to carry
 # it, so it cannot arrive by download.
 LAYOUT = ("raw", "wiki")
-
-# The one file outside raw/ that syncs both ways. The wiki agent writes the questions, the
-# assistant ticks them off, and you can work through them here with Claude Code — which
-# only works if what you write here goes back. Everything else under the mirror is the
-# agent's and is overwritten from the server.
-SHARED = "todo.md"
 
 # Where your version of a file goes when the server has a different one: outside the
 # synced tree — a dot name is neither uploaded nor swept — so it is never mistaken for a
@@ -153,28 +147,6 @@ def conflict(cfg: dict, root: Path, rel: str, why: str) -> None:
     where = kept.relative_to(root).as_posix()
     say(f"conflict {rel}: {why}; yours is kept in {where}")
     notify(cfg, "conflict", f"{rel}: {why}. Yours is kept in {where}.")
-
-
-def merge_todo(mine: str, theirs: str) -> str:
-    """Their list — the agent may have added questions overnight — with your ticks and
-    your added lines applied. One line per question makes this a text match rather than a
-    merge: a line of yours they also have is theirs; a tick of yours on a question they
-    still have open ticks it; anything else you wrote goes in after the last line of yours
-    they do have, so an answer stays under its question."""
-    lines = theirs.splitlines()
-    at = 0  # where the next line of yours that they lack goes
-    for line in mine.splitlines():
-        if line in lines:
-            at = lines.index(line) + 1
-            continue
-        if line.startswith("- [x] ") and ("- [ ] " + line[6:]) in lines:
-            at = lines.index("- [ ] " + line[6:])
-            lines[at] = line
-            at += 1
-            continue
-        lines.insert(at, line)
-        at += 1
-    return "\n".join(lines) + "\n"
 
 
 def digest(path: Path) -> str:
@@ -322,31 +294,6 @@ def sync(cfg: dict) -> None:
         sent = True
     if sent:
         remote = call_json(cfg, f"{base}/tree")
-
-    # todo.md is yours as much as theirs, so an answer written here goes up like a source
-    # would — except that it starts no ingest, being a note about the wiki rather than in it.
-    shared = root / SHARED
-    if shared.is_file() and (here := digest(shared)) != remote.get(SHARED):
-        if here != seen.get(SHARED):  # changed here, not merely changed over there
-            mine = shared.read_bytes()
-            if SHARED in remote and remote[SHARED] != seen.get(SHARED):
-                # theirs moved too — the agent asked something overnight, or a teammate
-                # ticked — so your ticks and lines go onto their list, not over it
-                theirs = call(cfg, f"{base}/files/{SHARED}").decode("utf-8")
-                mine = merge_todo(mine.decode("utf-8"), theirs).encode("utf-8")
-                shared.write_bytes(mine)
-                say("merged", SHARED)
-            try:
-                stamp = {"If-Match": remote[SHARED]} if SHARED in remote else {}
-                call(cfg, f"{base}/files/{SHARED}", mine, method="PUT", headers=stamp)
-            except urllib.error.HTTPError as e:
-                if e.code != 412:
-                    raise
-                conflict(cfg, root, SHARED, "changed over there just now")
-            else:
-                say("sent", SHARED)
-                remote[SHARED] = digest(shared)
-                sent = True
 
     # Down: everything else is the agent's, so the server wins. Your raw/ edits were
     # pushed above, which is why this cannot overwrite them any more.

@@ -63,8 +63,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         log.exception("could not re-key legacy tenant rows")
     try:
         files.refresh_guides(Path(os.environ.get("WIKI_ROOT", "/data")))
+        files.ensure_lists(Path(os.environ.get("WIKI_ROOT", "/data")))
     except Exception:
-        log.exception("could not refresh the reader's guide in the bundles")
+        log.exception("could not refresh the reader's guide or the lists in the bundles")
     schedule.start()
     yield
 

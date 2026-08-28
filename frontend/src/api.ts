@@ -249,17 +249,24 @@ export type Profile = {
 
 export const me = () => call<Profile>("/me");
 
-/** An open question the wiki agent could not settle. `id` is its position in todo.md. */
-export type Todo = { id: number; done: boolean; text: string; detail: string };
+/** One checkbox line of a list the agent keeps: a question in questions.md, or a task in
+ * todo.md. `id` is its position among the checkboxes. */
+export type Item = { id: number; done: boolean; text: string; detail: string };
 
-export const todos = (bundle: string) => call<Todo[]>(`${at(bundle)}/todos`);
-
-export const setTodo = (bundle: string, id: number, done: boolean) =>
-  call<{ done: boolean }>(`${at(bundle)}/todos/${id}`, {
+export const questions = (bundle: string) => call<Item[]>(`${at(bundle)}/questions`);
+export const tasks = (bundle: string) => call<Item[]>(`${at(bundle)}/todos`);
+const flip = (bundle: string, list: string, id: number, done: boolean) =>
+  call<{ done: boolean }>(`${at(bundle)}/${list}/${id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ done }),
   });
+/** A question answered some other way; or put back. */
+export const setQuestion = (bundle: string, id: number, done: boolean) =>
+  flip(bundle, "questions", id, done);
+/** A task done; or put back. */
+export const setTask = (bundle: string, id: number, done: boolean) =>
+  flip(bundle, "todos", id, done);
 
 export type Said = { role: "user" | "assistant"; content: string };
 

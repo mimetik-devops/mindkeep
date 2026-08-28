@@ -20,8 +20,10 @@ The tree has two halves and one owner each.
   pages there. Nobody else can — the API has no route that writes a wiki page, so if a
   page is wrong, you are the one who fixes it.
 
-- **`todo.md` is shared.** You add questions to it; the assistant the owner talks to ticks
-  them off and corrects the sources. Never delete someone else's line from it.
+- **Two lists are yours to add to, never to prune.** `questions.md` holds what you could
+  not settle and a person must answer; `todo.md` holds what a person must do. The
+  assistant ticks questions once their answers are in the sources; people tick tasks in
+  the app. Never delete or reword a line that is already in either.
 - **This manual is Mindkeep's**, not yours and not the owner's. It ships with the app,
   is the whole of your instructions, and is not in the bundle: the `CLAUDE.md` you will
   see there is a guide for people and local tools reading a synced copy, and it tells them
@@ -37,8 +39,9 @@ The tree has two halves and one owner each.
   type (see *Where a page goes*).
 - `index.md` — the catalog. Read this first; it tells you what exists before you open anything.
 - `log.md` — append-only history of what changed and why.
-- `todo.md` — open questions you could not settle. Shared with the assistant, and with
-  whoever is reading the folder locally.
+- `questions.md` — open questions you could not settle, for someone who knows.
+- `todo.md` — tasks for a person: a source to upload, a draft to verify, a duplicate to
+  remove. Found by you, done by them.
 
 ## Page format
 
@@ -174,7 +177,7 @@ a claim into the wiki without a footnote back to where it came from.
 Ingesting turns up things no source answers: two documents disagree, a claim rests on
 nothing, a name could be two different people, a figure has no date. **Do not guess, and
 do not quietly pick one.** Write the page with what you can support, and add the question
-to `todo.md` as one checkbox line:
+to `questions.md` as one checkbox line:
 
 ```
 - [ ] Which figure is current, the 85% in `raw/2024-deck.md` or the 92% in `raw/paper.md`?
@@ -194,6 +197,11 @@ Rules for that file:
 You do not act on the answers. The assistant corrects the source, which re-ingests it, and
 that is when you see the correction.
 
+**A task is not a question.** When what is missing is an *action* — a document someone
+has to upload, a page someone should verify, a duplicate someone should remove — it goes
+in `todo.md`, same shape, one checkbox line a person can act on without having been here.
+The same rules apply: add, never remove or reword, never repeat.
+
 ## Reorganise
 
 When asked to reorganise, apply *Where a page goes* to every page under `wiki/` and
@@ -210,8 +218,8 @@ them).
 ## Lint
 
 When asked to lint, report in the log entry — and put anything a *person* would have to
-answer into `todo.md` as well, since that is where it will be picked up. Do not silently
-fix:
+answer into `questions.md`, and anything a person would have to *do* into `todo.md`, since
+those are where they will be picked up. Do not silently fix:
 
 - Contradictions between pages, and claims superseded by a newer source.
 - Pages nothing links to, and links to pages that were never written.
@@ -253,13 +261,13 @@ connect: several pages about one thing, several about another, and almost no lin
 between them. You are handed those pairs with the lint, each side described by its most
 central pages. For each pair, decide whether the two areas genuinely bear on each other.
 
-- **Where they do**, add one question to `todo.md` whose answer would connect them, and
+- **Where they do**, add one question to `questions.md` whose answer would connect them, and
   name the pages on each side. Make it specific enough that the owner can answer it or
   drop in a source that does — that is how a gap actually closes. You may open the hub
   pages to sharpen the question; do not read the whole of both areas.
 - **Where they do not**, say so in the log entry in a few words and add nothing. A wiki
   about cooking and tax law has no gap between them, only two subjects.
-- Skip a pair that already has a question in `todo.md`, ticked or not. The same gap is
+- Skip a pair that already has a question in `questions.md`, ticked or not. The same gap is
   measured again every night until something links the two sides.
 
 ## Division of labour

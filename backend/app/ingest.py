@@ -100,7 +100,7 @@ def user_owns(home: Path, target: Path) -> bool:
 INGEST_TASK = (
     "Today is {today}. A new source has arrived at `{source}`. Ingest it into the wiki, "
     "following the ingest workflow. Work autonomously: do not stop to ask. Anything you "
-    "cannot settle from the sources goes in `todo.md` for a person to answer later, as "
+    "cannot settle from the sources goes in `questions.md` for a person to answer later, as "
     "the manual describes.{hints}"
 )
 
@@ -160,7 +160,7 @@ MOVED = (
 GAPS = (
     "\n\nThe wiki's link graph has areas that barely connect. Each pair below names the "
     "most central pages on either side. Handle them as the Knowledge gaps section of the "
-    "manual says: one question in `todo.md` where the two areas genuinely bear on each "
+    "manual says: one question in `questions.md` where the two areas genuinely bear on each "
     "other, a few words in the log entry where they do not.\n{list}"
 )
 

@@ -17,8 +17,9 @@ sync will remove anything the server does not have. Changes go through Mindkeep:
 
 - **To add material**, drop a file into `raw/`. The watcher uploads it and the agent folds
   it into the wiki.
-- **To answer an open question** from `todo.md`, add or correct the source it turns on, in
-  `raw/` — a note (below) is the usual shape. Do not edit `todo.md`; the agent keeps it.
+- **To answer an open question** from `questions.md`, add or correct the source it turns
+  on, in `raw/` — a note (below) is the usual shape. Do not edit `questions.md` or
+  `todo.md`; the agent keeps both, and a tick is made in the app.
 - **To fix a wrong page**, fix the source it cites, not the page. The page follows.
 
 ## Layout
@@ -29,7 +30,8 @@ sync will remove anything the server does not have. Changes go through Mindkeep:
   `verified` when a person has checked it), and cites its sources in footnotes.
 - `index.md` — the catalog: one line per page. **Read this first**; it says what exists.
 - `log.md` — what changed and why, newest last.
-- `todo.md` — questions the agent could not settle. Answered through Mindkeep, not here.
+- `questions.md` — questions the agent could not settle. Answered through Mindkeep, not here.
+- `todo.md` — tasks for a person, found by the agent. Ticked in the app, not here.
 
 ## Answering a question from here
 

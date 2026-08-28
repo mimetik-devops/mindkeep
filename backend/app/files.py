@@ -119,9 +119,9 @@ def bundle(name: str, home: Tenant) -> Path:
     # so rather than trusting every path that deletes, guarantee it on the way in.
     for half in ("raw", "wiki"):
         (target / half).mkdir(exist_ok=True)
-    # same argument, and it gives bundles made before the question list existed one too
-    if not (target / TODO).exists():
-        put_text(target / TODO, todos.EMPTY)
+    # same argument, and it gives a bundle from before the lists existed — or before
+    # the split into two — its questions.md and todo.md
+    todos.ensure(target)
     return target
 
 
@@ -166,8 +166,9 @@ def seed(home: Path) -> None:
     put_text(home / "CLAUDE.md", (TEMPLATES / "CLAUDE.md").read_text("utf-8"))
     put_text(home / "index.md", '---\nokf_version: "0.2"\n---\n\n# Index\n')
     put_text(home / "log.md", "# Log\n")
-    put_text(home / TODO, todos.EMPTY)
-    # the skeleton is the first commit, so the first answer in todo.md reads as an edit
+    for name in todos.LISTS:
+        put_text(home / name, todos.EMPTY[name])
+    # the skeleton is the first commit, so the first tick reads as an edit
     try:
         history.commit(home, "seeded")
     except Exception:
@@ -206,6 +207,15 @@ def refresh_guides(root: Path) -> int:
     if changed:
         log.info("refreshed CLAUDE.md in %d bundle(s)", changed)
     return changed
+
+
+def ensure_lists(root: Path) -> int:
+    """Every bundle has questions.md and todo.md — at startup, so the split reaches
+    bundles made before it, whether or not anything opens them."""
+    made = sum(1 for home in bundles_under(root) if todos.ensure(home))
+    if made:
+        log.info("wrote the question or task list in %d bundle(s)", made)
+    return made
 
 
 def requeue_unread(root: Path) -> int:
@@ -453,19 +463,18 @@ def read_as_text(path: str, home: Bundle) -> Response:
 @router.put("/bundles/{name}/files/{path:path}")
 async def write(path: str, request: Request, home: Bundle, _: Writer) -> dict[str, str]:
     target = safe_path(home, path)
-    shared = target == home / TODO  # both agents and the owner write this one
-    if not user_owns(home, target) and not shared:
-        raise HTTPException(409, "wiki/ belongs to the agent — add a source instead")
+    if not user_owns(home, target):
+        raise HTTPException(
+            409, "wiki/, questions.md and todo.md belong to the agent — add a source instead"
+        )
     unchanged(target, request)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(await request.body())
 
     rel = target.relative_to(home).as_posix()
-    record(home, f"{'answer' if shared else 'edit'} {rel}", rel)
-    # a corrected source should correct the wiki: the pages built from it are now stale.
-    # todo.md is a record *about* the knowledge, so nothing is re-read when it changes.
-    if not shared:
-        enqueue(home, rel)
+    record(home, f"edit {rel}", rel)
+    # a corrected source should correct the wiki: the pages built from it are now stale
+    enqueue(home, rel)
     return {"path": rel}
 
 
@@ -548,10 +557,10 @@ def sources(home: Bundle) -> list[dict[str, object]]:
 
 
 def by_people(change: dict[str, str]) -> bool:
-    """Whether a file in a before-run commit is something a person did. Sources are; an
-    answered todo.md is; a seeded or refreshed file — the skeleton, the guide — is not."""
+    """Whether a file in a before-run commit is something a person did. Sources are; a
+    ticked list is; a seeded or refreshed file — the skeleton, the guide — is not."""
     path, status = change["path"], change["status"]
-    return path.startswith("raw/") or (path == "todo.md" and status == "M")
+    return path.startswith("raw/") or (path in todos.LISTS and status == "M")
 
 
 @router.get("/bundles/{name}/activity")
@@ -728,26 +737,40 @@ def redo_run(run_id: int, home: Bundle, _: Historian) -> dict[str, object]:
     return {"redone": run_id, "commit": sha}
 
 
+def _tick(home: Path, name: str, index: int, done: bool) -> dict[str, bool]:
+    text = todos.read(home, name)
+    if index >= len(todos.parse(text)):
+        raise HTTPException(404, "no such item")
+    put_text(home / name, todos.tick(text, index, done))
+    return {"done": done}
+
+
+@router.get("/bundles/{name}/questions")
+def list_questions(home: Bundle) -> list[dict[str, object]]:
+    """The open questions, as the agent left them in questions.md."""
+    return todos.parse(todos.read(home, todos.QUESTIONS))
+
+
+@router.post("/bundles/{name}/questions/{index}")
+def set_question(
+    index: int, home: Bundle, done: Annotated[bool, Body(embed=True)], _: Writer
+) -> dict[str, bool]:
+    """Tick a question off by hand — it was answered some other way — or put it back."""
+    return _tick(home, todos.QUESTIONS, index, done)
+
+
 @router.get("/bundles/{name}/todos")
 def list_todos(home: Bundle) -> list[dict[str, object]]:
-    """The open questions, as the agents left them in todo.md."""
-    target = home / TODO
-    return todos.parse(target.read_text(encoding="utf-8")) if target.is_file() else []
+    """The tasks for people, as the agent left them in todo.md."""
+    return todos.parse(todos.read(home, todos.TODO))
 
 
 @router.post("/bundles/{name}/todos/{index}")
 def set_todo(
     index: int, home: Bundle, done: Annotated[bool, Body(embed=True)], _: Writer
 ) -> dict[str, bool]:
-    """Tick a question off by hand, or put it back."""
-    target = home / TODO
-    if not target.is_file():
-        raise HTTPException(404, "nothing to tick")
-    text = target.read_text(encoding="utf-8")
-    if index >= len(todos.parse(text)):
-        raise HTTPException(404, "no such question")
-    put_text(target, todos.tick(text, index, done))
-    return {"done": done}
+    """Tick a task off, or put it back."""
+    return _tick(home, todos.TODO, index, done)
 
 
 @router.post("/bundles/{name}/assist", status_code=202)

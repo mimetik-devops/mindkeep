@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `b516b02` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `4ac9efb` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -78,7 +78,8 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
                   local agent this is a mirror, and where changes go
   index.md        the catalog: one line per page. Agents read this first.
   log.md          append-only history, one entry per run: "## [date] ingest | title"
-  todo.md         open questions the agent could not settle. Agent-owned.
+  questions.md    open questions the agent could not settle — for someone who knows
+  todo.md         tasks for a person, found by the agent — for someone who does
   raw/            the owner's documents, under their own names. The only human-written half.
     notes/<person>/…   findings contributed by local agents (see "Notes")
   wiki/           everything the agent wrote, filed by type:
@@ -92,7 +93,8 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 |---|---|---|
 | `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
 | `wiki/**`, `index.md`, `log.md` | the ingest/lint agent only | regenerated from sources; hand edits are overwritten |
-| `todo.md` | the agent (questions), the assistant (ticks) | a person answers through `raw/`, not by editing it |
+| `questions.md` | the agent (questions), the assistant (ticks, new questions) | answered through the assistant or a note in `raw/`; never edited by hand |
+| `todo.md` | the agent and the assistant (tasks) | ticked by a person in the app; never edited by hand |
 | `CLAUDE.md` | the app | overwritten from the template on every backend start |
 
 **Where a page goes** (*manual.md → Where a page goes*): `wiki/<type-plural>/<title-slug>.md`.
@@ -119,7 +121,7 @@ sources' "ingested" state and the queue all read.
 A git repository lives inside each bundle (`backend/app/history.py`). Around each run the
 server makes two commits — `before run N` (people's changes since the last run) and
 `run N: <source>` (what the agent wrote) — and every action a person takes through the
-app is its own commit (`upload …`, `edit …`, `delete …`, `move …`, `answer todo.md`).
+app is its own commit (`upload …`, `edit …`, `delete …`, `move …`).
 Undo of a run reverts its commit **and takes the source back** (a new file is removed, an
 edited one restored to the previous clean read); redo re-applies. The `.git` directory is
 excluded from the tree endpoint, from the agent's `list_files`, and from `safe_path`, so
@@ -130,7 +132,7 @@ neither the mirror nor the agent ever sees it.
 `PUT /files/{path}` and `DELETE /raw/{path}` honour `If-Match` with the sha256 the client
 last saw; a mismatch is a 412. The sync client keeps a both-sides-changed file under
 `.conflicts/` (a dot directory: never uploaded, never swept) and lets the server's copy
-land in place; for `todo.md` it merges ticks instead. The agent side is serialised by
+land in place. The agent side is serialised by
 design: **one worker thread per bundle**, so only one run ever writes a wiki at a time.
 
 ---
@@ -150,7 +152,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `history.py` | git inside the bundle: commit, record, undo, take_back, diff, log entries, pending changes |
 | `graph.py` / `gaps.py` | The link graph built from the files in memory; Louvain areas; structural gaps (thin pairs of areas) |
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
-| `todos.py` | `todo.md` as checkbox lines: parse, tick |
+| `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
 | `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history |
 | `devices.py` | Per-machine tokens: create, holder, mine, forget |
 | `db.py` | SQLAlchemy models and session; `now()` |
@@ -249,7 +251,8 @@ from run history, so a restart at 02:59 does not double-lint and a server down a
 lints when it comes back. Each bundle picks its hour in Settings (`bundle_setting`);
 `LINT_HOUR` is the default; hours are UTC. A lint reports (contradictions, orphans, stale
 drafts, uncited sources, misfiled pages, future-dated log entries), **fixes only broken
-source links** (moved vs. gone), and turns knowledge gaps into `todo.md` questions. When
+source links** (moved vs. gone), puts what a person must *answer* in `questions.md` and
+what a person must *do* in `todo.md`, and turns knowledge gaps into questions. When
 it finishes cleanly and the server finds pages outside their type's folder
 (`ingest.misfiled`), a reorganise run is queued behind it automatically.
 
@@ -268,7 +271,8 @@ the Graph tab draws. `graph.related(path)` is the agent's `related` tool.
 anything in front of the API (Cloudflare cuts a request at 100 s) would give up on it. The
 browser sends the whole conversation each time; the server holds only the turn in flight,
 in memory, for an hour (no conversation table — deliberately, until someone needs to
-leave a thread and come back). It may write `raw/` and tick `todo.md`; writing a source triggers
+leave a thread and come back). It may write `raw/`, tick and add to `questions.md`, and
+add tasks to `todo.md` (`task` tool); writing a source triggers
 an ingest like any upload. It may not write a wiki page, because a page is derived from
 its source and the next ingest would throw the edit away.
 
@@ -323,7 +327,7 @@ Under `/teams/{team}`, membership required:
 | PUT | `/bundles/{b}/team` | bundles | move to another team |
 | GET | `/bundles/{b}/tree` | read | `path → sha256`, dot dirs excluded |
 | GET | `/bundles/{b}/files/{path}` · `/text/{path}` | read | raw bytes · readable text (`.docx` extracted with the stdlib; other binaries, PDFs included, are reported as binary rather than guessed at) |
-| PUT | `/bundles/{b}/files/{path}` | write | write a source or `todo.md`; `If-Match` honoured |
+| PUT | `/bundles/{b}/files/{path}` | write | write a source; `If-Match` honoured. `wiki/`, `questions.md` and `todo.md` are refused (409) |
 | POST | `/bundles/{b}/raw/{path}` | write | upload (name cleaned, ingest queued) |
 | DELETE | `/bundles/{b}/raw/{path}` | write | delete; a cited source starts a retire run |
 | POST | `/bundles/{b}/move` | write | move a source; recorded for the lint |
@@ -335,7 +339,7 @@ Under `/teams/{team}`, membership required:
 | POST | `/bundles/{b}/runs/{id}/undo` · `/redo` | history | |
 | GET/PUT/POST | `/bundles/{b}/lint` | read / write | state · set hour · lint now |
 | POST | `/bundles/{b}/reorganise` | write | file every page by its type |
-| GET/POST | `/bundles/{b}/todos[/{index}]` | read / write | list · tick |
+| GET/POST | `/bundles/{b}/questions[/{index}]` · `/todos[/{index}]` | read / write | the questions · the tasks: list, tick |
 | POST / GET | `/bundles/{b}/assist[/{job}]` | write / read | start one assistant turn (202, `{job}`) · poll it: `{done:false}`, then the reply and what changed, or an error |
 | POST | `/bundles/{b}/verify/{path}` | write | stamp a page `verified` by the caller's identity |
 | GET | `/bundles/{b}/graph` | read | nodes, edges, areas, gaps |
@@ -359,7 +363,7 @@ for prose, sans for UI, mono for paths).
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, retry |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
-| `Todo.tsx` | `todo.md` with the assistant chat |
+| `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |
 | `Activity.tsx` | the feed from git history + runs; undo/redo; the ingest-paused and failed banners |
 | `Settings.tsx` (+ `TeamSettings.tsx`, `Members.tsx`) | tabs Bundle / Team / Account: lint hour, reorganise, rename/move/delete bundle; team rename/delete, members, invites; devices |
 | `Picker.tsx`, `Bundles.tsx`, `Invite.tsx`, `Connect.tsx`, `Profile.tsx` | pickers and the two link-driven pages |
@@ -411,10 +415,9 @@ One Python package, `mindkeep/`, three faces:
    deleted and rewritten.
 5. **Up** — `raw/` is yours: a file changed *here* since the last sync is uploaded, with
    `If-Match` of the last-seen hash. If it also changed *there*, yours is kept under
-   `.conflicts/<path>` and theirs lands in place. `todo.md` is the one two-way file outside
-   `raw/`; your ticks are merged onto the server's list.
-6. **Down** — everything else (`wiki/`, `index.md`, `log.md`, `CLAUDE.md`) is overwritten
-   from the server, and files the server no longer has are swept (dot paths excepted).
+   `.conflicts/<path>` and theirs lands in place. Nothing outside `raw/` goes up.
+6. **Down** — everything else (`wiki/`, `index.md`, `log.md`, `questions.md`, `todo.md`,
+   `CLAUDE.md`) is overwritten from the server, and files the server no longer has are swept (dot paths excepted).
 
 Hooks `sync.say(*parts)` and `sync.notify(cfg, kind, text)` are module attributes the tray
 app replaces; the CLI prints. Every request carries `User-Agent: Mindkeep/<version>` —
@@ -574,8 +577,6 @@ Three services in one project: `db` (Postgres), `backend`, `frontend`. The env f
 - No global cap on concurrent runs across bundles, and no fairness between teams.
 - The `oidc` adapter has only been exercised against a fake; a Keycloak check is owed.
   Clerk would be a third adapter in `providers/`, same shape.
-- The web Todo tab and the client still write `todo.md`; the guide now says a question is
-  answered through `raw/`. Whether those write paths go is an open decision.
 - Each hold retry opens a failed run row; a long outage leaves a few per hour in Activity.
 - `edit_file` is occasionally called with `edits` as a JSON string; the SDK rejects it and
   the model retries — a wasted turn.

@@ -235,38 +235,25 @@ def test_a_folder_that_went_missing_deletes_nothing(tmp_path, monkeypatch):
     assert not [c for c in calls if c.startswith("DELETE")]
 
 
-def test_answers_written_into_todo_md_go_back_up(tmp_path, monkeypatch):
-    """The point of keeping the questions in a file: you can work through them in the
-    synced folder with Claude Code, and the answers have to reach the server."""
+def test_the_lists_are_the_agents_and_never_go_up(tmp_path, monkeypatch):
+    """questions.md and todo.md come down like the wiki: a local edit is overwritten on the
+    next sync and nothing is pushed. A tick is made in the app."""
     calls: list[str] = []
-    cfg = fake_server(monkeypatch, tmp_path, {"todo.md": "stale"})
-    mindkeep.remember(cfg, {"todo.md": "stale"})
+    cfg = fake_server(monkeypatch, tmp_path, {"todo.md": "theirs", "questions.md": "theirs"})
+    mindkeep.remember(cfg, {"todo.md": "stale", "questions.md": "stale"})
 
     root = tmp_path / "mirror"
     root.mkdir(parents=True)
-    (root / "todo.md").write_text("- [x] answered locally\n", encoding="utf-8")
-
-    calls_from(monkeypatch, calls)
-    mindkeep.sync(cfg)
-
-    assert "PUT teams/T/bundles/default/files/todo.md" in calls
-
-
-def test_a_todo_only_the_server_changed_is_not_pushed_back(tmp_path, monkeypatch):
-    """The agent adding a question must not be mistaken for a local edit and reverted."""
-    calls: list[str] = []
-    cfg = fake_server(monkeypatch, tmp_path, {"todo.md": "new-on-the-server"})
-
-    root = tmp_path / "mirror"
-    root.mkdir(parents=True)
-    body = b"- [ ] as it was at the last sync\n"
-    (root / "todo.md").write_bytes(body)
-    mindkeep.remember(cfg, {"todo.md": mindkeep.hashlib.sha256(body).hexdigest()})
+    (root / "todo.md").write_text("- [x] ticked locally\n", encoding="utf-8")
+    (root / "questions.md").write_text("- [x] answered locally\n", encoding="utf-8")
 
     calls_from(monkeypatch, calls)
     mindkeep.sync(cfg)
 
     assert not [c for c in calls if c.startswith("PUT")]
+    assert (root / "todo.md").read_bytes() == b"{}" and (
+        root / "questions.md"
+    ).read_bytes() == b"{}"
 
 
 def uploads_into(monkeypatch, tree: dict[str, str], sink: list[str]) -> None:
@@ -434,31 +421,6 @@ def test_the_server_catches_the_race_the_tree_fetch_cannot_see(tmp_path, monkeyp
 
     assert (root / ".conflicts" / "raw" / "plan.md").read_bytes() == b"mine"
     assert server.files["raw/plan.md"] == b"theirs"
-
-
-def test_your_ticks_land_on_the_list_the_agent_added_to(tmp_path, monkeypatch):
-    """todo.md: the agent appended a question overnight; you ticked one and wrote an
-    answer under another. Both survive, the answer under its question."""
-    server = Server({"todo.md": b"# Todo\n\n- [ ] Which figure?\n- [ ] Who is Jane?\n"})
-    cfg = server.install(monkeypatch, tmp_path)
-    mindkeep.sync(cfg)
-    root = tmp_path / "mirror"
-
-    (root / "todo.md").write_bytes(
-        b"# Todo\n\n- [x] Which figure?\n- [ ] Who is Jane?\n  Jane is the CTO.\n"
-    )
-    server.files["todo.md"] = (
-        b"# Todo\n\n- [ ] Which figure?\n- [ ] Who is Jane?\n- [ ] Is the deck current?\n"
-    )
-    mindkeep.sync(cfg)
-
-    merged = (
-        "# Todo\n\n- [x] Which figure?\n- [ ] Who is Jane?\n  Jane is the CTO.\n"
-        "- [ ] Is the deck current?\n"
-    )
-    assert server.files["todo.md"].decode() == merged
-    assert (root / "todo.md").read_bytes().decode() == merged
-    assert not (root / ".conflicts").exists()
 
 
 def test_a_delete_of_a_file_rewritten_over_there_brings_theirs_back(tmp_path, monkeypatch):

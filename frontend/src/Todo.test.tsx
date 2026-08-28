@@ -5,10 +5,13 @@ import { vi } from "vitest";
 import { Todo } from "./Todo";
 
 let answer = [{ id: 0, done: false, text: "Which figure?", detail: "used 85%" }];
+const work = [{ id: 0, done: false, text: "Upload the pricing deck", detail: "" }];
 
 vi.mock("./api", () => ({
-  todos: vi.fn(async () => answer),
-  setTodo: vi.fn(async () => ({ done: true })),
+  questions: vi.fn(async () => answer),
+  tasks: vi.fn(async () => work),
+  setQuestion: vi.fn(async () => ({ done: true })),
+  setTask: vi.fn(async () => ({ done: true })),
   ask: vi.fn(async () => ({ reply: "done", changed: ["raw/x.md"] })),
 }));
 
@@ -30,4 +33,21 @@ test("survives its own list going empty", async () => {
 
   expect(host.textContent).toContain("all answered");
   expect(host.textContent).toContain("Nothing open");
+});
+
+/** Tasks are the other list: a checklist a person ticks, on the same tab. */
+test("tasks are ticked in place", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+
+  await act(async () => root.render(<Todo bundle="default" />));
+  const tab = [...host.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Tasks"));
+  await act(async () => tab!.click());
+  expect(host.textContent).toContain("Upload the pricing deck");
+
+  const box = host.querySelector("input[type=checkbox]") as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  await act(async () => box.click());
+  expect((host.querySelector("input[type=checkbox]") as HTMLInputElement).checked).toBe(true);
 });

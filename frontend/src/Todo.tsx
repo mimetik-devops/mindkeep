@@ -1,21 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ask, type Said, setTodo, type Todo as Item, todos } from "./api";
+import { ask, type Item, questions, type Said, setQuestion, setTask, tasks } from "./api";
 import { render } from "./okf";
 
 /**
- * One open question at a time, with the assistant that answers it.
+ * Two lists the agent keeps for people, on one tab.
  *
- * No list. A queue of questions you can browse is a queue you never finish — the card is
- * the whole screen, the count says how much is left, and the only moves are answer it or
- * skip it. Answering ticks it off and the next one takes its place.
+ * Questions need someone who knows: one at a time, with the assistant that gets the
+ * answer into the sources. No list to browse — a queue you can browse is a queue you
+ * never finish; the card is the whole screen, the count says how much is left, and the
+ * only moves are answer it or skip it. Tasks need someone who does: a plain checklist,
+ * ticked here.
  *
- * The conversation lives here and nowhere else: the server is a plain turn-taking
- * endpoint. Moving to another question loses the thread, which is the honest cost of not
- * having a conversations table yet.
+ * The conversation lives here and nowhere else: the server is a turn-taking endpoint.
+ * Moving to another question loses the thread, which is the honest cost of not having
+ * a conversations table yet.
  */
+const PANELS = ["Questions", "Tasks"] as const;
+type Panel = (typeof PANELS)[number];
+
 export function Todo({ bundle }: { bundle: string }) {
+  const [panel, setPanel] = useState<Panel>("Questions");
   const [items, setItems] = useState<Item[]>([]);
+  const [todo, setTodo] = useState<Item[]>([]);
   const [at, setAt] = useState(0);
   const [said, setSaid] = useState<Said[]>([]);
   const [draft, setDraft] = useState("");
@@ -25,8 +32,11 @@ export function Todo({ bundle }: { bundle: string }) {
   const foot = useRef<HTMLDivElement>(null);
 
   const refresh = () =>
-    todos(bundle)
-      .then(setItems)
+    Promise.all([questions(bundle), tasks(bundle)])
+      .then(([q, t]) => {
+        setItems(q);
+        setTodo(t);
+      })
       .catch((e) => setError(String(e)));
 
   useEffect(() => {
@@ -39,10 +49,11 @@ export function Todo({ bundle }: { bundle: string }) {
     // braces, not an expression body: an effect's return value is its cleanup, and a
     // scrollIntoView patched by an extension or polyfill returns one — React then
     // crashed calling it when the question left the screen
-    foot.current?.scrollIntoView({ behavior: "smooth" });
+    foot.current?.scrollIntoView?.({ behavior: "smooth" }); // jsdom has none
   }, [said, thinking]);
 
   const open = items.filter((i) => !i.done);
+  const pending = todo.filter((i) => !i.done);
   // answering removes one, so the index can outrun the list; wrap rather than dead-end
   const here = open.length ? at % open.length : 0;
   const question = open[here];
@@ -65,7 +76,7 @@ export function Todo({ bundle }: { bundle: string }) {
       const { reply, changed: touched } = await ask(bundle, question.text, next);
       setSaid([...next, { role: "assistant", content: reply }]);
       if (touched.length) setChanged((was) => [...new Set([...was, ...touched])]);
-      await refresh(); // it may have ticked this one off, or added another
+      await refresh(); // it may have ticked this one off, or added another, or a task
     } catch (e) {
       setError(String(e));
       setSaid(next); // keep what was typed; the exchange is only in this tab
@@ -77,7 +88,7 @@ export function Todo({ bundle }: { bundle: string }) {
   async function answered() {
     if (!question) return;
     try {
-      await setTodo(bundle, question.id, true);
+      await setQuestion(bundle, question.id, true);
       setSaid([]);
       setChanged([]);
       await refresh();
@@ -86,23 +97,77 @@ export function Todo({ bundle }: { bundle: string }) {
     }
   }
 
+  async function tick(item: Item, done: boolean) {
+    setError("");
+    try {
+      await setTask(bundle, item.id, done);
+      setTodo((all) => all.map((i) => (i.id === item.id ? { ...i, done } : i)));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   return (
     <div className="asking">
       <header className="asking-head">
-        <h1>Questions</h1>
-        <span className="left">
-          {open.length ? `${open.length} left` : "all answered"}
-          {open.length > 1 && <span className="soft"> · {here + 1} of {open.length}</span>}
-        </span>
+        <div className="filters">
+          {PANELS.map((p) => (
+            <button
+              key={p}
+              className="chipfilter"
+              aria-current={panel === p}
+              onClick={() => setPanel(p)}
+            >
+              {p}
+              <span className="soft"> {p === "Questions" ? open.length : pending.length}</span>
+            </button>
+          ))}
+        </div>
+        {panel === "Questions" && (
+          <span className="left">
+            {open.length ? `${open.length} left` : "all answered"}
+            {open.length > 1 && (
+              <span className="soft">
+                {" "}
+                · {here + 1} of {open.length}
+              </span>
+            )}
+          </span>
+        )}
       </header>
 
       {error && <div className="banner">{error}</div>}
 
-      {!question ? (
+      {panel === "Tasks" ? (
+        todo.length === 0 ? (
+          <p className="empty">
+            Nothing to do. When the agent finds something only a person can put right — a source
+            nobody cites, a draft to verify, a duplicate — it writes the task here.
+          </p>
+        ) : (
+          <ul className="tasks">
+            {todo.map((item) => (
+              <li key={item.id} className={item.done ? "done" : ""}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={item.done}
+                    onChange={(e) => tick(item, e.target.checked)}
+                  />
+                  <span>
+                    {item.text}
+                    {item.detail && <span className="meanwhile"> {item.detail}</span>}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : !question ? (
         <p className="empty">
-          Nothing open. When the agent hits something it cannot settle from the sources —
-          two documents disagreeing, a claim with nothing behind it — it writes the question
-          here and carries on.
+          Nothing open. When the agent hits something it cannot settle from the sources — two
+          documents disagreeing, a claim with nothing behind it — it writes the question here and
+          carries on.
         </p>
       ) : (
         <>
@@ -137,8 +202,8 @@ export function Todo({ bundle }: { bundle: string }) {
 
           {changed.length > 0 && (
             <p className="soft">
-              Rewritten and being re-ingested: {changed.join(", ")}. The pages catch up on
-              their own.
+              Rewritten and being re-ingested: {changed.join(", ")}. The pages catch up on their
+              own.
             </p>
           )}
 

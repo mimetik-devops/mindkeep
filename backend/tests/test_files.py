@@ -79,7 +79,13 @@ def page(client, tmp_path):
 
 def test_new_tenant_gets_one_seeded_bundle(client):
     assert client.get(f"{T}/bundles").json() == ["default"]
-    assert set(client.get(f"{B}/tree").json()) == {"CLAUDE.md", "index.md", "log.md", "todo.md"}
+    assert set(client.get(f"{B}/tree").json()) == {
+        "CLAUDE.md",
+        "index.md",
+        "log.md",
+        "questions.md",
+        "todo.md",
+    }
     assert 'okf_version: "0.2"' in client.get(f"{B}/files/index.md").text
 
 
@@ -302,11 +308,9 @@ def test_a_persons_change_is_in_the_history_as_it_happens(client, tmp_path):
     client.post(f"{B}/raw/deck.md", content=b"v1")
     client.put(f"{B}/files/raw/deck.md", content=b"v2")
     client.post(f"{B}/move", json={"source": "raw/deck.md", "target": "raw/papers/deck.md"})
-    client.put(f"{B}/files/todo.md", content=b"- [x] done\n")
 
     subjects = [str(c["subject"]) for c in history.commits(home)]
-    assert subjects[:4] == [
-        "answer todo.md",
+    assert subjects[:3] == [
         "move raw/deck.md -> raw/papers/deck.md",
         "edit raw/deck.md",
         "upload raw/deck.md",
@@ -315,7 +319,7 @@ def test_a_persons_change_is_in_the_history_as_it_happens(client, tmp_path):
     assert {"status": "A", "path": "wiki/half.md"} in left
     assert not [x for x in left if x["path"].startswith("raw/")]
     kinds = [e["kind"] for e in client.get(f"{B}/activity").json()]
-    assert kinds.count("people") == 4 and "pending" not in kinds
+    assert kinds.count("people") == 3 and "pending" not in kinds
 
 
 def test_a_source_waiting_its_turn_is_not_queued_twice(tmp_path, monkeypatch):
@@ -1410,28 +1414,34 @@ def test_an_upload_never_blocks_on_the_ingest_it_starts(client, tmp_path, monkey
     release.set()
 
 
-def test_questions_are_a_shared_list_neither_side_owns(client, ingested):
-    """todo.md is the third kind of file: the wiki agent writes it, the assistant ticks it
-    off, a person edits it in the synced folder — and changing it re-ingests nothing,
-    because it is a record about the knowledge rather than knowledge."""
-    written = "# Todo\n\n- [ ] Which figure is current, 85% or 92%?\n  Used 85% for now.\n"
-    assert client.put(f"{B}/files/todo.md", content=written.encode()).status_code == 200
-    assert ingested == []  # emphatically not a source
+def test_questions_and_tasks_are_two_lists_the_agent_keeps(client, tmp_path):
+    """questions.md needs someone who knows; todo.md needs someone who does. Both are the
+    agent's: read and ticked through their routes, never written through the file route.
+    A bundle from before the split had its questions in todo.md; they move over."""
+    from app import todos
+    from app.files import put_text
 
-    assert client.get(f"{B}/todos").json() == [
-        {
-            "id": 0,
-            "done": False,
-            "text": "Which figure is current, 85% or 92%?",
-            "detail": "Used 85% for now.",
-        }
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    put_text(home / "questions.md", "# Questions\n\n- [ ] Which figure?\n  Used 85% for now.\n")
+    put_text(home / "todo.md", "# Todo\n\n- [ ] Upload the pricing deck\n")
+    assert client.get(f"{B}/questions").json() == [
+        {"id": 0, "done": False, "text": "Which figure?", "detail": "Used 85% for now."}
     ]
-
+    assert client.get(f"{B}/todos").json()[0]["text"] == "Upload the pricing deck"
     assert client.post(f"{B}/todos/0", json={"done": True}).json() == {"done": True}
     assert client.get(f"{B}/todos").json()[0]["done"] is True
-    # ticking rewrites one checkbox and leaves every other byte alone
-    assert "Used 85% for now." in client.get(f"{B}/files/todo.md").text
-    assert client.post(f"{B}/todos/9", json={"done": True}).status_code == 404
+    assert "Used 85% for now." in (home / "questions.md").read_text(encoding="utf-8")
+    assert client.post(f"{B}/questions/9", json={"done": True}).status_code == 404
+    for name in todos.LISTS:
+        assert client.put(f"{B}/files/{name}", content=b"mine").status_code == 409
+
+    (home / "questions.md").unlink()
+    put_text(home / "todo.md", todos.OLD_EMPTY + "- [ ] Who is Jane?\n")
+    assert client.get(f"{B}/questions").json()[0]["text"] == "Who is Jane?"  # moved over
+    moved = (home / "questions.md").read_text(encoding="utf-8")
+    assert moved.startswith("# Questions") and moved.endswith("- [ ] Who is Jane?\n")
+    assert client.get(f"{B}/todos").json() == []
 
 
 def test_a_bundle_made_before_the_list_existed_gets_one(client, tmp_path):
