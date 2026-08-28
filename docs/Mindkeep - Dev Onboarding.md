@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `7c80733` on `main`. Everything here is checkable in
+*Written 2026-08-28 against commit `4b580e3` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -244,7 +244,9 @@ from run history, so a restart at 02:59 does not double-lint and a server down a
 lints when it comes back. Each bundle picks its hour in Settings (`bundle_setting`);
 `LINT_HOUR` is the default; hours are UTC. A lint reports (contradictions, orphans, stale
 drafts, uncited sources, misfiled pages, future-dated log entries), **fixes only broken
-source links** (moved vs. gone), and turns knowledge gaps into `todo.md` questions.
+source links** (moved vs. gone), and turns knowledge gaps into `todo.md` questions. When
+it finishes cleanly and the server finds pages outside their type's folder
+(`ingest.misfiled`), a reorganise run is queued behind it automatically.
 
 ### Graph and gaps
 
