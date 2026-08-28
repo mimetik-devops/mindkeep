@@ -1377,6 +1377,40 @@ does much the same — remove it. `app.yml` now runs on a `v*` tag or by hand an
 builds the installers; the client's `ruff check . && pytest -q` belongs in `ci.yml` as a
 third job beside backend and frontend, so one workflow answers "is main green".
 
+### 4.45 Open source under mimetik: GPL-3.0, and the terms for contributing (2026-08-28)
+
+Mindkeep goes out as an open-source project under mimetik, with a fully managed hosted
+version as the later paid option. Self-hosting stays first-class — docker compose, your own
+Postgres, volume and Anthropic key — and the framing is *we sell the operating, not the
+knowing*. Four things were settled to make that real, and the repository gained the files
+that say so: `LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`,
+`CODE_OF_CONDUCT.md`, the `DCO`, and `.github/` issue and pull-request templates.
+
+**The licence went out as AGPL-3.0 and was changed the same day to GPL-3.0.** The AGPL was
+proposed for protection: its section 13 is the one clause that reaches a competitor who runs
+a modified Mindkeep as a service, which is precisely the business being planned. Ruben chose
+the plain GPL instead — *"this is a marketing move anyways"* — and the reasoning is
+positioning rather than protection. GPL-3.0 is what developers read as open source without a
+second thought, while a good number of companies refuse AGPL by blanket policy, and those
+companies employ the developers who would point a coding agent at this. The cost is named
+rather than discovered later: the GPL is triggered by distribution, running a service is not
+distribution, so a competitor may host a modified Mindkeep and publish nothing. Reach was
+judged worth more than the moat. Relicensing was free only because mimetik is the sole
+copyright holder; contributions arrive under the DCO, so after the first outside one it
+would need every contributor's agreement.
+
+Rejected on the way: a source-available licence that forbids paid hosting outright — ELv2,
+FSL, BSL. Any of them would do what was originally wanted, and none of them may be called
+open source, because the Open Source Definition forbids restricting a field of endeavour.
+That is a definitional wall, not a gap in the market.
+
+**Contributions come in under the DCO, not a CLA** — `git commit -s`, nothing to sign. It
+documents provenance without deterring the drive-by fix; the price is that contributed code
+cannot be relicensed unilaterally later. **Vulnerabilities go to GitHub private advisories**,
+so no address is published or has to be watched, and the Code of Conduct uses the same
+private channel. **The repository stays at `mimetik-devops/mindkeep`**, so every URL
+written into those files holds.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every
