@@ -17,7 +17,17 @@ import pkgutil
 from functools import lru_cache
 from importlib.metadata import entry_points
 
-from app.connectors.base import Connector, ConnectorError, Field, Grant, Item, OAuth, Pull, lines
+from app.connectors.base import (
+    Connector,
+    ConnectorError,
+    Field,
+    Grant,
+    Item,
+    OAuth,
+    Pull,
+    lines,
+    rows_of,
+)
 
 GROUP = "mindkeep.connectors"
 
@@ -34,6 +44,7 @@ __all__ = [
     "Pull",
     "lines",
     "registry",
+    "rows_of",
 ]
 
 

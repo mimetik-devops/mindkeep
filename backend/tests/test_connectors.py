@@ -18,7 +18,7 @@ from app.files import tenant_id
 from tests.test_files import B, T
 
 C = f"{B}/connections"
-W = "raw/connectors/fake/x"  # where the fake connection's files land: kind, then its name
+W = "raw/connectors/fake"  # where the fake connection's files land: its kind
 
 
 class Fake(Connector):
@@ -100,8 +100,14 @@ def test_a_plugin_is_found_through_its_entry_point_and_listed_with_the_built_ins
     kinds = {c["kind"]: c for c in client.get(f"{T}/connectors").json()}
     assert "website" in kinds and kinds["website"]["available"]
     assert kinds["website"]["auth"] == "none" and kinds["website"]["grant_fields"] == []
-    assert kinds["website"]["fields"][0]["name"] == "url"
-    assert kinds["website"]["fields"][0]["multiline"] is False
+    sites = kinds["website"]["fields"][0]
+    assert sites["name"] == "sites" and [r["name"] for r in sites["rows"]] == [
+        "url",
+        "pages",
+        "every",
+    ]
+    assert sites["rows"][2]["options"][0] == ["15", "every 15 minutes"]
+    assert kinds["website"]["tick"] == 15 and kinds["website"]["folder"] == "raw/connectors/website"
     assert kinds["fake"]["auth"] == "token"
     assert kinds["fake"]["grant_fields"] == [
         {
@@ -111,6 +117,8 @@ def test_a_plugin_is_found_through_its_entry_point_and_listed_with_the_built_ins
             "help": "",
             "required": True,
             "multiline": False,
+            "options": [],
+            "rows": [],
         }
     ]
 
@@ -148,7 +156,7 @@ def test_a_connection_needs_the_callers_grant_of_the_right_kind(client, fake):
     assert made.json()["grant"] == {"id": mine, "label": "Ada's workspace"}
     assert client.get("/grants").json()[0]["uses"] == 1
     # a kind that needs no grant refuses one
-    site = {"kind": "website", "config": {"url": "https://x.test/"}, "grant": mine}
+    site = {"kind": "website", "config": {"sites": "[]"}, "grant": mine}
     assert client.post(C, json=site).status_code == 400
 
 
@@ -232,16 +240,19 @@ def test_a_revoked_grant_leaves_the_connection_standing_and_says_so(client, fake
     assert client.get(C).json()[0]["error"] == ""
 
 
-def test_the_connector_names_the_connection_and_a_bad_interval_makes_nothing(client, fake):
+def test_the_connector_names_the_connection_and_a_bundle_has_one_of_a_kind(client, fake):
     mine = grant(client)["id"]
     assert connect(client, every=1, grant_id=mine).status_code == 400
     assert client.get(C).json() == []
     # the name is the connector's, from the config — the default: the first plain field
-    made = connect(client, space="../etc/x", grant_id=mine)
-    assert made.status_code == 201 and made.json()["name"] == "etc/x"  # made safe
-    assert made.json()["folder"] == "raw/connectors/fake/etc/x"
-    # the same thing twice is refused
-    assert connect(client, space="../etc/x", grant_id=mine).status_code == 409
+    made = connect(client, space="docs", grant_id=mine)
+    assert made.status_code == 201 and made.json()["name"] == "docs"
+    assert made.json()["folder"] == "raw/connectors/fake"
+    # a second of the kind is refused: the form holds the plural
+    assert connect(client, space="other", grant_id=mine).status_code == 409
+    # the name follows the settings
+    cid = made.json()["id"]
+    assert client.put(f"{C}/{cid}", json={"config": {"space": "other"}}).json()["name"] == "other"
 
 
 def test_secrets_in_a_connections_config_are_sealed_and_kept_when_the_marker_comes_back(
@@ -274,7 +285,7 @@ def test_a_failing_pull_is_the_connections_error_not_the_servers(client, fake, t
     listed = client.get(C).json()[0]
     assert listed["error"] == "the workspace is gone" and listed["synced_at"]
     assert not (tmp_path / tenant_id("alice") / "default" / W).exists()
-    # a second connection to the same thing is refused
+    # a second of the kind is refused
     assert connect(client, grant_id=mine).status_code == 409
 
 
@@ -367,24 +378,35 @@ def fake_fetch(url: str) -> tuple[bytes, str]:
     return SITE[url]
 
 
-def test_a_website_is_one_connection_named_after_it_kept_as_markdown_within_its_depth(
+def sites(*rows: dict) -> dict:
+    return {"kind": "website", "config": {"sites": json.dumps(list(rows))}}
+
+
+def test_one_website_connection_holds_the_sites_each_with_its_own_depth_and_clock(
     client, monkeypatch, tmp_path
 ):
     monkeypatch.setattr(connections, "background", lambda fn, *a: fn(*a))
     monkeypatch.setattr("app.connectors.website.fetch", fake_fetch)
     home = tmp_path / tenant_id("alice") / "default"
-    body = {"kind": "website", "config": {"url": "https://site.test/", "pages": ""}, "every": 1440}
-    made = client.post(C, json=body)
+    made = client.post(
+        C,
+        json=sites(
+            {"url": "https://site.test/", "pages": "", "every": "1440"},
+            {"url": "https://other.test/", "pages": "1", "every": "15"},
+        ),
+    )
     assert made.status_code == 201, made.text
-    # named by the connector — the host — and filed under its kind
-    assert made.json()["name"] == "site.test" and made.json()["every"] == 1440
-    folder = home / "raw/connectors/website/site.test"
+    # named by the connector — the hosts — filed under its folder, on the plumbing's tick
+    assert made.json()["name"] == "site.test, other.test" and made.json()["every"] == 15
+    assert made.json()["folder"] == "raw/connectors/website"
+    folder = home / "raw/connectors/website"
     assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.md")) == [
-        "about.md",
-        "docs.md",
-        "index.md",
+        "other.test/index.md",
+        "site.test/about.md",
+        "site.test/docs.md",
+        "site.test/index.md",
     ]
-    page = (folder / "index.md").read_text(encoding="utf-8")
+    page = (folder / "site.test/index.md").read_text(encoding="utf-8")
     # frontmatter from the page's own head; links absolute; noise gone; structure kept
     head = '---\ntitle: "Site"\nsource: https://site.test/\ndescription: "A test site"\n---\n'
     assert page.startswith(head)
@@ -392,53 +414,64 @@ def test_a_website_is_one_connection_named_after_it_kept_as_markdown_within_its_
     assert "[the docs](https://site.test/docs/)" in page
     assert "x()" not in page and "foot" not in page and "Docs\n" not in page.split("# Hello")[0]
     # the same site only, fragments dropped, a linked PDF is not a page
-    assert not (folder / "deck.pdf").exists()
-    assert client.get(C).json()[0]["summary"] == "+3 ~0 -0"
-    # the same site twice is refused; another site is its own connection, its own depth
-    assert client.post(C, json=body).status_code == 409
-    other = {"kind": "website", "config": {"url": "https://other.test/", "pages": "1"}}
-    assert client.post(C, json=other).status_code == 201
-    assert (home / "raw/connectors/website/other.test/index.md").is_file()
-    assert [c["name"] for c in client.get(C).json()] == ["site.test", "other.test"]
+    assert not (folder / "site.test/deck.pdf").exists()
+    assert client.get(C).json()[0]["summary"] == "+4 ~0 -0"
+    cid = client.get(C).json()[0]["id"]
 
-    # a section: the address's path names it, and bounds the crawl
-    section = {"kind": "website", "config": {"url": "https://site.test/docs/", "pages": ""}}
-    made = client.post(C, json=section)
-    assert made.status_code == 201 and made.json()["name"] == "site.test/docs"
-    docs = home / "raw/connectors/website/site.test/docs"
-    assert sorted(p.name for p in docs.rglob("*.md")) == ["index.md"]  # /about is outside
+    # the next tick: neither site is due, so nothing is fetched and nothing changes
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "app.connectors.website.fetch", lambda url: (calls.append(url), fake_fetch(url))[1]
+    )
+    client.post(f"{C}/{cid}/sync")
+    assert calls == [] and client.get(C).json()[0]["summary"] == "+0 ~0 -0"
 
-    # the limit is checked before anything is saved; so is the address
-    bad = {"kind": "website", "config": {"url": "https://other.test/", "pages": "0"}}
-    assert client.post(C, json=bad).status_code == 400
-    ftp = {"kind": "website", "config": {"url": "ftp://site.test", "pages": ""}}
-    assert "http" in client.post(C, json=ftp).json()["detail"]
+    # a second website connection is refused: the list is the place
+    assert client.post(C, json=sites({"url": "https://other.test/"})).status_code == 409
+
+    # dropping a site from the list removes its pages; the other site is left alone
+    edited = client.put(f"{C}/{cid}", json=sites({"url": "https://site.test/", "every": "15"}))
+    assert edited.status_code == 200 and edited.json()["name"] == "site.test"
+    client.post(f"{C}/{cid}/sync")
+    assert not (folder / "other.test").exists()
+    assert (folder / "site.test/about.md").exists()
+
+    # a section: the address's path bounds its crawl
+    client.put(f"{C}/{cid}", json=sites({"url": "https://site.test/docs/", "every": "15"}))
+    client.post(f"{C}/{cid}/sync")
+    assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*.md")) == [
+        "site.test/docs.md"
+    ]
+
+    # the list is checked before anything is saved
+    for bad in (
+        sites({"url": "https://site.test/", "pages": "0"}),
+        sites({"url": "ftp://site.test"}),
+        sites({"url": "https://site.test/", "every": "7"}),
+        sites({"url": "https://site.test/"}, {"url": "https://site.test/"}),
+        {"kind": "website", "config": {"sites": "[]"}},
+    ):
+        assert client.put(f"{C}/{cid}", json=bad).status_code == 400, bad
 
 
 def test_an_address_that_is_not_a_page_is_kept_as_the_file_it_is(client, monkeypatch, tmp_path):
     monkeypatch.setattr(connections, "background", lambda fn, *a: fn(*a))
     monkeypatch.setattr("app.connectors.website.fetch", fake_fetch)
     home = tmp_path / tenant_id("alice") / "default"
-    body = {"kind": "website", "config": {"url": "https://site.test/deck.pdf"}}
-    made = client.post(C, json=body)
-    assert made.status_code == 201 and made.json()["name"] == "site.test/deck.pdf"
-    deck = home / "raw/connectors/website/site.test/deck.pdf/deck.pdf"
+    made = client.post(C, json=sites({"url": "https://site.test/deck.pdf"}))
+    assert made.status_code == 201, made.text
+    deck = home / "raw/connectors/website/site.test/deck.pdf"
     assert deck.read_bytes() == b"%PDF-1.4 fake"
 
 
 def test_page_paths_and_file_names_come_from_the_address():
-    from app.connectors.website import canonical, file_path, page_path, site_name
+    from app.connectors.website import canonical, file_path, page_path
 
-    root = "https://a.test/"
-    assert page_path("https://a.test/", root) == "index.md"
-    assert page_path("https://a.test/docs/setup.html", root) == "docs/setup.md"
-    assert page_path("https://a.test/docs", root) == "docs.md"
-    assert page_path("https://a.test/docs", "https://a.test/docs") == "index.md"
-    assert page_path("https://a.test/docs/setup", "https://a.test/docs") == "setup.md"
+    assert page_path("https://a.test/") == "a.test/index.md"
+    assert page_path("https://a.test/docs/setup.html") == "a.test/docs/setup.md"
+    assert page_path("https://a.test/docs") == "a.test/docs.md"
     assert canonical("https://a.test/docs/#top") == "https://a.test/docs"
     assert canonical("https://a.test/") == "https://a.test/"
-    assert site_name("https://a.test/") == "a.test"
-    assert site_name("https://a.test/docs/") == "a.test/docs"
-    assert file_path("https://a.test/", "text/csv") == "a.test.csv"
-    assert file_path("https://a.test/data/export", "application/json") == "export.json"
-    assert file_path("https://a.test/deck.pdf", "application/pdf") == "deck.pdf"
+    assert file_path("https://a.test/", "text/csv") == "a.test/a.test.csv"
+    assert file_path("https://a.test/data/export", "application/json") == "a.test/export.json"
+    assert file_path("https://a.test/deck.pdf", "application/pdf") == "a.test/deck.pdf"

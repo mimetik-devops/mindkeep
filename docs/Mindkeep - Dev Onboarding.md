@@ -84,7 +84,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
   todo.md         tasks for a person, found by the agent — for someone who does
   raw/            the owner's documents, under their own names. The only human-written half.
     notes/<person>/…   findings contributed by local agents (see "Notes")
-    connectors/<kind>/<name>/…   what a connection pulls from a third-party source (see "Connectors")
+    connectors/<kind>/…   what a connection pulls from a third-party source (see "Connectors")
   wiki/           everything the agent wrote, filed by type:
     people/  companies/  projects/  concepts/  meetings/  summaries/ …
   .git/           history (hidden from every listing, never synced)
@@ -95,7 +95,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 | File | Written by | Notes |
 |---|---|---|
 | `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
-| `raw/connectors/<kind>/<name>/**` | the connection's sync | a mirror of the source: hand edits and deletes are put back at the next sync |
+| `raw/connectors/<kind>/**` | the connection's sync | a mirror of the source: hand edits and deletes are put back at the next sync |
 | `wiki/**` | the ingest/lint agent; a person may edit an existing page in the app | a page edit is a commit, never an ingest; the next ingest of a source the page cites may revise it — history keeps their version. Making pages stays the agent's |
 | `log.md` | the ingest/lint agent only | its own account of every run |
 | `index.md` | the server (`index.py`), after every run and undo | built from the pages' frontmatter; the agent's tools refuse it |
@@ -300,9 +300,8 @@ settings, secrets and schedule (`app/connections.py`): "the team wiki in Notion"
 pricing sheet at this URL". Everything a connector does not have to do is the plumbing's,
 the same for every connector:
 
-- **Where files land.** Under `raw/connectors/<kind>/<name>/` — the name is the connector's
-  (`name(config)`: a website is its host and path, a Notion connection its page), never
-  typed by a person, unique within the bundle — through the same road an upload
+- **Where files land.** Under `raw/connectors/<folder>/` — the connector's `folder`, its kind
+  unless it says — through the same road an upload
   takes — `raw_path` for safe names, a scoped commit (`sync <name>: +a ~c -r`), an ingest
   queued per changed file. The connection's folder is the connection's (**mirror
   semantics**): a file in it edited, deleted or moved out of band — the web app, the
@@ -324,10 +323,15 @@ the same for every connector:
   people read — the person put their credential to work for that bundle. Deleting a
   grant never cascades: connections that used it keep their rows and files and report
   *the sign-in this connection used is gone* at their next sync, until given another.
-- **One connection per thing.** A connection's `fields` are its scope, and `every` its
-  schedule: one website, one Notion page tree, each with its own depth and frequency. A
-  token is entered once regardless — it is the person's grant, not the connection's. A
-  field may still be `multiline` (a list, one per line) where a connector wants one.
+- **One connection of a kind per bundle; the form holds the plural.** A connection's
+  `fields` are its scope. A field may be `rows` — a list of rows, each with sub-fields
+  (the sites of a website connection: address, depth, frequency), sent as JSON — or
+  `multiline` (a list, one per line), or have `options` (a choice). A connector that
+  keeps its own clock (each site on its own frequency) sets `tick` — minutes — and the
+  plumbing lets it look that often, with no interval on the connection; it decides what
+  is due, remembers it in its cursor, and returns `complete=False` with only what changed.
+  The connector `name(config)`s the connection — the hosts of a website connection —
+  never a person; the name follows the settings.
 - **Secrets.** Fields the connector marks `secret` are Fernet-encrypted at rest
   (`app/vault.py`, key derived from `DEVICE_SECRET`), never sent to a browser (a marker
   says one is set; the marker sent back means "keep it"), tried by the connector's `check`
@@ -371,9 +375,9 @@ backend image that names its class under the entry-point group `mindkeep.connect
 (`[project.entry-points."mindkeep.connectors"] notion = "mindkeep_notion:NotionConnector"`).
 Both show up in `GET /teams/{t}/connectors` on the next start; a plugin with a built-in's
 kind replaces it. `app/connectors/website.py` is the worked example and the first real
-connector: the page at an address and the pages it links to on the same site — under the
-address's path when it has one, so `x.com/docs` is that section — up to `pages` (20
-unless said), each kept as **Markdown** — whole-page HTML→Markdown
+connector: a list of sites, each the page at an address and the pages it links to on the
+same site — under the address's path when it has one, so `x.com/docs` is that section —
+up to its own `pages` (20 unless said) on its own frequency, each kept as **Markdown** — whole-page HTML→Markdown
 (`markdownify`; scripts, styles, nav and footer dropped; links made absolute; `title`,
 `source` and `description` up top), not readability-style extraction, which drops the
 headings and lists of any page that is not an article. An address that is not HTML — a
@@ -503,7 +507,7 @@ everything else, mono for paths. The header and the login page are the site's cl
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Re-ingest* (a clean run is skipped by the queue; this is the one way to ask for it), *Edit* on a wiki page or a markdown source |
 | `Grants.tsx` | Settings → Account: *Connectors* — every connector and what it needs (none, a token, a provider sign-in not yet possible), your sign-ins per connector with how many connections use each, add (the connector's `grant_fields`) and remove |
-| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields` — no name: the connector names it — a `multiline` field as a textarea, a sign-in picked from yours), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
+| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields` — no name: the connector names it — a `rows` field as a small table with *add another*, a `multiline` field as a textarea, no interval when the connector ticks, a sign-in picked from yours; a connector already connected is not offered again), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
 | `Editor.tsx` | the WYSIWYG editor: Milkdown's Crepe (remark in, remark out — footnotes, tables and fences round-trip), loaded lazily on *Edit*. Frontmatter is kept aside verbatim by `forEditing`; saves carry `If-Match` (sha256 of the text as read) and a 412 keeps the editor open |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
 | `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |

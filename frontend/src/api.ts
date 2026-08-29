@@ -380,6 +380,10 @@ export type ConnectorField = {
   required: boolean;
   /** a list, one per line */
   multiline: boolean;
+  /** a choice: [value, label] pairs */
+  options: [string, string][];
+  /** a list of rows, each with these sub-fields, sent back as JSON */
+  rows: ConnectorField[];
 };
 /** A connector the server has: what a person can set up. `auth` says whether it needs a
  * sign-in — `grant_fields` is the form for a token; `available` is false for one whose
@@ -390,6 +394,10 @@ export type ConnectorKind = {
   blurb: string;
   auth: "none" | "token" | "oauth2";
   available: boolean;
+  /** where its files land in the bundle */
+  folder: string;
+  /** minutes, when the connector keeps its own clock — then a connection has no interval */
+  tick: number;
   fields: ConnectorField[];
   grant_fields: ConnectorField[];
 };

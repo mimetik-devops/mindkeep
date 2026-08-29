@@ -21,6 +21,7 @@ anyone else's is a Python package that names its class under the entry-point gro
 `mindkeep.connectors` (see `app/connectors/__init__.py`).
 """
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
@@ -33,7 +34,10 @@ class ConnectorError(Exception):
 @dataclass(frozen=True)
 class Field:
     """One thing a person fills in. `secret` values are encrypted at rest and never sent
-    back to the browser; `multiline` ones are a list, one item per line."""
+    back to the browser; `multiline` ones are a list, one item per line; `options` makes
+    it a choice; `rows` makes it a list of rows, each with these sub-fields — the sites of
+    a website connection, each with its own depth and frequency — stored as JSON.
+    Sub-fields are never secret: a credential belongs in a grant."""
 
     name: str
     label: str
@@ -41,6 +45,22 @@ class Field:
     help: str = ""
     required: bool = True
     multiline: bool = False
+    options: tuple[tuple[str, str], ...] = ()  # (value, label)
+    rows: tuple["Field", ...] = ()
+
+
+def rows_of(config: dict[str, str], name: str) -> list[dict[str, Any]]:
+    """A rows field's value: the list of rows, from the JSON the form sent."""
+    raw = config.get(name, "").strip()
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except ValueError as e:
+        raise ConnectorError(f"{name}: not a list") from e
+    if not isinstance(value, list) or not all(isinstance(r, dict) for r in value):
+        raise ConnectorError(f"{name}: not a list")
+    return value
 
 
 @dataclass(frozen=True)
@@ -118,15 +138,20 @@ class Connector:
     auth: ClassVar[Literal["none", "token", "oauth2"]] = "none"
     grant_fields: ClassVar[tuple[Field, ...]] = ()
     oauth: ClassVar[OAuth | None] = None
+    # where a connection's files land: raw/connectors/<folder>/. The kind unless said. A
+    # bundle has one connection of a kind — the connector's form holds the plural.
+    folder: ClassVar[str] = ""
+    # a connector that keeps its own clock — the sites of a website connection, each on
+    # its own frequency — says how often the plumbing should let it look: minutes. Then
+    # the connection has no interval of its own.
+    tick: ClassVar[int] = 0
 
     def name(self, config: dict[str, str]) -> str:
-        """What a connection is called, and the folder it writes under
-        `raw/connectors/<kind>/` — from its config, never typed by a person: a website
-        is its host, a Notion connection its page. Unique within a bundle, so two
-        connections of one kind to the same thing are refused. The default is the first
-        plain field's value, which is right more often than not."""
+        """What a connection is called, from its config, never typed by a person: the
+        hosts of a website connection, the pages of a Notion one. The default is the
+        first plain field's value, which is right more often than not."""
         for f in self.fields:
-            if not f.secret and config.get(f.name, "").strip():
+            if not f.secret and not f.rows and config.get(f.name, "").strip():
                 return config[f.name].strip()
         return self.title
 

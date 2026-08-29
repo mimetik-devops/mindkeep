@@ -5,8 +5,8 @@ against what the connection wrote last time (`ConnectorItem`, one row per file, 
 the source's own id), writes only that, commits it as the connection's change, and queues
 the changed sources for ingest — the same road an upload takes.
 
-**Mirror semantics.** The folder a connection writes — `raw/connectors/<kind>/<name>/` —
-is the connection's.
+**Mirror semantics.** The folder a connection writes — `raw/connectors/<folder>/`, the
+kind unless the connector says — is the connection's.
 A file in it that someone edits, deletes or moves out of band (the web app, the desktop
 client, whose raw/ syncs both ways) is put back at the next sync; the person's version is
 in the history, like a wiki page the agent revised. One rule, no tombstones, and the
@@ -56,9 +56,10 @@ def due(row: Connection, moment: datetime) -> bool:
 
 
 def folder(row: Connection) -> str:
-    """Where this connection's files live, relative to the bundle: under its kind, then
-    the name the connector gave it."""
-    return f"raw/connectors/{row.kind}/{raw_path(row.name)}"
+    """Where this connection's files live, relative to the bundle: the connector's
+    folder, its kind unless it says otherwise."""
+    connector = registry().get(row.kind)
+    return f"raw/connectors/{(connector.folder if connector else '') or row.kind}"
 
 
 def run(home: Path, connection_id: str) -> str:
@@ -150,10 +151,11 @@ def apply(home: Path, s, row: Connection, pull) -> str:  # type: ignore[no-untyp
             )
             added.append(rel)
 
+    # an id both written and named as removed stays: what was written is the newer word
     gone = (
         [rid for rid in known if rid not in seen]
         if pull.complete
-        else [rid for rid in pull.removed if rid in known]
+        else [rid for rid in pull.removed if rid in known and rid not in seen]
     )
     for rid in gone:
         old = known[rid]

@@ -1684,20 +1684,25 @@ in first — Settings → Account*, or *needs a sign-in Mindkeep cannot do yet*.
 shows a *Sign-in* choice for a connector that needs one (yours of that kind, the first
 preselected), a textarea for a multiline field. A row says *as Ada's workspace*.
 
-### 4.54 One site per connection, named by the connector (2026-08-30)
+### 4.54 One website connection, its sites each with their own depth and clock (2026-08-30)
 
 Ruben: the website connector needs settings per site — depth and frequency — true
 multi-address support; and the folder name should not be configurable, the connector
-should fix it. With sign-ins being the person's, there was nothing left for one
-connection to hold several sites for, so the multiline *Addresses* of §4.53 goes the
-same day: one site per connection, each with its own *Pages at most* and *Check for
-changes* — the two settings a connection already had. The contract gains `name(config)`:
-what a connection is called, from its config, never typed — the default is the first
-plain field's value; a website is its host, and its path when the address has one, which
-also bounds the crawl to that section (`x.com/docs` follows links under `/docs` only).
-The plumbing files a connection under `raw/connectors/<kind>/<name>/` — the kind is the
-plumbing's, the name the connector's — and refuses the same thing twice. The form loses
-its *Name* field; the row shows the name the connector gave.
+should fix it. A first reading made each site its own connection; the ask was the other
+way round: one connection holding the sites, each configurable on its own. So the contract
+gains two things. A `Field` may be `rows`: a list of rows, each with sub-fields — the
+website's `sites`: address, pages at most, check for changes (an `options` choice) — sent
+as JSON and drawn by the app as a small table with *add another*. And a connector may
+keep its own clock: `tick` (minutes) is how often the plumbing lets it look, and then the
+connection has no interval of its own; the website connector ticks every quarter hour,
+pulls only the sites that are due, remembers in its cursor when each was last pulled and
+which pages it produced, and returns `complete=False` with only what changed — so a site
+that shrank or was dropped from the list has its pages removed, and an id both written
+and named as removed stays (a section replacing its site). The folder is the connector's
+(`folder`, its kind unless it says): `raw/connectors/website/<host>/…`. A bundle has one
+connection of a kind — the form holds the plural, the picker says *already connected —
+edit it* — and the connector `name(config)`s it, never a person: the hosts, joined. The
+migration for grants also swaps the connection's uniqueness from name to kind.
 
 ## 5. Open questions and known gaps
 

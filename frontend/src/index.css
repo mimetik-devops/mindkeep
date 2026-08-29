@@ -587,6 +587,40 @@ button:focus-visible {
   opacity: 0.55;
   cursor: default;
 }
+/* a rows field: one line per row, the sub-fields across, remove at the end */
+.connection-form .field.stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+.connection-form .rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.connection-form .rows .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.connection-form .rows input,
+.connection-form .rows select {
+  min-width: 0;
+  padding: 8px 11px;
+  border: 1.2px solid var(--line);
+  border-radius: 8px;
+  background: var(--cream);
+  font-size: 13px;
+  color: var(--ink);
+}
+.connection-form .rows input:first-child {
+  flex: 2 1 200px;
+}
+.connection-form .rows input {
+  flex: 1 1 80px;
+}
+.connection-form .rows .more {
+  align-self: center;
+}
 .connection-form .field textarea {
   min-width: 200px;
   padding: 8px 11px;

@@ -3,7 +3,7 @@
 A *connector* is code — the `url` built-in, a Notion plugin (`app/connectors/`). A
 *connection* is one of them set up on one bundle with its own settings, secrets and
 schedule: "the team wiki in Notion", "the pricing sheet at this URL". Its files land under
-`raw/connectors/<kind>/<name>/` and are kept in step by `syncing.py`.
+`raw/connectors/<folder>/` and are kept in step by `syncing.py`.
 
 Managing connections is the `bundles` permission — they hold credentials and decide what
 flows into the wiki; owners and admins. Asking for a sync now is `write`.
@@ -25,7 +25,7 @@ from app import grants, syncing, vault
 from app.auth import CurrentUser
 from app.connectors import ConnectorError, registry
 from app.db import Connection, Grant, session
-from app.files import Bundle, Manager, Writer, raw_path, record
+from app.files import Bundle, Manager, Writer, record
 from app.ingest import enqueue, pages_citing
 
 log = logging.getLogger(__name__)
@@ -64,6 +64,8 @@ def catalog() -> list[dict[str, object]]:
             "blurb": c.blurb,
             "auth": c.auth,
             "available": c.auth != "oauth2",
+            "folder": f"raw/connectors/{c.folder or c.kind}",
+            "tick": c.tick,
             "fields": [_field(f) for f in c.fields],
             "grant_fields": [_field(f) for f in c.grant_fields],
         }
@@ -79,6 +81,8 @@ def _field(f: Any) -> dict[str, object]:
         "help": f.help,
         "required": f.required,
         "multiline": f.multiline,
+        "options": [list(o) for o in f.options],
+        "rows": [_field(r) for r in f.rows],
     }
 
 
@@ -170,7 +174,8 @@ def add_connection(
 ) -> dict[str, object]:
     """Set a connection up: the scope is tried first (the connector's `check`), the
     connector names it, then the row is made and its first sync started. Nobody types a
-    name: it is the folder, and the connector knows what the thing is called."""
+    name — the connector knows what the thing is called — and a bundle has one connection
+    of a kind: its form holds the plural, each item with its own settings."""
     connector = registry().get(new.kind)
     if connector is None:
         raise HTTPException(404, f"no connector of kind {new.kind}")
@@ -182,18 +187,18 @@ def add_connection(
         grant = _grant_for(s, connector, user, new.grant)
         _checked_with(connector, given, grant)
         try:
-            name = raw_path(connector.name(given))[:80]
+            name = connector.name(given)[:80]
         except ConnectorError as e:
             raise HTTPException(400, str(e)) from e
         taken = s.scalar(
             select(Connection).where(
                 Connection.tenant == tenant,
                 Connection.bundle == bundle,
-                Connection.name == name,
+                Connection.kind == new.kind,
             )
         )
         if taken:
-            raise HTTPException(409, f"this bundle is already connected to {name}")
+            raise HTTPException(409, f"{connector.title} is already connected — edit it")
         row = Connection(
             id=secrets.token_hex(16),
             tenant=tenant,
@@ -203,7 +208,7 @@ def add_connection(
             config=vault.seal(given, connector),
             grant_id=grant.id if grant else None,
             cursor="{}",
-            every=_every(new.every),
+            every=connector.tick or _every(new.every),
             enabled=True,
             created_by=user,
             created_at=datetime.now(UTC),
@@ -219,7 +224,7 @@ def add_connection(
 def update_connection(
     home: Bundle, connection_id: str, user: CurrentUser, _: Manager, patch: ConnectionPatch
 ) -> dict[str, object]:
-    """Settings, secrets and the sign-in change; the name does not — it is the folder. A
+    """Settings, secrets and the sign-in change, and the name follows the settings. A
     secret sent back as the marker is kept as it was; a changed config is tried before it
     is saved. A new sign-in has to be the caller's own."""
     with session() as s:
@@ -235,7 +240,8 @@ def update_connection(
             merged = vault.merge(given, row.config, connector)
             _checked_with(connector, merged, grant)
             row.config = vault.seal(merged, connector)
-        if patch.every is not None:
+            row.name = connector.name(merged)[:80]
+        if patch.every is not None and not connector.tick:
             row.every = _every(patch.every)
         if patch.enabled is not None:
             row.enabled = patch.enabled

@@ -48,13 +48,28 @@ const blank = (kind: string, grant = ""): Form => ({
 });
 
 /** Why a connector cannot be picked right now, or "" when it can. */
-function blocked(k: ConnectorKind, grants: Grant[]): string {
+function blocked(k: ConnectorKind, grants: Grant[], rows: Connection[]): string {
   if (!k.available) return "needs a sign-in Mindkeep cannot do yet";
+  if (rows.some((r) => r.kind === k.kind)) return "already connected — edit it";
   if (k.auth !== "none" && !grants.some((g) => g.kind === k.kind)) {
     return "sign in first — Settings → Account → Connectors";
   }
   return "";
 }
+
+type Row = Record<string, string>;
+
+/** A rows field's value: the JSON the form keeps, as rows — an empty one to start. */
+function rowsOf(value: string, f: ConnectorField): Row[] {
+  try {
+    const parsed = value ? (JSON.parse(value) as Row[]) : [];
+    return parsed.length ? parsed : [blankRow(f)];
+  } catch {
+    return [blankRow(f)];
+  }
+}
+const blankRow = (f: ConnectorField): Row =>
+  Object.fromEntries(f.rows.map((r) => [r.name, r.options.length ? r.help : ""]));
 
 /**
  * A bundle's connections: third-party sources pulled on schedule. The catalog of
@@ -188,6 +203,60 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
   const input = (f: ConnectorField) => {
     const value = form.config[f.name] ?? "";
     const change = (v: string) => setForm({ ...form, config: { ...form.config, [f.name]: v } });
+    if (f.rows.length) {
+      const rows = rowsOf(value, f);
+      const set = (next: Row[]) => change(JSON.stringify(next));
+      return (
+        <div className="rows">
+          {rows.map((row, i) => (
+            <div className="row" key={i}>
+              {f.rows.map((col) =>
+                col.options.length ? (
+                  <select
+                    key={col.name}
+                    aria-label={`${col.label} ${i + 1}`}
+                    title={col.label}
+                    value={row[col.name] ?? ""}
+                    onChange={(e) =>
+                      set(rows.map((r, j) => (j === i ? { ...r, [col.name]: e.target.value } : r)))
+                    }
+                  >
+                    {col.options.map(([v, label]) => (
+                      <option key={v} value={v}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    key={col.name}
+                    aria-label={`${col.label} ${i + 1}`}
+                    title={col.label}
+                    placeholder={col.label + (col.help ? ` — ${col.help}` : "")}
+                    value={row[col.name] ?? ""}
+                    onChange={(e) =>
+                      set(rows.map((r, j) => (j === i ? { ...r, [col.name]: e.target.value } : r)))
+                    }
+                  />
+                ),
+              )}
+              <button
+                type="button"
+                className="more"
+                aria-label={`Remove ${i + 1}`}
+                disabled={rows.length === 1}
+                onClick={() => set(rows.filter((_, j) => j !== i))}
+              >
+                remove
+              </button>
+            </div>
+          ))}
+          <button type="button" className="more" onClick={() => set([...rows, blankRow(f)])}>
+            add another
+          </button>
+        </div>
+      );
+    }
     if (f.multiline) {
       return (
         <textarea
@@ -270,6 +339,7 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
                       ? `${row.summary} · synced ${when(row.synced_at)}`
                       : "never synced"}
                 {row.enabled &&
+                  !kinds.find((k) => k.kind === row.kind)?.tick &&
                   ` · ${EVERY.find(([m]) => m === row.every)?.[1] ?? `every ${row.every} min`}`}
               </div>
             </li>
@@ -293,7 +363,7 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
           {open && (
             <div ref={menu} role="menu" className="pickermenu wide">
               {kinds.map((k) => {
-                const why = blocked(k, grants);
+                const why = blocked(k, grants, rows);
                 return (
                   <button
                     key={k.kind}
@@ -348,30 +418,39 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
             </label>
           )}
 
-          {kind.fields.map((f) => (
-            <label className="field" key={f.name} title={f.help}>
-              <span>
-                {f.label}
-                {!f.required && <span className="soft"> (optional)</span>}
-              </span>
-              {input(f)}
-            </label>
-          ))}
+          {kind.fields.map((f) =>
+            f.rows.length ? (
+              <div className="field stacked" key={f.name}>
+                <span>{f.label}</span>
+                {input(f)}
+              </div>
+            ) : (
+              <label className="field" key={f.name} title={f.help}>
+                <span>
+                  {f.label}
+                  {!f.required && <span className="soft"> (optional)</span>}
+                </span>
+                {input(f)}
+              </label>
+            ),
+          )}
 
-          <label className="field">
-            <span>Check for changes</span>
-            <select
-              aria-label="Sync every"
-              value={form.every}
-              onChange={(e) => setForm({ ...form, every: Number(e.target.value) })}
-            >
-              {EVERY.map(([minutes, label]) => (
-                <option key={minutes} value={minutes}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!kind.tick && (
+            <label className="field">
+              <span>Check for changes</span>
+              <select
+                aria-label="Sync every"
+                value={form.every}
+                onChange={(e) => setForm({ ...form, every: Number(e.target.value) })}
+              >
+                {EVERY.map(([minutes, label]) => (
+                  <option key={minutes} value={minutes}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {editing !== "new" && (
             <label className="field">
