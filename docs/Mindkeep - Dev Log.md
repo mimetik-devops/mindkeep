@@ -1537,7 +1537,7 @@ connector through a fake entry point, so the plugin road is the one under test.
 
 **The plumbing** (`syncing.py`): pull, diff against `connector_item` (one row per file the
 connection wrote, keyed by the source's own id — unchanged is skipped, renamed is a move,
-missing is removed), write under `raw/<name>/` through `raw_path`, one scoped commit
+missing is removed), write under `raw/connectors/<name>/` through `raw_path`, one scoped commit
 (`sync <name>: +a ~c -r`), an ingest queued per changed file, a removed source retiring
 its pages as a delete does. A connector may return the whole set (`complete=True`) or only
 what changed plus the ids that went (`complete=False`, `removed`), with an opaque cursor.
@@ -1571,6 +1571,13 @@ example and the end-to-end proof.
 
 **Next:** the first real connector. Notion (an internal-integration token) is the plumbing
 as it is; Drive or Gmail means the OAuth step first.
+
+Ruben, on review: the folder is `raw/connectors/<name>/`, not `raw/<name>/` — connections
+keep to one place in the owner's half, and the manual and the mirror's CLAUDE.md can name
+it. And to the question whether this batches like the desktop client: neither does. The
+client uploads each file with its own `POST /raw/{path}` and each queues its own ingest;
+a connection's sync does the same, one ingest per changed file, serialised per bundle. The
+cost note above is about a batching window that would serve both and does not exist yet.
 
 ## 5. Open questions and known gaps
 

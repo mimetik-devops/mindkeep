@@ -16,6 +16,7 @@ from app.files import tenant_id
 from tests.test_files import B, T
 
 C = f"{B}/connections"
+W = "raw/connectors/Team wiki"  # where the fake connection's files land
 
 
 class Fake(Connector):
@@ -96,26 +97,26 @@ def test_a_connection_pulls_files_into_raw_commits_them_and_queues_the_ingest(
     made = connect(client)
     assert made.status_code == 201, made.text
     cid = made.json()["id"]
-    assert (home / "raw/Team wiki/notes/a.md").read_bytes() == b"A"
-    assert (home / "raw/Team wiki/b.txt").read_bytes() == b"B"
+    assert (home / "raw/connectors/Team wiki/notes/a.md").read_bytes() == b"A"
+    assert (home / "raw/connectors/Team wiki/b.txt").read_bytes() == b"B"
     assert history.commits(home)[0]["subject"] == "sync Team wiki: +2 ~0 -0"
-    assert sorted(c[1] for c in ingested) == ["raw/Team wiki/b.txt", "raw/Team wiki/notes/a.md"]
+    assert sorted(c[1] for c in ingested) == [f"{W}/b.txt", f"{W}/notes/a.md"]
     listed = client.get(C).json()
     assert listed[0]["summary"] == "+2 ~0 -0" and listed[0]["error"] == ""
-    assert listed[0]["folder"] == "raw/Team wiki"
+    assert listed[0]["folder"] == "raw/connectors/Team wiki"
     assert json.loads(row_of(cid).cursor) == {"n": 1}
 
     # the next pull: one changed, one gone, one new — and the cursor came back around
     ingested.clear()
     Fake.items = [Item("1", "notes/a.md", b"A2"), Item("3", "c.md", b"C")]
     assert client.post(f"{C}/{cid}/sync").status_code == 202
-    assert (home / "raw/Team wiki/notes/a.md").read_bytes() == b"A2"
-    assert not (home / "raw/Team wiki/b.txt").exists()
-    assert (home / "raw/Team wiki/c.md").read_bytes() == b"C"
+    assert (home / "raw/connectors/Team wiki/notes/a.md").read_bytes() == b"A2"
+    assert not (home / "raw/connectors/Team wiki/b.txt").exists()
+    assert (home / "raw/connectors/Team wiki/c.md").read_bytes() == b"C"
     assert client.get(C).json()[0]["summary"] == "+1 ~1 -1"
     assert history.commits(home)[0]["subject"] == "sync Team wiki: +1 ~1 -1"
     # the gone file cited no page, so nothing is queued to retire it
-    assert sorted(c[1] for c in ingested) == ["raw/Team wiki/c.md", "raw/Team wiki/notes/a.md"]
+    assert sorted(c[1] for c in ingested) == [f"{W}/c.md", f"{W}/notes/a.md"]
     assert json.loads(row_of(cid).cursor) == {"n": 2}
 
     # nothing changed: nothing written, nothing committed, nothing queued
@@ -128,14 +129,15 @@ def test_a_connection_pulls_files_into_raw_commits_them_and_queues_the_ingest(
     # renamed at the source: the same id under a new path is a move
     Fake.items = [Item("1", "notes/renamed.md", b"A2"), Item("3", "c.md", b"C")]
     client.post(f"{C}/{cid}/sync")
-    assert not (home / "raw/Team wiki/notes/a.md").exists()
-    assert (home / "raw/Team wiki/notes/renamed.md").read_bytes() == b"A2"
+    assert not (home / "raw/connectors/Team wiki/notes/a.md").exists()
+    assert (home / "raw/connectors/Team wiki/notes/renamed.md").read_bytes() == b"A2"
 
     # an incremental pull names only what changed; the rest is left alone
     Fake.complete, Fake.items, Fake.removed = False, [Item("4", "d.md", b"D")], ["3"]
     client.post(f"{C}/{cid}/sync")
-    assert (home / "raw/Team wiki/d.md").exists() and not (home / "raw/Team wiki/c.md").exists()
-    assert (home / "raw/Team wiki/notes/renamed.md").exists()
+    assert (home / f"{W}/d.md").exists()
+    assert not (home / f"{W}/c.md").exists()
+    assert (home / "raw/connectors/Team wiki/notes/renamed.md").exists()
     with session() as s:
         remotes = sorted(s.scalars(select(ConnectorItem.remote)).all())
     assert remotes == ["1", "4"]
@@ -177,7 +179,7 @@ def test_a_failing_pull_is_the_connections_error_not_the_servers(client, fake, t
     assert made.status_code == 201
     listed = client.get(C).json()[0]
     assert listed["error"] == "the workspace is gone" and listed["synced_at"]
-    assert not (tmp_path / tenant_id("alice") / "default" / "raw/Team wiki").exists()
+    assert not (tmp_path / tenant_id("alice") / "default" / "raw/connectors/Team wiki").exists()
     # a second connection by the same name is refused
     assert connect(client).status_code == 409
 
@@ -186,13 +188,13 @@ def test_a_file_edited_or_deleted_by_hand_is_put_back_by_the_next_sync(client, f
     home = tmp_path / tenant_id("alice") / "default"
     Fake.items = [Item("1", "a.md", b"theirs")]
     cid = connect(client).json()["id"]
-    assert client.put(f"{B}/files/raw/Team wiki/a.md", content=b"mine").status_code == 200
+    assert client.put(f"{B}/files/{W}/a.md", content=b"mine").status_code == 200
     client.post(f"{C}/{cid}/sync")
-    assert (home / "raw/Team wiki/a.md").read_bytes() == b"theirs"
+    assert (home / "raw/connectors/Team wiki/a.md").read_bytes() == b"theirs"
     assert client.get(C).json()[0]["summary"] == "+0 ~1 -0"
-    (home / "raw/Team wiki/a.md").unlink()
+    (home / "raw/connectors/Team wiki/a.md").unlink()
     client.post(f"{C}/{cid}/sync")
-    assert (home / "raw/Team wiki/a.md").read_bytes() == b"theirs"
+    assert (home / "raw/connectors/Team wiki/a.md").read_bytes() == b"theirs"
 
 
 def test_disconnecting_removes_what_the_connection_wrote(client, fake, tmp_path):
@@ -201,7 +203,7 @@ def test_disconnecting_removes_what_the_connection_wrote(client, fake, tmp_path)
     cid = connect(client).json()["id"]
     gone = client.delete(f"{C}/{cid}")
     assert gone.status_code == 200 and gone.json()["removed"] == 1
-    assert not (home / "raw/Team wiki").exists()
+    assert not (home / "raw/connectors/Team wiki").exists()
     assert history.commits(home)[0]["subject"] == "disconnect Team wiki"
     assert client.get(C).json() == []
     with session() as s:
@@ -252,10 +254,11 @@ def test_the_url_connector_fetches_one_address_into_a_named_file(client, monkeyp
     home = tmp_path / tenant_id("alice") / "default"
     body = {"kind": "url", "name": "Docs", "config": {"url": "https://example.com/docs/page"}}
     assert client.post(C, json=body).status_code == 201
-    assert (home / "raw/Docs/page.html").read_bytes() == b"<h1>hi</h1>"
+    assert (home / "raw/connectors/Docs/page.html").read_bytes() == b"<h1>hi</h1>"
     body["name"], body["config"]["url"] = "Home", "https://example.com/"
     client.post(C, json=body)
-    assert (home / "raw/Home/example.com.html").is_file()  # a host gets the type's suffix
+    # a host name gets the content type's suffix
+    assert (home / "raw/connectors/Home/example.com.html").is_file()
     body["name"], body["config"]["url"] = "Bad", "ftp://example.com"
     refused = client.post(C, json=body)
     assert refused.status_code == 400 and "http" in refused.json()["detail"]

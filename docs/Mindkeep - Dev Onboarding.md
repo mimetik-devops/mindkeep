@@ -84,7 +84,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
   todo.md         tasks for a person, found by the agent — for someone who does
   raw/            the owner's documents, under their own names. The only human-written half.
     notes/<person>/…   findings contributed by local agents (see "Notes")
-    <connection>/…     what a connection pulls from a third-party source (see "Connectors")
+    connectors/<name>/…   what a connection pulls from a third-party source (see "Connectors")
   wiki/           everything the agent wrote, filed by type:
     people/  companies/  projects/  concepts/  meetings/  summaries/ …
   .git/           history (hidden from every listing, never synced)
@@ -95,7 +95,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 | File | Written by | Notes |
 |---|---|---|
 | `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
-| `raw/<connection>/**` | the connection's sync | a mirror of the source: hand edits and deletes are put back at the next sync |
+| `raw/connectors/<name>/**` | the connection's sync | a mirror of the source: hand edits and deletes are put back at the next sync |
 | `wiki/**` | the ingest/lint agent; a person may edit an existing page in the app | a page edit is a commit, never an ingest; the next ingest of a source the page cites may revise it — history keeps their version. Making pages stays the agent's |
 | `log.md` | the ingest/lint agent only | its own account of every run |
 | `index.md` | the server (`index.py`), after every run and undo | built from the pages' frontmatter; the agent's tools refuse it |
@@ -299,7 +299,7 @@ settings, secrets and schedule (`app/connections.py`): "the team wiki in Notion"
 pricing sheet at this URL". Everything a connector does not have to do is the plumbing's,
 the same for every connector:
 
-- **Where files land.** Under `raw/<connection name>/`, through the same road an upload
+- **Where files land.** Under `raw/connectors/<name>/`, through the same road an upload
   takes — `raw_path` for safe names, a scoped commit (`sync <name>: +a ~c -r`), an ingest
   queued per changed file. The connection's folder is the connection's (**mirror
   semantics**): a file in it edited, deleted or moved out of band — the web app, the

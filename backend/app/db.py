@@ -191,7 +191,7 @@ class Account(Base):
 class Connection(Base):
     """A connector, configured on one bundle: its settings (secrets sealed, see vault.py),
     its schedule, the connector's own cursor, and how the last sync went. The files it
-    writes live under raw/<name>/ in the bundle; ConnectorItem says which."""
+    writes live under raw/connectors/<name>/ in the bundle; ConnectorItem says which."""
 
     __tablename__ = "connection"
 
@@ -228,7 +228,7 @@ class ConnectorItem(Base):
     bundle: Mapped[str] = mapped_column(String(64))
     connection_id: Mapped[str] = mapped_column(String(32))
     remote: Mapped[str] = mapped_column(String(1024))
-    path: Mapped[str] = mapped_column(Text)  # relative to the bundle: raw/<name>/...
+    path: Mapped[str] = mapped_column(Text)  # relative to the bundle: raw/connectors/<name>/...
     digest: Mapped[str] = mapped_column(String(64))
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

@@ -3,7 +3,7 @@
 A *connector* is code — the `url` built-in, a Notion plugin (`app/connectors/`). A
 *connection* is one of them set up on one bundle with its own settings, secrets and
 schedule: "the team wiki in Notion", "the pricing sheet at this URL". Its files land under
-`raw/<name>/` and are kept in step by `syncing.py`.
+`raw/connectors/<name>/` and are kept in step by `syncing.py`.
 
 Managing connections is the `bundles` permission — they hold credentials and decide what
 flows into the wiki; owners and admins. Asking for a sync now is `write`.
