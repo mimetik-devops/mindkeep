@@ -378,9 +378,12 @@ export type ConnectorField = {
   secret: boolean;
   help: string;
   required: boolean;
+  /** a list, one per line */
+  multiline: boolean;
 };
-/** A connector the server has: what a person can set up. `available` is false for one
- * whose sign-in the server cannot do yet. */
+/** A connector the server has: what a person can set up. `auth` says whether it needs a
+ * sign-in — `grant_fields` is the form for a token; `available` is false for one whose
+ * sign-in the server cannot do yet. `fields` is the scope of one connection. */
 export type ConnectorKind = {
   kind: string;
   title: string;
@@ -388,7 +391,26 @@ export type ConnectorKind = {
   auth: "none" | "token" | "oauth2";
   available: boolean;
   fields: ConnectorField[];
+  grant_fields: ConnectorField[];
 };
+/** Your standing with a provider — a sign-in — made once, usable by any connection. */
+export type Grant = {
+  id: string;
+  kind: string;
+  label: string;
+  created_at: string;
+  error: string;
+  /** how many connections use it, anywhere */
+  uses: number;
+};
+export const listGrants = () => call<Grant[]>("/grants");
+/** Tried first; the connector names it. A 400 says what was wrong. */
+export const addGrant = (kind: string, secrets: Record<string, string>) =>
+  call<Grant>("/grants", json({ kind, secrets }));
+/** Connections that used it keep their rows and say so at their next sync. */
+export const removeGrant = (id: string) =>
+  call<{ deleted: string; orphaned: number }>(`/grants/${id}`, { method: "DELETE" });
+
 /** A connection: secrets come back as REDACTED, and sent back as REDACTED mean "keep". */
 export type Connection = {
   id: string;
@@ -403,6 +425,10 @@ export type Connection = {
   error: string;
   summary: string;
   installed: boolean;
+  /** the sign-in it syncs with, or null for a kind that needs none */
+  grant: { id: string; label: string } | null;
+  /** it had one, and the person revoked it */
+  grant_gone: boolean;
 };
 export const REDACTED = "••••••••";
 
@@ -411,12 +437,18 @@ export const listConnections = (bundle: string) => call<Connection[]>(`${at(bund
 /** The `bundles` permission. The credentials are tried first; a 400 says what was wrong. */
 export const addConnection = (
   bundle: string,
-  body: { kind: string; name: string; config: Record<string, string>; every: number },
+  body: {
+    kind: string;
+    name: string;
+    config: Record<string, string>;
+    every: number;
+    grant?: string;
+  },
 ) => call<Connection>(`${at(bundle)}/connections`, json(body));
 export const updateConnection = (
   bundle: string,
   id: string,
-  patch: { config?: Record<string, string>; every?: number; enabled?: boolean },
+  patch: { config?: Record<string, string>; every?: number; enabled?: boolean; grant?: string },
 ) => call<Connection>(`${at(bundle)}/connections/${id}`, json(patch, "PUT"));
 /** Everything it pulled goes with it; pages resting on those files are retired. */
 export const removeConnection = (bundle: string, id: string) =>

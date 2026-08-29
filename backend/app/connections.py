@@ -22,10 +22,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app import syncing, vault
+from app import grants, syncing, vault
 from app.auth import CurrentUser
 from app.connectors import ConnectorError, registry
-from app.db import Connection, session
+from app.db import Connection, Grant, session
 from app.files import Bundle, Manager, Writer, record
 from app.ingest import enqueue, pages_citing
 
@@ -42,12 +42,14 @@ class NewConnection(BaseModel):
     name: str
     config: dict[str, str]
     every: int = EVERY_DEFAULT
+    grant: str | None = None  # one of the caller's, for a connector that needs one
 
 
 class ConnectionPatch(BaseModel):
     config: dict[str, str] | None = None
     every: int | None = None
     enabled: bool | None = None
+    grant: str | None = None
 
 
 def background(fn: Callable[..., Any], *args: Any) -> None:
@@ -65,22 +67,25 @@ def catalog() -> list[dict[str, object]]:
             "blurb": c.blurb,
             "auth": c.auth,
             "available": c.auth != "oauth2",
-            "fields": [
-                {
-                    "name": f.name,
-                    "label": f.label,
-                    "secret": f.secret,
-                    "help": f.help,
-                    "required": f.required,
-                }
-                for f in c.fields
-            ],
+            "fields": [_field(f) for f in c.fields],
+            "grant_fields": [_field(f) for f in c.grant_fields],
         }
         for c in sorted(registry().values(), key=lambda c: c.title)
     ]
 
 
-def as_dict(row: Connection) -> dict[str, object]:
+def _field(f: Any) -> dict[str, object]:
+    return {
+        "name": f.name,
+        "label": f.label,
+        "secret": f.secret,
+        "help": f.help,
+        "required": f.required,
+        "multiline": f.multiline,
+    }
+
+
+def as_dict(row: Connection, grant: Grant | None = None) -> dict[str, object]:
     connector = registry().get(row.kind)
     return {
         "id": row.id,
@@ -95,7 +100,36 @@ def as_dict(row: Connection) -> dict[str, object]:
         "error": row.error,
         "summary": row.summary,
         "installed": connector is not None,
+        # the sign-in it syncs with: its id and label, or none for a kind that needs none;
+        # `gone` when the person revoked it
+        "grant": {"id": row.grant_id, "label": grant.label} if grant else None,
+        "grant_gone": bool(row.grant_id) and grant is None,
     }
+
+
+def _grant_for(s: Any, connector: Any, user: str, grant_id: str | None) -> Grant | None:
+    """The grant a connection may use: the caller's own, of the connector's kind, and
+    only when the connector wants one."""
+    if connector.auth == "none":
+        if grant_id:
+            raise HTTPException(400, f"{connector.title} needs no sign-in")
+        return None
+    if not grant_id:
+        raise HTTPException(400, f"{connector.title} needs a sign-in — add one in your account")
+    row: Grant | None = s.get(Grant, grant_id)
+    if row is None or row.sub != user or row.kind != connector.kind:
+        raise HTTPException(404, "no such sign-in")
+    return row
+
+
+def _checked_with(connector: Any, config: dict[str, str], grant: Grant | None) -> None:
+    for f in connector.fields:
+        if f.required and not config.get(f.name, "").strip():
+            raise HTTPException(400, f"{f.label} is required")
+    try:
+        connector.check(config, grants.unpack(grant))
+    except ConnectorError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 def _where(home: Path) -> tuple[str, str]:
@@ -106,16 +140,6 @@ def _every(every: int) -> int:
     if not EVERY_MIN <= every <= EVERY_MAX:
         raise HTTPException(400, f"sync every {EVERY_MIN} minutes to {EVERY_MAX // 1440} days")
     return every
-
-
-def _checked(connector: Any, config: dict[str, str]) -> None:
-    for f in connector.fields:
-        if f.required and not config.get(f.name, "").strip():
-            raise HTTPException(400, f"{f.label} is required")
-    try:
-        connector.check(config)
-    except ConnectorError as e:
-        raise HTTPException(400, str(e)) from e
 
 
 def _get(s: Any, home: Path, connection_id: str) -> Connection:
@@ -140,7 +164,7 @@ def list_connections(home: Bundle) -> list[dict[str, object]]:
             .where(Connection.tenant == tenant, Connection.bundle == bundle)
             .order_by(Connection.created_at)
         ).all()
-        return [as_dict(r) for r in rows]
+        return [as_dict(r, s.get(Grant, r.grant_id) if r.grant_id else None) for r in rows]
 
 
 @router.post("/bundles/{name}/connections", status_code=201)
@@ -159,8 +183,9 @@ def add_connection(
         raise HTTPException(400, "a name: letters, digits, spaces, dots, dashes; 80 at most")
     tenant, bundle = _where(home)
     given = {f.name: new.config.get(f.name, "").strip() for f in connector.fields}
-    _checked(connector, given)
     with session() as s:
+        grant = _grant_for(s, connector, user, new.grant)
+        _checked_with(connector, given, grant)
         taken = s.scalar(
             select(Connection).where(
                 Connection.tenant == tenant,
@@ -177,6 +202,7 @@ def add_connection(
             kind=new.kind,
             name=name,
             config=vault.seal(given, connector),
+            grant_id=grant.id if grant else None,
             cursor="{}",
             every=_every(new.every),
             enabled=True,
@@ -185,33 +211,37 @@ def add_connection(
         )
         s.add(row)
         s.commit()
-        out = as_dict(row)
+        out = as_dict(row, grant)
         background(syncing.run, home, row.id)
         return out
 
 
 @router.put("/bundles/{name}/connections/{connection_id}")
 def update_connection(
-    home: Bundle, connection_id: str, _: Manager, patch: ConnectionPatch
+    home: Bundle, connection_id: str, user: CurrentUser, _: Manager, patch: ConnectionPatch
 ) -> dict[str, object]:
-    """Settings and secrets change; the name does not — it is the folder. A secret sent
-    back as the marker is kept as it was; a changed config is tried before it is saved."""
+    """Settings, secrets and the sign-in change; the name does not — it is the folder. A
+    secret sent back as the marker is kept as it was; a changed config is tried before it
+    is saved. A new sign-in has to be the caller's own."""
     with session() as s:
         row = _get(s, home, connection_id)
         connector = registry().get(row.kind)
         if connector is None:
             raise HTTPException(409, f"no connector of kind {row.kind} is installed")
+        if patch.grant is not None:
+            row.grant_id = _grant_for(s, connector, user, patch.grant).id  # type: ignore[union-attr]
+        grant: Grant | None = s.get(Grant, row.grant_id) if row.grant_id else None
         if patch.config is not None:
             given = {k: v.strip() for k, v in patch.config.items()}
             merged = vault.merge(given, row.config, connector)
-            _checked(connector, merged)
+            _checked_with(connector, merged, grant)
             row.config = vault.seal(merged, connector)
         if patch.every is not None:
             row.every = _every(patch.every)
         if patch.enabled is not None:
             row.enabled = patch.enabled
         s.commit()
-        return as_dict(row)
+        return as_dict(row, grant)
 
 
 @router.post("/bundles/{name}/connections/{connection_id}/sync", status_code=202)

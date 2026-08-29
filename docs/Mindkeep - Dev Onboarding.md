@@ -166,7 +166,8 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
 | `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history; the same sweep syncs every connection that is due |
 | `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` built-in |
-| `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; bodies as pydantic models |
+| `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; a connection that needs a sign-in references one of the caller's grants |
+| `grants.py` | A person's standing with a provider — a token today, an OAuth sign-in to come — made once, usable by any connection they set up; `unpack` hands a connector its secrets in the clear for one call. User-facing: *Sign-ins* |
 | `syncing.py` | One sync: pull, diff against `connector_item`, write, commit, queue; mirror semantics; `due()`; `disconnect()` |
 | `vault.py` | Secret fields sealed at rest (Fernet, key from `DEVICE_SECRET`), redacted on the way out, kept when the marker comes back |
 | `devices.py` | Per-machine tokens: create, holder, mine, forget |
@@ -310,6 +311,20 @@ the same for every connector:
   connector may return the whole set each time (`Pull(complete=True)`, the default) or
   only what changed plus the ids that went (`complete=False`, `removed=[…]`), with its own
   opaque `cursor` handed back on the next pull.
+- **Grants — sign-ins.** A connector's `auth` is `none`, `token` or `oauth2`. A *grant* is a
+  person's standing with the provider: for a `token` kind, the secrets of `grant_fields`,
+  tried by `check_grant` (which names it — an e-mail, a workspace); for an `oauth2` kind,
+  the tokens of the provider's sign-in (declared in `oauth`; the dance is not built yet,
+  such a kind is listed but not offered). A grant is the person's, not a bundle's: made
+  once in Settings → Account → *Sign-ins*, usable by any connection they set up in any
+  team, and passed to `check` and `pull` as a `Grant` with its secrets in the clear for
+  that call only. A connection keeps syncing with its maker's grant into a bundle other
+  people read — the person put their credential to work for that bundle. Deleting a
+  grant never cascades: connections that used it keep their rows and files and report
+  *the sign-in this connection used is gone* at their next sync, until given another.
+- **Scope, plural.** A connection's `fields` are its scope; a field may be `multiline` — a
+  list, one per line — so one connection watches several things (the website connector's
+  addresses) and a token is entered once. One connection per purpose, not per target.
 - **Secrets.** Fields the connector marks `secret` are Fernet-encrypted at rest
   (`app/vault.py`, key derived from `DEVICE_SECRET`), never sent to a browser (a marker
   says one is set; the marker sent back means "keep it"), tried by the connector's `check`
@@ -333,13 +348,18 @@ class NotionConnector(Connector):
     title = "Notion"
     blurb = "The pages a Notion integration can see."
     auth = "token"                       # "none" | "token" | "oauth2" (declared, not yet done)
-    fields = (Field("token", "Integration token", secret=True, help="Settings → Integrations"),)
+    grant_fields = (Field("token", "Integration token", secret=True, help="Settings → Integrations"),)
+    fields = (Field("pages", "Pages", multiline=True, help="Page links, one per line; empty for all", required=False),)
 
-    def check(self, config):             # tried before a connection is saved
-        if not config["token"].startswith("ntn_"):
-            raise ConnectorError("that is not a Notion integration token")
+    def check_grant(self, secrets):      # tried before a sign-in is kept; returns its name
+        me = notion(secrets["token"]).users.me()   # raises ConnectorError when refused
+        return me["name"]
 
-    def pull(self, config, cursor):      # files, and a cursor for next time
+    def check(self, config, grant):      # tried before a connection is saved
+        ...
+
+    def pull(self, config, cursor, grant):   # files, and a cursor for next time
+        api = notion(grant.token)
         return Pull(items=[Item(id=page_id, path=f"{title}.md", content=markdown)])
 ```
 
@@ -391,6 +411,7 @@ Postgres holds **metadata only** — the wiki is files. Tables (`db.py`):
 | `source_move` | moves the server performed, handed to the next lint, settled when it acts |
 | `connection` | a connector on a bundle: kind, name, sealed config, cursor, interval, enabled, last attempt and how it went |
 | `connector_item` | one row per file a connection wrote: the source's id, the path, the digest |
+| `grant` | a person's standing with a provider: kind, label, sealed secrets, `expires_at` for OAuth; keyed by `sub`, like a device |
 | `team`, `membership`, `invite` | teams |
 | `device` | per-machine tokens |
 
@@ -451,6 +472,8 @@ Under `/teams/{team}`, membership required:
 | GET/POST | `/bundles/{b}/connections` | read / bundles | list · set one up (credentials tried first; first sync started) |
 | PUT/DELETE | `/bundles/{b}/connections/{id}` | bundles | settings, secrets, interval, enabled · remove it and everything it wrote |
 | POST | `/bundles/{b}/connections/{id}/sync` | write | sync now (202; 409 while one runs) |
+| GET/POST | `/grants` | signed in | your sign-ins, with how many connections use each · add one (a token, tried first; the connector names it) |
+| DELETE | `/grants/{id}` | signed in | gone at once; connections that used it stay and say so at their next sync |
 | GET/POST | `/bundles/{b}/questions[/{index}]` · `/todos[/{index}]` | read / write | the questions · the tasks: list, tick |
 | POST / GET | `/bundles/{b}/assist[/{job}]` | write / read | start one assistant turn (202, `{job}`) · poll it: `{done:false}`, then the reply and what changed, or an error |
 | POST | `/bundles/{b}/verify/{path}` | write | stamp a page `verified` by the caller's identity |
@@ -475,7 +498,8 @@ everything else, mono for paths. The header and the login page are the site's cl
 | `api.ts` | every call to the backend; `setTeam`/`at(bundle)` build the prefixed URLs; `can(team, permission)`; types (`Team`, `Entry`, `Queue`, `Device`, `Lint`…) |
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Re-ingest* (a clean run is skipped by the queue; this is the one way to ask for it), *Edit* on a wiki page or a markdown source |
-| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (a picker of the server's connectors, the form drawn from each one's `fields`), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
+| `Grants.tsx` | Settings → Account: *Sign-ins* — every connector and what it needs (none, a token, a provider sign-in not yet possible), your sign-ins per connector with how many connections use each, add (the connector's `grant_fields`) and remove |
+| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields`, a `multiline` field as a textarea, a sign-in picked from yours), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
 | `Editor.tsx` | the WYSIWYG editor: Milkdown's Crepe (remark in, remark out — footnotes, tables and fences round-trip), loaded lazily on *Edit*. Frontmatter is kept aside verbatim by `forEditing`; saves carry `If-Match` (sha256 of the text as read) and a 412 keeps the editor open |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
 | `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |
