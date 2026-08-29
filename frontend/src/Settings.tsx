@@ -12,7 +12,6 @@ import {
   renameBundle,
   setLintHour,
   startLint,
-  startReorganise,
   type Team,
 } from "./api";
 import { Connections } from "./Connections";
@@ -162,170 +161,145 @@ export function Settings({
       {error && <div className="banner">{error}</div>}
 
       {section === "Bundle" && (
-        <>
-          <section className="card">
-            <h2>Layout</h2>
-            <p>
-              Every page is filed by its type — <code>wiki/people/</code>,{" "}
-              <code>wiki/projects/</code>,<code>wiki/concepts/</code>… — under its title. A bundle
-              written before that rule, or one that drifted, is put in order by a run: pages move,
-              links follow, nothing is rewritten. It shows in Activity and can be undone like any
-              run.
-            </p>
-            <div className="field">
-              <span>Move every page to where its type says it goes.</span>
-              <button className="lint" onClick={() => act(startReorganise(bundle))}>
-                Reorganise the wiki
-              </button>
-            </div>
-          </section>
-
-          <section className="card">
-            <h2>Nightly lint</h2>
-            <p>
-              The agent re-reads the wiki, reports what has drifted — contradictions, stale drafts,
-              entities with no page — and deletes pages whose source you removed.
-            </p>
-
-            <label className="field">
-              <span>Run automatically at</span>
-              <select
-                value={lint?.hour ?? LINT_OFF}
-                disabled={!lint}
-                onChange={(e) => act(setLintHour(bundle, Number(e.target.value)))}
-              >
-                <option value={LINT_OFF}>Never</option>
-                {HOURS.map((h) => (
-                  <option key={h.utcHour} value={h.utcHour}>
-                    {h.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="field">
-              <span>
-                {lint?.linting
-                  ? "Running now — watch it in the Console."
-                  : lint?.next
-                    ? `Next ${when(lint.next)}`
-                    : "Nothing scheduled."}
-              </span>
-              <button
-                className="lint"
-                disabled={!lint || lint.linting}
-                onClick={() => act(startLint(bundle))}
-              >
-                {lint?.linting ? "Linting…" : "Lint now"}
-              </button>
-            </div>
-
-            {lint && !lint.linting && (
-              <p className="soft">
-                {lint.at
-                  ? `Last run ${lint.at}, took ${took(lint.seconds)}.`
-                  : "This bundle has never been linted."}
-                {lint.error && ` It ended badly: ${lint.error}`}
-              </p>
-            )}
-          </section>
-
-          <Connections bundle={bundle} team={team} />
-
-          {manages && (
+        <div className="columns">
+          <div className="column">
             <section className="card">
-              <h2>Rename this bundle</h2>
+              <h2>Nightly lint</h2>
               <p>
-                Lowercase letters, digits and hyphens. A desktop client pointed at the old name will
-                need <code>mindkeep login</code> again.
+                The agent re-reads the wiki, reports what has drifted — contradictions, stale
+                drafts, entities with no page — deletes pages whose source you removed, and files
+                every page where its type says it goes.
               </p>
-              <form
-                className="field"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setError("");
-                  renameBundle(bundle, newName.trim())
-                    .then((r) => onBundleRenamed(bundle, r.name))
-                    .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
-                }}
-              >
-                <span>Name</span>
-                <input
-                  aria-label="Bundle name"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
-                <button type="submit" className="lint" disabled={newName.trim() === bundle}>
-                  Rename
-                </button>
-              </form>
-            </section>
-          )}
 
-          {manages && (
-            <section className="card">
-              <h2>Delete this bundle</h2>
-              <p>
-                Its sources, its wiki and its history go, and there is no undo. A team keeps at
-                least one bundle. Type <b>{bundle}</b> to confirm.
-              </p>
-              <form
-                className="field"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (confirmDelete !== bundle) return;
-                  setError("");
-                  deleteBundle(bundle)
-                    .then(() => onBundleDeleted(bundle))
-                    .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
-                }}
-              >
-                <input
-                  aria-label="Type the bundle name to confirm"
-                  placeholder={bundle}
-                  value={confirmDelete}
-                  onChange={(e) => setConfirmDelete(e.target.value)}
-                />
-                <button type="submit" className="lint danger" disabled={confirmDelete !== bundle}>
-                  Delete
-                </button>
-              </form>
-            </section>
-          )}
-
-          {manages && elsewhere.length > 0 && (
-            <section className="card">
-              <h2>Move this bundle</h2>
-              <p>
-                <b>{bundle}</b> leaves <b>{team.name}</b> and lands on another team you manage,
-                history and all. Not while it is being ingested, and the name must be free there.
-              </p>
-              <div className="field">
-                <span>To</span>
-                <select value={destination} onChange={(e) => setDestination(e.target.value)}>
-                  <option value="">Choose a team</option>
-                  {elsewhere.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
+              <label className="field">
+                <span>Run automatically at</span>
+                <select
+                  value={lint?.hour ?? LINT_OFF}
+                  disabled={!lint}
+                  onChange={(e) => act(setLintHour(bundle, Number(e.target.value)))}
+                >
+                  <option value={LINT_OFF}>Never</option>
+                  {HOURS.map((h) => (
+                    <option key={h.utcHour} value={h.utcHour}>
+                      {h.label}
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <div className="field">
+                <span>
+                  {lint?.linting
+                    ? "Running now — watch it in the Console."
+                    : lint?.next
+                      ? `Next ${when(lint.next)}`
+                      : "Nothing scheduled."}
+                </span>
                 <button
                   className="lint"
-                  disabled={!destination}
-                  onClick={() => {
+                  disabled={!lint || lint.linting}
+                  onClick={() => act(startLint(bundle))}
+                >
+                  {lint?.linting ? "Linting…" : "Lint now"}
+                </button>
+              </div>
+
+              {lint && !lint.linting && (
+                <p className="soft">
+                  {lint.at
+                    ? `Last run ${lint.at}, took ${took(lint.seconds)}.`
+                    : "This bundle has never been linted."}
+                  {lint.error && ` It ended badly: ${lint.error}`}
+                </p>
+              )}
+            </section>
+
+            {manages && (
+              <section className="card">
+                <h2>This bundle</h2>
+                <p>
+                  Rename it (lowercase letters, digits and hyphens — a desktop client pointed at the
+                  old name will need <code>mindkeep login</code> again), move it to another team you
+                  manage, history and all, or delete it: sources, wiki and history go, and there is
+                  no undo. A team keeps at least one bundle.
+                </p>
+                <form
+                  className="field"
+                  onSubmit={(e) => {
+                    e.preventDefault();
                     setError("");
-                    moveBundle(bundle, destination)
-                      .then((r) => onBundleMoved(r.team, r.bundle))
+                    renameBundle(bundle, newName.trim())
+                      .then((r) => onBundleRenamed(bundle, r.name))
                       .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
                   }}
                 >
-                  Move
-                </button>
-              </div>
-            </section>
-          )}
-        </>
+                  <span>Name</span>
+                  <input
+                    aria-label="Bundle name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                  />
+                  <button type="submit" className="lint" disabled={newName.trim() === bundle}>
+                    Rename
+                  </button>
+                </form>
+                {elsewhere.length > 0 && (
+                  <div className="field">
+                    <span>Move to</span>
+                    <select value={destination} onChange={(e) => setDestination(e.target.value)}>
+                      <option value="">Choose a team</option>
+                      {elsewhere.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="lint"
+                      disabled={!destination}
+                      onClick={() => {
+                        setError("");
+                        moveBundle(bundle, destination)
+                          .then((r) => onBundleMoved(r.team, r.bundle))
+                          .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
+                      }}
+                    >
+                      Move
+                    </button>
+                  </div>
+                )}
+                <form
+                  className="field"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (confirmDelete !== bundle) return;
+                    setError("");
+                    deleteBundle(bundle)
+                      .then(() => onBundleDeleted(bundle))
+                      .catch((e: Error) => setError(e.message.replace(/^\d{3} /, "")));
+                  }}
+                >
+                  <span>
+                    Delete — type <b>{bundle}</b>
+                  </span>
+                  <input
+                    aria-label="Type the bundle name to confirm"
+                    placeholder={bundle}
+                    value={confirmDelete}
+                    onChange={(e) => setConfirmDelete(e.target.value)}
+                  />
+                  <button type="submit" className="lint danger" disabled={confirmDelete !== bundle}>
+                    Delete
+                  </button>
+                </form>
+              </section>
+            )}
+          </div>
+
+          <div className="column">
+            <Connections bundle={bundle} team={team} />
+          </div>
+        </div>
       )}
 
       {section === "Team" && (

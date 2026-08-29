@@ -374,6 +374,26 @@ button:focus-visible {
 .settings .banner + .card {
   margin-top: 18px;
 }
+/* Bundle settings in two columns: the bundle's own knobs, and its connections */
+.settings .columns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+}
+.settings .column {
+  flex: 1 1 460px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.settings .column .card {
+  max-width: none;
+}
+.settings .column .card + .card {
+  margin-top: 0;
+}
 
 .card {
   display: flex;
