@@ -10,6 +10,8 @@
     "test": "vitest"
   },
   "dependencies": {
+    "@milkdown/crepe": "^7.22.1",
+    "@milkdown/kit": "^7.22.1",
     "dompurify": "^3.2.0",
     "js-yaml": "^4.1.0",
     "marked": "^15.0.0",

@@ -34,6 +34,18 @@ export function parse(raw: string): { meta: Frontmatter; body: string } {
   }
 }
 
+// An ingest sometimes closes a page with the `</content>` of the document it was handed —
+// invisible once rendered (sanitised away), but an HTML block inside the last footnote
+// definition, which the editor's parser drops along with the definition.
+const STRAY = /\n<\/content>\s*$/;
+
+/** A page as the editor takes it: the frontmatter kept aside verbatim — the editor never
+ * sees it, so it comes back byte for byte — and the body, less the stray tag. */
+export function forEditing(raw: string): { head: string; body: string } {
+  const head = raw.match(FENCE)?.[0] ?? "";
+  return { head, body: raw.slice(head.length).replace(STRAY, "\n") };
+}
+
 /** Markdown from the wiki is agent-written and may quote a raw source, so sanitise it. */
 export function render(markdown: string): string {
   return DOMPurify.sanitize(marked.parse(markdown, { async: false }) as string);

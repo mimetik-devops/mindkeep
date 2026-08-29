@@ -471,21 +471,33 @@ def read_as_text(path: str, home: Bundle) -> Response:
     return Response(text, media_type="text/plain; charset=utf-8")
 
 
+def editable_page(home: Path, target: Path) -> bool:
+    """A wiki page a person may rewrite in the app: one that exists. Making pages stays
+    the agent's — where a page goes and what the index says of it are its rules, and a
+    page nobody ingested would have no sources to stand on. Nothing under wiki/ but
+    markdown is a page."""
+    return target.suffix == ".md" and target.is_relative_to(home / "wiki") and target.is_file()
+
+
 @router.put("/bundles/{name}/files/{path:path}")
 async def write(path: str, request: Request, home: Bundle, _: Writer) -> dict[str, str]:
+    """A source, or a page. raw/ is the owner's to write as they please; a wiki page can
+    be edited in place. The rest — index.md, log.md, the lists — belongs to the agent
+    and the server. Nothing stops the next ingest of a cited source from revising a
+    page someone edited: the edit is a commit, so their version is in the history."""
     target = safe_path(home, path)
-    if not user_owns(home, target):
-        raise HTTPException(
-            409, "wiki/, questions.md and todo.md belong to the agent — add a source instead"
-        )
+    if not (user_owns(home, target) or editable_page(home, target)):
+        raise HTTPException(409, "only a source or an existing wiki page can be written")
     unchanged(target, request)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(await request.body())
 
     rel = target.relative_to(home).as_posix()
     record(home, f"edit {rel}", rel)
-    # a corrected source should correct the wiki: the pages built from it are now stale
-    enqueue(home, rel)
+    # a corrected source should correct the wiki: the pages built from it are now stale.
+    # A corrected page is its own correction.
+    if user_owns(home, target):
+        enqueue(home, rel)
     return {"path": rel}
 
 
@@ -629,7 +641,14 @@ def activity(home: Bundle) -> list[dict[str, object]]:
                 }
             )
         else:
-            people = [x for x in cast(list[dict[str, str]], c["changed"]) if by_people(x)]
+            # a wiki path in a commit that is no run's is a page someone edited in the app.
+            # On disk, uncommitted, it is the agent mid-run — so `pending` below stays
+            # raw/-only and this branch alone counts pages.
+            people = [
+                x
+                for x in cast(list[dict[str, str]], c["changed"])
+                if by_people(x) or x["path"].startswith("wiki/")
+            ]
             if people:
                 feed.append({"kind": "people", "at": c["at"], "commit": sha, "changed": people})
     # runs with no commit — still running, or read and wrote nothing — are history too

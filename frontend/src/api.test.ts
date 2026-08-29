@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { apiProblem, sentence } from "./api";
+import { apiProblem, digest, sentence } from "./api";
 
 describe("VITE_API_URL", () => {
   it("is a path or an absolute URL, and nothing half-resolved", () => {
@@ -22,5 +22,13 @@ describe("an error body", () => {
       ),
     ).toBe("mindkeep.io | 524: A timeout occurred");
     expect(sentence("plain text")).toBe("plain text");
+  });
+});
+
+describe("digest", () => {
+  it("is the sha256 the server computes over the same bytes", async () => {
+    expect(await digest("abc")).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
   });
 });

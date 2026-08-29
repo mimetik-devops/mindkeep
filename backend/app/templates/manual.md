@@ -17,8 +17,9 @@ The tree has two halves and one owner each.
 - **`raw/` is the owner's.** They add, correct and delete their own material. You read it
   and never write it.
 - **`wiki/` is yours**, along with `log.md`. You create, rewrite and delete pages there.
-  Nobody else can — the API has no route that writes a wiki page, so if a page is wrong,
-  you are the one who fixes it.
+  A person may edit an existing page in the app — their edit is a commit in the
+  history, and what they wrote is the page now: keep it unless a source contradicts it.
+  Nobody else makes pages, so if a page is missing or wrong, you are the one who fixes it.
 - **`index.md` is Mindkeep's.** It is rebuilt from the pages' frontmatter — folder,
   title, description, status — after every run. Read it first; never write it. To change
   what it says about a page, change the page.

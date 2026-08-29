@@ -136,16 +136,37 @@ def test_unknown_bundle_is_404(client):
     assert client.get(f"{T}/bundles/nope/tree").status_code == 404
 
 
-def test_the_user_owns_raw_and_the_agent_owns_wiki(client, page):
-    # the user may correct their own source...
+def test_the_user_owns_raw_and_may_edit_a_page(client, page, ingested, tmp_path):
+    from app import history
+
+    home = tmp_path / tenant_id("alice") / "default"
+    # the user may correct their own source, and the wiki is told
     client.post(f"{B}/raw/notes.txt", content=b"one")
     assert client.put(f"{B}/files/raw/notes.txt", content=b"corrected").status_code == 200
     assert client.get(f"{B}/files/raw/notes.txt").text == "corrected"
+    assert [c[1] for c in ingested] == ["raw/notes.txt", "raw/notes.txt"]
 
-    # ...but a wiki page belongs to the agent, and no route lets a user write one
+    # a page that exists can be rewritten in place: committed as their edit, not queued —
+    # there is no source to read again, the page is the correction
     page("wiki/jane.md")
-    assert client.put(f"{B}/files/wiki/jane.md", content=b"mine now").status_code == 409
-    assert "body" in client.get(f"{B}/files/wiki/jane.md").text
+    assert client.put(f"{B}/files/wiki/jane.md", content=b"mine now").status_code == 200
+    assert client.get(f"{B}/files/wiki/jane.md").text == "mine now"
+    assert history.commits(home)[0]["subject"] == "edit wiki/jane.md"
+    assert len(ingested) == 2
+    # ...and it reads as something people did
+    feed = client.get(f"{B}/activity").json()
+    assert feed[0]["kind"] == "people" and feed[0]["changed"][0]["path"] == "wiki/jane.md"
+
+    # a stale If-Match is refused, as for a source
+    stale = {"If-Match": "0" * 64}
+    assert client.put(f"{B}/files/wiki/jane.md", content=b"x", headers=stale).status_code == 412
+
+    # making a page is the agent's, as is anything under wiki/ that is not one, and the
+    # files at the root
+    assert client.put(f"{B}/files/wiki/new.md", content=b"x").status_code == 409
+    assert client.put(f"{B}/files/wiki/jane.png", content=b"x").status_code == 409
+    for root_file in ("index.md", "log.md", "questions.md", "todo.md", "CLAUDE.md"):
+        assert client.put(f"{B}/files/{root_file}", content=b"x").status_code == 409
 
 
 def test_binary_files_survive_the_round_trip(client):
