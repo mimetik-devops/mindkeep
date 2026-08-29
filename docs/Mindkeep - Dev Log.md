@@ -1498,6 +1498,20 @@ the handle sat in the page's gutter outside it (Crepe's demo works because its h
 inside the editor's 120px padding). The gutter is now the editor's own padding, with a
 negative margin so the text stays put.
 
+### 4.48 A new logo is a new URL, and index.html is never stale (2026-08-29)
+
+Ruben: the icon in the login page and the top bar did not update in the live version
+after §4.47 merged. Production served the new files; the browser was showing its cache.
+Two causes, both fixed. The logos and favicon lived under `public/`, so a changed file
+kept its URL — and Caddy sent no `Cache-Control`, so Chrome kept them on its heuristic
+guess (and keeps favicons on its own terms). They now live under `src/assets/` and are
+imported (`Mark`) or referenced from `index.html`, so the build gives them hashed names:
+a new logo is a new URL. And the Caddyfile sets cache headers: `/assets/*` immutable for
+a year (content-hashed), everything else `no-cache` — revalidated by ETag on every load.
+The second half matters beyond logos: with no header, a browser could keep an old
+`index.html` pointing at bundles a deploy has removed. Verified on the built image with
+curl. Until the next deploy lands, a hard reload (Ctrl+Shift+R) is the way to see §4.47.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every
