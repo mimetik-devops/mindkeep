@@ -854,20 +854,23 @@ button:focus-visible {
   color: var(--muted);
 }
 
-.prose {
+.prose,
+.editor {
   max-width: 66ch;
   margin-top: 26px;
   font-size: 16.5px;
   line-height: 1.68;
 }
-.prose h1 {
+.prose h1,
+.editor .milkdown .ProseMirror h1 {
   font-family: var(--disp);
   font-size: 32px;
   font-weight: 400;
   line-height: 1.05;
   letter-spacing: -0.02em;
 }
-.prose h2 {
+.prose h2,
+.editor .milkdown .ProseMirror h2 {
   margin-top: 34px;
   font-family: var(--disp);
   font-size: 27px;
@@ -875,53 +878,56 @@ button:focus-visible {
   line-height: 1.05;
   letter-spacing: -0.02em;
 }
-.prose h3 {
+.prose h3,
+.editor .milkdown .ProseMirror h3 {
   margin-top: 24px;
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
-.prose code {
+.prose code,
+.editor .milkdown .ProseMirror code {
   font-family: var(--mono);
   font-size: 0.82em;
   background: var(--warm);
   padding: 1px 5px;
   border-radius: 4px;
 }
-.prose pre {
+.prose pre,
+.editor .milkdown .ProseMirror pre {
   background: var(--warm);
   padding: 14px 16px;
   border-radius: 10px;
   overflow-x: auto;
 }
-.prose pre code {
+.prose pre code,
+.editor .milkdown .ProseMirror pre code {
   background: none;
   padding: 0;
 }
-.prose blockquote {
+.prose blockquote,
+.editor .milkdown .ProseMirror blockquote {
   margin: 0;
   padding-left: 16px;
   border-left: 2px solid var(--clay);
   color: var(--muted);
 }
-.prose img {
+.prose img,
+.editor .milkdown .ProseMirror img {
   max-width: 100%;
 }
 
-/* The editor: the prose's measure and type, on a paper sheet so the mode shows. Crepe's
-   frame theme is driven by these variables; the fonts and sizes below are the prose's. */
-.editor {
-  max-width: 66ch;
-  margin-top: 26px;
-}
+/* The editor is the prose, editable: same measure, same type, no frame — the Save and
+   Cancel buttons are the mode. Crepe's theme is driven by these variables; `outline` is
+   what its toolbar icons, block handle and caret are drawn in, so it is the muted ink. */
 .editor .milkdown {
-  --crepe-color-background: var(--paper);
+  --crepe-color-background: var(--cream);
   --crepe-color-on-background: var(--ink);
-  --crepe-color-surface: var(--warm);
+  --crepe-color-surface: var(--paper);
   --crepe-color-surface-low: var(--warm);
   --crepe-color-on-surface: var(--ink);
   --crepe-color-on-surface-variant: var(--muted);
-  --crepe-color-outline: var(--line);
+  --crepe-color-outline: var(--muted);
   --crepe-color-primary: var(--clay);
   --crepe-color-secondary: var(--warm);
   --crepe-color-on-secondary: var(--clay-deep);
@@ -936,30 +942,42 @@ button:focus-visible {
   --crepe-font-title: var(--disp);
   --crepe-font-default: var(--sans);
   --crepe-font-code: var(--mono);
-  border: 1.5px solid var(--line);
-  border-radius: 12px;
-  background: var(--paper);
 }
 .editor .milkdown .ProseMirror {
-  padding: 18px 24px 28px;
+  padding: 0;
   line-height: 1.68;
 }
-.editor .milkdown .ProseMirror h1,
-.editor .milkdown .ProseMirror h2 {
-  font-weight: 400;
-  letter-spacing: -0.02em;
+.editor .milkdown .ProseMirror-focused {
+  --prosemirror-virtual-cursor-color: var(--ink);
 }
-.editor .milkdown .ProseMirror h3 {
-  font-family: var(--sans);
-  font-size: 17px;
-  font-weight: 700;
+.editor .milkdown .milkdown-toolbar {
+  border: 1.5px solid var(--line);
+  box-shadow: 0 6px 20px rgba(25, 20, 16, 0.12);
 }
-.prose table {
+/* the two handle buttons stacked, small enough for the 40px gutter left of the page */
+.editor .milkdown .milkdown-block-handle {
+  flex-direction: column;
+  gap: 0;
+  transform: translateX(-6px);
+}
+.editor .milkdown .milkdown-block-handle .operation-item {
+  width: 26px;
+  height: 26px;
+  padding: 3px;
+}
+.editor .milkdown .milkdown-block-handle .operation-item svg {
+  width: 20px;
+  height: 20px;
+}
+.prose table,
+.editor .milkdown .ProseMirror table {
   border-collapse: collapse;
   font-size: 13.5px;
 }
 .prose td,
-.prose th {
+.prose th,
+.editor .milkdown .ProseMirror td,
+.editor .milkdown .ProseMirror th {
   border: 1px solid var(--line);
   padding: 6px 10px;
   text-align: left;

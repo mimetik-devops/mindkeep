@@ -1471,6 +1471,17 @@ is covered by a jsdom mount test (StrictMode double-mount, footnote, table, fenc
 round-trip spike above, and the backend test for the gate; the look of the toolbar and
 slash menu against the app's tokens is the thing to eyeball.
 
+Ruben's first look, same day: the editor should be the size of the page in reading mode
+(it was a narrower sheet with its own padding — now the same selectors as `.prose`, no
+frame); the toolbar's options, the block handle and the caret were barely visible (all
+three are drawn in Crepe's `outline` colour, which was mapped to the faint `--line`;
+now the muted ink, the caret 2px); and the block handle appeared far to the right of
+the block, so dragging it did nothing until the mouse crossed back into the text —
+floating-ui's `flip()` found no room in the page's 40px gutter for the handle plus
+Crepe's 16px offset. The handle now never flips (`floatingUIOptions.middleware: []`)
+and is stacked and small enough to fit the gutter. *Ingest again* is *Re-ingest*,
+*Delete source* is *Delete*.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

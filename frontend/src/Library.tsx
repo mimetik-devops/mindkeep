@@ -444,10 +444,10 @@ export function Library({ bundle }: { bundle: string }) {
                   retryIngest(bundle, selected).then(refresh, (e) => setError(String(e)))
                 }
               >
-                Ingest again
+                Re-ingest
               </button>
               <button className="primary danger" onClick={remove}>
-                <Trash /> Delete source
+                <Trash /> Delete
               </button>
             </div>
           </section>

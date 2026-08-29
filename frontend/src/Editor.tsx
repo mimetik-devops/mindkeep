@@ -38,6 +38,14 @@ export default function Editor({
         [Crepe.Feature.TopBar]: false,
         [Crepe.Feature.AI]: false,
       },
+      featureConfigs: {
+        // The block handle sits in the page's left gutter, which is narrower than the
+        // handle plus Crepe's default offset — so floating-ui's flip() would throw it
+        // to the far right of the block, out of reach. No flip: always left, and the
+        // stylesheet makes the handle narrow enough to fit.
+        [Crepe.Feature.BlockEdit]: { blockHandle: { floatingUIOptions: { middleware: [] } } },
+        [Crepe.Feature.Cursor]: { width: 2 },
+      },
     });
     // the agent's bullets are dashes; remark's default is asterisks, and a page whose
     // every list changed on its first edit would read as rewritten
