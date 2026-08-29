@@ -31,7 +31,7 @@ const EVERY = [
 
 type Form = {
   kind: string;
-  name: string;
+  name: string; // shown when editing; the connector chose it
   config: Record<string, string>;
   every: number;
   enabled: boolean;
@@ -146,7 +146,6 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
       if (editing === "new") {
         await addConnection(bundle, {
           kind: form.kind,
-          name: form.name,
           config: form.config,
           every: form.every,
           grant: form.grant || undefined,
@@ -220,8 +219,9 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
       <h2>Connections</h2>
       <p>
         A source somewhere else — a website, a workspace — pulled into <code>raw/connectors/</code>{" "}
-        on schedule and folded into the wiki whenever it changes. The folder is the connection's: a
-        file edited there by hand is put back at the next sync.
+        on schedule and folded into the wiki whenever it changes. Each has its own depth and its own
+        schedule. The folder is the connection's: a file edited there by hand is put back at the
+        next sync.
       </p>
 
       {error && <div className="banner">{error}</div>}
@@ -329,18 +329,6 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
             </span>
           </div>
           {editing === "new" && <p className="soft">{kind.blurb}</p>}
-
-          {editing === "new" && (
-            <label className="field">
-              <span>Name</span>
-              <input
-                aria-label="Connection name"
-                value={form.name}
-                placeholder="Where it lands under raw/connectors/"
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </label>
-          )}
 
           {kind.auth !== "none" && (
             <label className="field">

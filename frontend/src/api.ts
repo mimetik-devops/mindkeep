@@ -437,13 +437,7 @@ export const listConnections = (bundle: string) => call<Connection[]>(`${at(bund
 /** The `bundles` permission. The credentials are tried first; a 400 says what was wrong. */
 export const addConnection = (
   bundle: string,
-  body: {
-    kind: string;
-    name: string;
-    config: Record<string, string>;
-    every: number;
-    grant?: string;
-  },
+  body: { kind: string; config: Record<string, string>; every: number; grant?: string },
 ) => call<Connection>(`${at(bundle)}/connections`, json(body));
 export const updateConnection = (
   bundle: string,

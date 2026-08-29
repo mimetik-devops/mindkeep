@@ -5,8 +5,8 @@ against what the connection wrote last time (`ConnectorItem`, one row per file, 
 the source's own id), writes only that, commits it as the connection's change, and queues
 the changed sources for ingest — the same road an upload takes.
 
-**Mirror semantics.** The folder a connection writes — `raw/connectors/<name>/` — is the
-connection's.
+**Mirror semantics.** The folder a connection writes — `raw/connectors/<kind>/<name>/` —
+is the connection's.
 A file in it that someone edits, deletes or moves out of band (the web app, the desktop
 client, whose raw/ syncs both ways) is put back at the next sync; the person's version is
 in the history, like a wiki page the agent revised. One rule, no tombstones, and the
@@ -56,8 +56,9 @@ def due(row: Connection, moment: datetime) -> bool:
 
 
 def folder(row: Connection) -> str:
-    """Where this connection's files live, relative to the bundle."""
-    return f"raw/connectors/{raw_path(row.name)}"
+    """Where this connection's files live, relative to the bundle: under its kind, then
+    the name the connector gave it."""
+    return f"raw/connectors/{row.kind}/{raw_path(row.name)}"
 
 
 def run(home: Path, connection_id: str) -> str:

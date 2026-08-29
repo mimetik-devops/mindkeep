@@ -26,12 +26,12 @@ vi.mock("./api", () => ({
   listConnectors: vi.fn(async () => [
     {
       kind: "website",
-      title: "Websites",
-      blurb: "Pages at public addresses.",
+      title: "Website",
+      blurb: "A page at a public address.",
       auth: "none",
       available: true,
       fields: [
-        field("urls", "Addresses", { multiline: true, help: "One per line" }),
+        field("url", "Address", { help: "https://…" }),
         field("pages", "Pages at most", { required: false }),
       ],
       grant_fields: [],
@@ -120,23 +120,21 @@ test("the picker offers what can be set up, and a website is set up from its fie
   expect(host.textContent).toContain("No connections yet");
   await act(async () => button(host, "Add a connection").click());
   // every connector is listed; the ones that cannot be picked say why
-  expect(menuitem(host, "Websites").disabled).toBe(false);
+  expect(menuitem(host, "Website").disabled).toBe(false);
   expect(menuitem(host, "Notion").disabled).toBe(true);
   expect(menuitem(host, "Notion").textContent).toContain("sign in first");
   expect(menuitem(host, "Google Drive").disabled).toBe(true);
   expect(menuitem(host, "Google Drive").textContent).toContain("cannot do yet");
-  await act(async () => menuitem(host, "Websites").click());
-  await type(control(host, "Connection name"), "Sites");
-  expect(control(host, "Addresses").tagName).toBe("TEXTAREA");
-  await type(control(host, "Addresses"), "https://mindkeep.io/\nhttps://mimetik.ai/");
+  await act(async () => menuitem(host, "Website").click());
+  expect(control(host, "Connection name")).toBeNull(); // the connector names it
+  await type(control(host, "Address"), "https://mindkeep.io/");
   await type(control(host, "Pages at most"), "1");
   await type(control(host, "Sync every"), "1440");
   await act(async () => button(host, "Connect").click());
   expect(added).toEqual([
     {
       kind: "website",
-      name: "Sites",
-      config: { urls: "https://mindkeep.io/\nhttps://mimetik.ai/", pages: "1" },
+      config: { url: "https://mindkeep.io/", pages: "1" },
       every: 1440,
       grant: undefined,
     },
@@ -154,12 +152,9 @@ test("a connector that needs a sign-in uses one of yours", async () => {
   expect(menuitem(host, "Notion").disabled).toBe(false);
   await act(async () => menuitem(host, "Notion").click());
   expect((control(host, "Sign-in") as HTMLSelectElement).value).toBe("g1");
-  await type(control(host, "Connection name"), "Wiki");
   await type(control(host, "Space"), "docs");
   await act(async () => button(host, "Connect").click());
-  expect(added).toEqual([
-    { kind: "notion", name: "Wiki", config: { space: "docs" }, every: 60, grant: "g1" },
-  ]);
+  expect(added).toEqual([{ kind: "notion", config: { space: "docs" }, every: 60, grant: "g1" }]);
 });
 
 test("a connection is listed with its state and sign-in, synced now, and edited", async () => {
@@ -167,8 +162,8 @@ test("a connection is listed with its state and sign-in, synced now, and edited"
     {
       id: "c1",
       kind: "notion",
-      name: "Wiki",
-      folder: "raw/connectors/Wiki",
+      name: "docs",
+      folder: "raw/connectors/notion/docs",
       config: { space: "docs" },
       every: 60,
       enabled: true,
@@ -204,8 +199,8 @@ test("a viewer sees the list, a revoked sign-in, and none of the buttons", async
     {
       id: "c1",
       kind: "notion",
-      name: "Wiki",
-      folder: "raw/connectors/Wiki",
+      name: "docs",
+      folder: "raw/connectors/notion/docs",
       config: {},
       every: 60,
       enabled: true,

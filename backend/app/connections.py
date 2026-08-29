@@ -3,14 +3,13 @@
 A *connector* is code — the `url` built-in, a Notion plugin (`app/connectors/`). A
 *connection* is one of them set up on one bundle with its own settings, secrets and
 schedule: "the team wiki in Notion", "the pricing sheet at this URL". Its files land under
-`raw/connectors/<name>/` and are kept in step by `syncing.py`.
+`raw/connectors/<kind>/<name>/` and are kept in step by `syncing.py`.
 
 Managing connections is the `bundles` permission — they hold credentials and decide what
 flows into the wiki; owners and admins. Asking for a sync now is `write`.
 """
 
 import logging
-import re
 import secrets
 import threading
 from collections.abc import Callable
@@ -26,20 +25,18 @@ from app import grants, syncing, vault
 from app.auth import CurrentUser
 from app.connectors import ConnectorError, registry
 from app.db import Connection, Grant, session
-from app.files import Bundle, Manager, Writer, record
+from app.files import Bundle, Manager, Writer, raw_path, record
 from app.ingest import enqueue, pages_citing
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/teams/{team}")
 
-NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,79}$")
 EVERY_MIN, EVERY_MAX, EVERY_DEFAULT = 15, 7 * 24 * 60, 60  # minutes
 
 
 class NewConnection(BaseModel):
     kind: str
-    name: str
     config: dict[str, str]
     every: int = EVERY_DEFAULT
     grant: str | None = None  # one of the caller's, for a connector that needs one
@@ -171,21 +168,23 @@ def list_connections(home: Bundle) -> list[dict[str, object]]:
 def add_connection(
     home: Bundle, user: CurrentUser, _: Manager, new: NewConnection
 ) -> dict[str, object]:
-    """Set a connection up: the credentials are tried first (the connector's `check`),
-    then the row is made and its first sync started."""
+    """Set a connection up: the scope is tried first (the connector's `check`), the
+    connector names it, then the row is made and its first sync started. Nobody types a
+    name: it is the folder, and the connector knows what the thing is called."""
     connector = registry().get(new.kind)
     if connector is None:
         raise HTTPException(404, f"no connector of kind {new.kind}")
     if connector.auth == "oauth2":
         raise HTTPException(400, f"{connector.title} needs a sign-in Mindkeep cannot do yet")
-    name = new.name.strip()
-    if not NAME.match(name):
-        raise HTTPException(400, "a name: letters, digits, spaces, dots, dashes; 80 at most")
     tenant, bundle = _where(home)
     given = {f.name: new.config.get(f.name, "").strip() for f in connector.fields}
     with session() as s:
         grant = _grant_for(s, connector, user, new.grant)
         _checked_with(connector, given, grant)
+        try:
+            name = raw_path(connector.name(given))[:80]
+        except ConnectorError as e:
+            raise HTTPException(400, str(e)) from e
         taken = s.scalar(
             select(Connection).where(
                 Connection.tenant == tenant,
@@ -194,7 +193,7 @@ def add_connection(
             )
         )
         if taken:
-            raise HTTPException(409, "this bundle already has a connection by that name")
+            raise HTTPException(409, f"this bundle is already connected to {name}")
         row = Connection(
             id=secrets.token_hex(16),
             tenant=tenant,

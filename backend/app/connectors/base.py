@@ -119,6 +119,17 @@ class Connector:
     grant_fields: ClassVar[tuple[Field, ...]] = ()
     oauth: ClassVar[OAuth | None] = None
 
+    def name(self, config: dict[str, str]) -> str:
+        """What a connection is called, and the folder it writes under
+        `raw/connectors/<kind>/` — from its config, never typed by a person: a website
+        is its host, a Notion connection its page. Unique within a bundle, so two
+        connections of one kind to the same thing are refused. The default is the first
+        plain field's value, which is right more often than not."""
+        for f in self.fields:
+            if not f.secret and config.get(f.name, "").strip():
+                return config[f.name].strip()
+        return self.title
+
     def check_grant(self, secrets: dict[str, str]) -> str:
         """Try a token before the grant is saved. Return what to call it — the e-mail,
         the workspace, the bot's name; raise ConnectorError with a sentence otherwise."""
