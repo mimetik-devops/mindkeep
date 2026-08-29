@@ -1684,6 +1684,111 @@ in first — Settings → Account*, or *needs a sign-in Mindkeep cannot do yet*.
 shows a *Sign-in* choice for a connector that needs one (yours of that kind, the first
 preselected), a textarea for a multiline field. A row says *as Ada's workspace*.
 
+### 4.54 One website connection, its sites each with their own depth and clock (2026-08-30)
+
+Ruben: the website connector needs settings per site — depth and frequency — true
+multi-address support; and the folder name should not be configurable, the connector
+should fix it. A first reading made each site its own connection; the ask was the other
+way round: one connection holding the sites, each configurable on its own. So the contract
+gains two things. A `Field` may be `rows`: a list of rows, each with sub-fields — the
+website's `sites`: address, pages at most, check for changes (an `options` choice) — sent
+as JSON and drawn by the app as a small table with *add another*. And a connector may
+keep its own clock: `tick` (minutes) is how often the plumbing lets it look, and then the
+connection has no interval of its own; the website connector ticks every quarter hour,
+pulls only the sites that are due, remembers in its cursor when each was last pulled and
+which pages it produced, and returns `complete=False` with only what changed — so a site
+that shrank or was dropped from the list has its pages removed, and an id both written
+and named as removed stays (a section replacing its site). The folder is the connector's
+(`folder`, its kind unless it says): `raw/connectors/website/<host>/…`. A bundle has one
+connection of a kind — the form holds the plural, the picker says *already connected —
+edit it* — and the connector `name(config)`s it, never a person: the hosts, joined. The
+migration for grants also swaps the connection's uniqueness from name to kind.
+
+Ruben also pointed the connector at `https://futuros.io/?lang=en` and got Spanish. Not the
+connector: futuros.io serves one page, Spanish, for every variant — `/`, `/?lang=en`, even
+with `Accept-Language: en` — and switches language in the browser from an inline
+dictionary, which nothing without JavaScript can run. Fixed on the site (foresight-home
+PR #2): `tools/prerender.mjs` writes `/en/` and `/ca/` as real pages from the same
+dictionary, the toggle navigates between the three, the sitemap and `hreflang` point at
+them. The general answer — a per-site "render in a browser" option on Playwright and a
+headless Chromium in the backend image — is a separate feature for SPAs and client-side
+i18n; not built.
+
+### 4.55 Google Drive, and the sign-in with a provider (2026-08-30)
+
+Ruben: implement the Google Drive connector — multiple Drive paths, each at a specified
+interval. That is the OAuth step the contract had declared and not built, plus the first
+provider connector on top of it.
+
+**The dance, generic** (`grants.py`). A connector declares `OAuth(provider, authorize_url,
+token_url, scopes, params)`; the app's own client id and secret are `<PROVIDER>_CLIENT_ID`
+/ `_CLIENT_SECRET` in the environment, and a kind whose provider is not configured is
+listed but not offered — the catalog's `available` says so and the disabled button in
+the account card becomes the real one when it is. `start` answers the consent URL: PKCE
+(S256) and a `state` that is a signed note — HMAC on `DEVICE_SECRET` — of who asked and
+for what, good for ten minutes; `callback` (no bearer token: the state is the proof)
+trades the code, asks the connector's `check_grant` what to call the grant, seals the
+tokens with `expires_at`, and sends the browser back to `WEB_URL/?connected=<kind>` or
+`?connect_error=…`, where the app lands on Settings → Account → Connectors and says so.
+`fresh` is the one road for a sync and a check alike: an access token within 90 s of
+expiring is renewed and resealed; a refresh the provider refuses (`invalid_grant`) marks
+the grant *expired or revoked — sign in again* and the connection reports it, instead of
+a stack trace every quarter hour. Google gets `access_type=offline` and `prompt=consent`
+— it hands the refresh token over only on a consent screen, so every sign-in shows one.
+Grants stay per kind: a Drive grant will not serve Gmail (different scopes, its own
+consent) — the old note that "Gmail and Drive are one integration" is superseded on
+purpose. Redirect URI: `<API_PUBLIC_URL>/grants/oauth/drive/callback`, `API_PUBLIC_URL`
+defaulting to `WEB_URL` + `/api`.
+
+**The connector** (`connectors/drive.py`): `drive.readonly`, one scope — the grant's name
+is read from Drive's own `about`. One connection, folders as rows, each with its own
+frequency on the plumbing's quarter-hour tick, the cursor remembering per folder when it
+was pulled and each file's `modifiedTime`, so a tick fetches only what changed and a file
+that went away has its source removed; a file reached through two folders of the list is
+taken once. A folder is named as a person sees it from the top of My Drive
+(`Clients/Acme`), or given as its link or id (which reaches a shared drive); a name that
+matches two folders is refused with the count, never guessed; paths are resolved at every
+pull, so a renamed folder errors visibly rather than silently going stale. Docs, Sheets
+and Slides are exported as Markdown, CSV and text; other files as they are up to 20 MB;
+forms, shortcuts and sites are skipped, and so is a file whose download fails (tried
+next time) — one bad file must not stop the folder. Bounded at 500 files and 100
+folders per row per tick. The Drive id is the item's identity, so a rename is a move.
+REST over httpx; no Google SDK.
+
+**Verified, and what is not.** Google is never called in the tests: the token endpoint
+and the Drive API are stood in for, and what is tested is the dance (start URL, callback
+with our own state, a forged state refused, `access_denied` relayed), the refresh (renewed
+before use, the refresh token kept, revoked marked), and the connector (paths, the
+ambiguous name, exports, the form skipped, the per-folder clock, a changed Doc, a gone
+PDF, a new Doc, a file dropped from the list). Not run: a real consent — there is no
+Google OAuth client yet, and the production variables are Ruben's to set. That first
+real sign-in is the actual test of the dance.
+
+### 4.56 Browse, not type: a folder picker for Drive, and how connectors get screens (2026-08-30)
+
+Ruben: a browse button for the Drive connection — asking people to type a folder path is
+terrible UX. And, before it: can every connector have its own config screen; does the
+plugin provide it? The answer decides how connectors get UI, so it is recorded. Each
+connector already has its own screen in the sense that matters — declared, not coded:
+the plugin describes its form (`fields`, `grant_fields`, rows, choices, secrets) and the
+app draws it. What a plugin cannot do is ship UI code, deliberately: loading plugin
+JavaScript into the app is a security surface (a plugin could read the session) or an
+iframe with all its plumbing, and it would make every plugin author build a frontend. The
+form vocabulary grows instead, and this is the first growth: a `Field` may be `browse`,
+the app shows a *browse* button, and what it offers comes from the connector's
+`browse(field, at, grant)` — one level down from `at`, as `Choice`s (value, label,
+whether it opens onto more) — through `POST …/connectors/{kind}/browse`, with the
+caller's own sign-in, renewed if need be. The app draws a small browser under the cell:
+*top*, *up*, the choices, *Use this folder*. Any connector gets a folder tree, a label
+list, a channel list the same way, with no frontend code.
+
+For Drive: at the top, My Drive's folders and *Shared drives*; inside, subfolders; a pick
+writes the same path a person could have typed — `Clients/Acme`,
+`Shared drives/Marketing/Campaigns` — which is also how paths now reach shared drives
+(`resolve` walks from a shared drive's root when the path starts with `Shared drives/`,
+via the `drives` endpoint). Typing and links still work. Three ambiguous *Acme*s at the
+top are three choices in the browser and a refusal with the count when typed.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

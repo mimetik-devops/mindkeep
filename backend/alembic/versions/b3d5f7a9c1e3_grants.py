@@ -1,4 +1,5 @@
-"""grants: a person's standing with a provider, and the connection that uses one
+"""grants: a person's standing with a provider, and the connection that uses one; one
+connection of a kind per bundle
 
 Revision ID: b3d5f7a9c1e3
 Revises: a2c4e6f8b0d1
@@ -35,11 +36,15 @@ def upgrade() -> None:
     op.create_index("ix_grant_sub", "grant", ["sub"])
     with op.batch_alter_table("connection") as batch:
         batch.add_column(sa.Column("grant_id", sa.String(32), nullable=True))
+        batch.drop_constraint("uq_connection_name", type_="unique")
+        batch.create_unique_constraint("uq_connection_kind", ["tenant", "bundle", "kind"])
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     with op.batch_alter_table("connection") as batch:
+        batch.drop_constraint("uq_connection_kind", type_="unique")
+        batch.create_unique_constraint("uq_connection_name", ["tenant", "bundle", "name"])
         batch.drop_column("grant_id")
     op.drop_index("ix_grant_sub", table_name="grant")
     op.drop_table("grant")

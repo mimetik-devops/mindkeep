@@ -9,6 +9,7 @@ const updated: unknown[] = [];
 const synced: string[] = [];
 let rows: unknown[] = [];
 let grants: unknown[] = [];
+let driveAvailable = false;
 
 const field = (name: string, label: string, extra = {}) => ({
   name,
@@ -17,6 +18,9 @@ const field = (name: string, label: string, extra = {}) => ({
   help: "",
   required: true,
   multiline: false,
+  options: [],
+  rows: [],
+  browse: false,
   ...extra,
 });
 
@@ -30,9 +34,22 @@ vi.mock("./api", () => ({
       blurb: "Pages at public addresses.",
       auth: "none",
       available: true,
+      folder: "raw/connectors/website",
+      tick: 15,
       fields: [
-        field("urls", "Addresses", { multiline: true, help: "One per line" }),
-        field("pages", "Pages at most", { required: false }),
+        field("sites", "Sites", {
+          rows: [
+            field("url", "Address", { help: "https://…" }),
+            field("pages", "Pages at most", { required: false }),
+            field("every", "Check for changes", {
+              help: "1440",
+              options: [
+                ["15", "every 15 minutes"],
+                ["1440", "every day"],
+              ],
+            }),
+          ],
+        }),
       ],
       grant_fields: [],
     },
@@ -42,6 +59,8 @@ vi.mock("./api", () => ({
       blurb: "A workspace.",
       auth: "token",
       available: true,
+      folder: "raw/connectors/notion",
+      tick: 0,
       fields: [field("space", "Space")],
       grant_fields: [field("token", "Token", { secret: true })],
     },
@@ -50,13 +69,37 @@ vi.mock("./api", () => ({
       title: "Google Drive",
       blurb: "",
       auth: "oauth2",
-      available: false,
-      fields: [],
+      available: driveAvailable,
+      folder: "raw/connectors/drive",
+      tick: 15,
+      fields: [
+        field("folders", "Folders", {
+          rows: [
+            field("path", "Folder", { browse: true }),
+            field("every", "Check for changes", {
+              help: "60",
+              options: [["60", "every hour"]],
+            }),
+          ],
+        }),
+      ],
       grant_fields: [],
     },
   ]),
   listConnections: vi.fn(async () => rows),
   listGrants: vi.fn(async () => grants),
+  browseConnector: vi.fn(async (_b: string, _k: string, body: { at: string }) => ({
+    at: body.at,
+    choices:
+      body.at === ""
+        ? [
+            { value: "Clients", label: "Clients", opens: true },
+            { value: "Shared drives", label: "Shared drives", opens: true },
+          ]
+        : body.at === "Clients"
+          ? [{ value: "Clients/Acme", label: "Acme", opens: true }]
+          : [],
+  })),
   addConnection: vi.fn(async (_b: string, body: unknown) => {
     added.push(body);
     return {};
@@ -113,7 +156,7 @@ const type = async (el: HTMLElement, value: string) => {
   );
 };
 
-test("the picker offers what can be set up, and a website is set up from its fields", async () => {
+test("the picker offers what can be set up, and sites are rows with their own settings", async () => {
   rows = [];
   grants = [];
   const host = await mount();
@@ -126,21 +169,59 @@ test("the picker offers what can be set up, and a website is set up from its fie
   expect(menuitem(host, "Google Drive").disabled).toBe(true);
   expect(menuitem(host, "Google Drive").textContent).toContain("cannot do yet");
   await act(async () => menuitem(host, "Websites").click());
-  await type(control(host, "Connection name"), "Sites");
-  expect(control(host, "Addresses").tagName).toBe("TEXTAREA");
-  await type(control(host, "Addresses"), "https://mindkeep.io/\nhttps://mimetik.ai/");
-  await type(control(host, "Pages at most"), "1");
-  await type(control(host, "Sync every"), "1440");
+  expect(control(host, "Connection name")).toBeNull(); // the connector names it
+  expect(control(host, "Sync every")).toBeNull(); // the sites keep their own clocks
+  await type(control(host, "Address 1"), "https://mindkeep.io/");
+  await type(control(host, "Pages at most 1"), "1");
+  await act(async () => button(host, "add another").click());
+  await type(control(host, "Address 2"), "https://mimetik.ai/");
+  await type(control(host, "Check for changes 2"), "15");
   await act(async () => button(host, "Connect").click());
   expect(added).toEqual([
     {
       kind: "website",
-      name: "Sites",
-      config: { urls: "https://mindkeep.io/\nhttps://mimetik.ai/", pages: "1" },
-      every: 1440,
+      config: {
+        sites: JSON.stringify([
+          { url: "https://mindkeep.io/", pages: "1", every: "1440" },
+          { url: "https://mimetik.ai/", pages: "", every: "15" },
+        ]),
+      },
+      every: 60,
       grant: undefined,
     },
   ]);
+});
+
+test("a connector already connected is not offered again", async () => {
+  rows = [
+    {
+      id: "w",
+      kind: "website",
+      name: "mindkeep.io",
+      folder: "raw/connectors/website",
+      config: {
+        sites: JSON.stringify([{ url: "https://mindkeep.io/", pages: "", every: "1440" }]),
+      },
+      every: 15,
+      enabled: true,
+      syncing: false,
+      synced_at: "",
+      error: "",
+      summary: "",
+      installed: true,
+      grant: null,
+      grant_gone: false,
+    },
+  ];
+  grants = [];
+  const host = await mount();
+  await act(async () => button(host, "Add a connection").click());
+  expect(menuitem(host, "Websites").disabled).toBe(true);
+  expect(menuitem(host, "Websites").textContent).toContain("already connected");
+  // editing shows the rows as they are
+  await act(async () => button(host, "edit").click());
+  expect((control(host, "Address 1") as HTMLInputElement).value).toBe("https://mindkeep.io/");
+  expect((control(host, "Check for changes 1") as HTMLSelectElement).value).toBe("1440");
 });
 
 test("a connector that needs a sign-in uses one of yours", async () => {
@@ -154,12 +235,9 @@ test("a connector that needs a sign-in uses one of yours", async () => {
   expect(menuitem(host, "Notion").disabled).toBe(false);
   await act(async () => menuitem(host, "Notion").click());
   expect((control(host, "Sign-in") as HTMLSelectElement).value).toBe("g1");
-  await type(control(host, "Connection name"), "Wiki");
   await type(control(host, "Space"), "docs");
   await act(async () => button(host, "Connect").click());
-  expect(added).toEqual([
-    { kind: "notion", name: "Wiki", config: { space: "docs" }, every: 60, grant: "g1" },
-  ]);
+  expect(added).toEqual([{ kind: "notion", config: { space: "docs" }, every: 60, grant: "g1" }]);
 });
 
 test("a connection is listed with its state and sign-in, synced now, and edited", async () => {
@@ -167,8 +245,8 @@ test("a connection is listed with its state and sign-in, synced now, and edited"
     {
       id: "c1",
       kind: "notion",
-      name: "Wiki",
-      folder: "raw/connectors/Wiki",
+      name: "docs",
+      folder: "raw/connectors/notion/docs",
       config: { space: "docs" },
       every: 60,
       enabled: true,
@@ -204,8 +282,8 @@ test("a viewer sees the list, a revoked sign-in, and none of the buttons", async
     {
       id: "c1",
       kind: "notion",
-      name: "Wiki",
-      folder: "raw/connectors/Wiki",
+      name: "docs",
+      folder: "raw/connectors/notion/docs",
       config: {},
       every: 60,
       enabled: true,
@@ -222,4 +300,27 @@ test("a viewer sees the list, a revoked sign-in, and none of the buttons", async
   const host = await mount({ ...owner, role: "viewer", permissions: ["read"] });
   expect(host.textContent).toContain("the sign-in this connection used is gone");
   expect(host.querySelectorAll("button")).toHaveLength(0);
+});
+
+test("a browsable cell opens a browser and a pick writes the path", async () => {
+  rows = [];
+  driveAvailable = true;
+  grants = [
+    { id: "g9", kind: "drive", label: "ada@example.com", created_at: "", error: "", uses: 0 },
+  ];
+  const host = await mount();
+  await act(async () => button(host, "Add a connection").click());
+  await act(async () => menuitem(host, "Google Drive").click());
+  expect(control(host, "Sync every")).toBeNull(); // Drive ticks on its own
+  await act(async () => button(host, "browse").click());
+  expect(host.textContent).toContain("Shared drives");
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".choice")][0].click());
+  expect(host.textContent).toContain("/ Clients");
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".choice")][0].click());
+  expect(host.textContent).toContain("Nothing inside");
+  await act(async () =>
+    (host.querySelector('[aria-label="Use Clients/Acme"]') as HTMLButtonElement).click(),
+  );
+  expect((control(host, "Folder 1") as HTMLInputElement).value).toBe("Clients/Acme");
+  expect(host.querySelector(".browser")).toBeNull();
 });

@@ -21,6 +21,7 @@ anyone else's is a Python package that names its class under the entry-point gro
 `mindkeep.connectors` (see `app/connectors/__init__.py`).
 """
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
@@ -33,7 +34,10 @@ class ConnectorError(Exception):
 @dataclass(frozen=True)
 class Field:
     """One thing a person fills in. `secret` values are encrypted at rest and never sent
-    back to the browser; `multiline` ones are a list, one item per line."""
+    back to the browser; `multiline` ones are a list, one item per line; `options` makes
+    it a choice; `rows` makes it a list of rows, each with these sub-fields — the sites of
+    a website connection, each with its own depth and frequency — stored as JSON.
+    Sub-fields are never secret: a credential belongs in a grant."""
 
     name: str
     label: str
@@ -41,16 +45,50 @@ class Field:
     help: str = ""
     required: bool = True
     multiline: bool = False
+    options: tuple[tuple[str, str], ...] = ()  # (value, label)
+    rows: tuple["Field", ...] = ()
+    # the app offers a *browse* button: the choices come from the connector's `browse`,
+    # level by level — a folder tree, a list of channels — and the pick is the value
+    browse: bool = False
+
+
+@dataclass(frozen=True)
+class Choice:
+    """One thing to pick while browsing: what to store, what to show, and whether it
+    opens onto more (a folder) or is the end of the road (a channel, a label)."""
+
+    value: str
+    label: str
+    opens: bool = True
+
+
+def rows_of(config: dict[str, str], name: str) -> list[dict[str, Any]]:
+    """A rows field's value: the list of rows, from the JSON the form sent."""
+    raw = config.get(name, "").strip()
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except ValueError as e:
+        raise ConnectorError(f"{name}: not a list") from e
+    if not isinstance(value, list) or not all(isinstance(r, dict) for r in value):
+        raise ConnectorError(f"{name}: not a list")
+    return value
 
 
 @dataclass(frozen=True)
 class OAuth:
-    """How a provider's sign-in works, for the plumbing to run. Declared by the connector;
-    the app's own client id and secret come from the server's environment."""
+    """How a provider's sign-in works, for the plumbing to run (grants.py). Declared by
+    the connector; the app's own client id and secret come from the server's environment
+    as `<PROVIDER>_CLIENT_ID` and `<PROVIDER>_CLIENT_SECRET` — `provider` is that prefix,
+    lowercase, shared by connectors of one provider. `params` are extra query parameters
+    for the authorize step — Google's `access_type=offline`, say."""
 
+    provider: str
     authorize_url: str
     token_url: str
     scopes: tuple[str, ...]
+    params: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -113,16 +151,39 @@ class Connector:
     fields: ClassVar[tuple[Field, ...]] = ()
     # "none": no grant. "token": a grant made from `grant_fields`, checked by
     # `check_grant`. "oauth2": a grant made by the provider's sign-in, described by
-    # `oauth`. ponytail: the dance itself is not done yet — it comes with the first
-    # connector that needs it; until then such a kind is listed as unavailable.
+    # `oauth` and run by grants.py — available once the server has the provider's
+    # client id and secret.
     auth: ClassVar[Literal["none", "token", "oauth2"]] = "none"
     grant_fields: ClassVar[tuple[Field, ...]] = ()
     oauth: ClassVar[OAuth | None] = None
+    # where a connection's files land: raw/connectors/<folder>/. The kind unless said. A
+    # bundle has one connection of a kind — the connector's form holds the plural.
+    folder: ClassVar[str] = ""
+    # a connector that keeps its own clock — the sites of a website connection, each on
+    # its own frequency — says how often the plumbing should let it look: minutes. Then
+    # the connection has no interval of its own.
+    tick: ClassVar[int] = 0
+
+    def name(self, config: dict[str, str]) -> str:
+        """What a connection is called, from its config, never typed by a person: the
+        hosts of a website connection, the pages of a Notion one. The default is the
+        first plain field's value, which is right more often than not."""
+        for f in self.fields:
+            if not f.secret and not f.rows and config.get(f.name, "").strip():
+                return config[f.name].strip()
+        return self.title
 
     def check_grant(self, secrets: dict[str, str]) -> str:
-        """Try a token before the grant is saved. Return what to call it — the e-mail,
-        the workspace, the bot's name; raise ConnectorError with a sentence otherwise."""
+        """Try a grant before it is kept — a pasted token, or the tokens a sign-in just
+        returned (`access_token` among them). Return what to call it — the e-mail, the
+        workspace, the bot's name; raise ConnectorError with a sentence otherwise."""
         return self.title
+
+    def browse(self, field: str, at: str, grant: Grant | None) -> list["Choice"]:
+        """The choices for a browsable field, one level down from `at` ("" is the top):
+        what the app shows when a person presses *browse*. Raise ConnectorError with a
+        sentence when the provider will not say."""
+        return []
 
     def check(self, config: dict[str, str], grant: Grant | None) -> None:
         """Try a connection's scope before it is saved. Raise ConnectorError with a

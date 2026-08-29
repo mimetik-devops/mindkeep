@@ -84,7 +84,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
   todo.md         tasks for a person, found by the agent — for someone who does
   raw/            the owner's documents, under their own names. The only human-written half.
     notes/<person>/…   findings contributed by local agents (see "Notes")
-    connectors/<name>/…   what a connection pulls from a third-party source (see "Connectors")
+    connectors/<kind>/…   what a connection pulls from a third-party source (see "Connectors")
   wiki/           everything the agent wrote, filed by type:
     people/  companies/  projects/  concepts/  meetings/  summaries/ …
   .git/           history (hidden from every listing, never synced)
@@ -95,7 +95,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 | File | Written by | Notes |
 |---|---|---|
 | `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
-| `raw/connectors/<name>/**` | the connection's sync | a mirror of the source: hand edits and deletes are put back at the next sync |
+| `raw/connectors/<kind>/**` | the connection's sync | a mirror of the source: hand edits and deletes are put back at the next sync |
 | `wiki/**` | the ingest/lint agent; a person may edit an existing page in the app | a page edit is a commit, never an ingest; the next ingest of a source the page cites may revise it — history keeps their version. Making pages stays the agent's |
 | `log.md` | the ingest/lint agent only | its own account of every run |
 | `index.md` | the server (`index.py`), after every run and undo | built from the pages' frontmatter; the agent's tools refuse it |
@@ -165,9 +165,9 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
 | `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history; the same sweep syncs every connection that is due |
-| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` built-in |
+| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `Grant`, `OAuth`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` and `drive` built-ins |
 | `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; a connection that needs a sign-in references one of the caller's grants |
-| `grants.py` | A person's standing with a provider — a token today, an OAuth sign-in to come — made once, usable by any connection they set up; `unpack` hands a connector its secrets in the clear for one call. User-facing: a sign-in, under Settings → Account → *Connectors* |
+| `grants.py` | A person's standing with a provider — a pasted token, or a sign-in with the provider: the OAuth dance (`start`, `callback`, PKCE, signed state), `fresh` (refresh before use, revoked marked), `configured` — made once, usable by any connection they set up. User-facing: a sign-in, under Settings → Account → *Connectors* |
 | `syncing.py` | One sync: pull, diff against `connector_item`, write, commit, queue; mirror semantics; `due()`; `disconnect()` |
 | `vault.py` | Secret fields sealed at rest (Fernet, key from `DEVICE_SECRET`), redacted on the way out, kept when the marker comes back |
 | `devices.py` | Per-machine tokens: create, holder, mine, forget |
@@ -300,7 +300,8 @@ settings, secrets and schedule (`app/connections.py`): "the team wiki in Notion"
 pricing sheet at this URL". Everything a connector does not have to do is the plumbing's,
 the same for every connector:
 
-- **Where files land.** Under `raw/connectors/<name>/`, through the same road an upload
+- **Where files land.** Under `raw/connectors/<folder>/` — the connector's `folder`, its kind
+  unless it says — through the same road an upload
   takes — `raw_path` for safe names, a scoped commit (`sync <name>: +a ~c -r`), an ingest
   queued per changed file. The connection's folder is the connection's (**mirror
   semantics**): a file in it edited, deleted or moved out of band — the web app, the
@@ -314,17 +315,48 @@ the same for every connector:
 - **Grants — sign-ins.** A connector's `auth` is `none`, `token` or `oauth2`. A *grant* is a
   person's standing with the provider: for a `token` kind, the secrets of `grant_fields`,
   tried by `check_grant` (which names it — an e-mail, a workspace); for an `oauth2` kind,
-  the tokens of the provider's sign-in (declared in `oauth`; the dance is not built yet,
-  such a kind is listed but not offered). A grant is the person's, not a bundle's: made
+  the tokens of the provider's sign-in, which `grants.py` runs from the connector's
+  `OAuth` declaration (below). A grant is the person's, not a bundle's: made
   once in Settings → Account → *Connectors*, usable by any connection they set up in any
   team, and passed to `check` and `pull` as a `Grant` with its secrets in the clear for
   that call only. A connection keeps syncing with its maker's grant into a bundle other
   people read — the person put their credential to work for that bundle. Deleting a
   grant never cascades: connections that used it keep their rows and files and report
   *the sign-in this connection used is gone* at their next sync, until given another.
-- **Scope, plural.** A connection's `fields` are its scope; a field may be `multiline` — a
-  list, one per line — so one connection watches several things (the website connector's
-  addresses) and a token is entered once. One connection per purpose, not per target.
+- **One connection of a kind per bundle; the form holds the plural.** A connection's
+  `fields` are its scope. A field may be `rows` — a list of rows, each with sub-fields
+  (the sites of a website connection: address, depth, frequency), sent as JSON — or
+  `multiline` (a list, one per line), or have `options` (a choice). A connector that
+  keeps its own clock (each site on its own frequency) sets `tick` — minutes — and the
+  plumbing lets it look that often, with no interval on the connection; it decides what
+  is due, remembers it in its cursor, and returns `complete=False` with only what changed.
+  A field may be `browse`: the app shows a *browse* button, and what it offers comes from
+  the connector's `browse(field, at, grant)` — one level down from `at`, as `Choice`s
+  (value, label, whether it opens onto more) — through `POST …/connectors/{kind}/browse`
+  with the caller's own sign-in. Every connector gets a screen that feels its own — a
+  folder tree, a list of channels — without a line of frontend code: plugins describe,
+  the app draws. Plugin-shipped UI code is deliberately not a thing.
+  The connector `name(config)`s the connection — the hosts of a website connection —
+  never a person; the name follows the settings.
+- **The provider sign-in (OAuth 2).** A connector declares `OAuth(provider, authorize_url,
+  token_url, scopes, params)`; the app's own client id and secret are `<PROVIDER>_CLIENT_ID`
+  / `<PROVIDER>_CLIENT_SECRET` in the environment (`GOOGLE_…` for Drive), and a kind whose
+  provider is not configured is listed but not offered. `GET /grants/oauth/{kind}/start`
+  (signed in) answers the consent-page URL: PKCE (S256), and a `state` that is a signed
+  note — HMAC on `DEVICE_SECRET` — of who asked and for what, good for ten minutes. The
+  provider sends the browser to `GET /grants/oauth/{kind}/callback` (no bearer token: the
+  state is the proof), which trades the code for tokens, asks the connector's
+  `check_grant` what to call the grant, keeps the tokens sealed with `expires_at`, and
+  sends the browser back to `WEB_URL/?connected=<kind>` (or `?connect_error=…`); the app
+  lands on Settings → Account → Connectors and says so. The redirect URI is
+  `<API_PUBLIC_URL>/grants/oauth/{kind}/callback`, `API_PUBLIC_URL` defaulting to
+  `WEB_URL` + `/api` (right when Caddy proxies /api). Before every use — a sync, or a
+  `check` — `grants.fresh` renews an access token within 90 s of expiring and reseals
+  the grant; a refresh the provider refuses (`invalid_grant`: revoked) sets the grant's
+  `error` and the connection reports it. Google needs `access_type=offline` and
+  `prompt=consent` to hand over a refresh token — one consent screen per sign-in.
+  Grants are per kind: a Drive grant will not serve a Gmail connector (its scopes and
+  consent differ), by decision, not accident.
 - **Secrets.** Fields the connector marks `secret` are Fernet-encrypted at rest
   (`app/vault.py`, key derived from `DEVICE_SECRET`), never sent to a browser (a marker
   says one is set; the marker sent back means "keep it"), tried by the connector's `check`
@@ -368,15 +400,29 @@ backend image that names its class under the entry-point group `mindkeep.connect
 (`[project.entry-points."mindkeep.connectors"] notion = "mindkeep_notion:NotionConnector"`).
 Both show up in `GET /teams/{t}/connectors` on the next start; a plugin with a built-in's
 kind replaces it. `app/connectors/website.py` is the worked example and the first real
-connector: the page at an address and the pages it links to on the same site (up to
-`pages`, 20 unless said), each kept as **Markdown** — whole-page HTML→Markdown
-(`markdownify`; scripts, styles, nav and footer dropped; links made absolute; `title`,
-`source` and `description` up top), not readability-style extraction, which drops the
-headings and lists of any page that is not an article. An address that is not HTML — a
-PDF, a feed — is kept as the file it is. Conversion is byte-stable across fetches, so a
-page is folded in again only when it actually changed. `oauth2` is declared in the contract so a plugin can say what it needs,
-but the plumbing does not do the dance yet (redirect route, app credentials, refresh);
-such a kind is listed as unavailable until the first connector that needs it brings it.
+connector: a list of sites, each the page at an address and the pages it links to on the
+same site — under the address's path when it has one, so `x.com/docs` is that section —
+up to its own `pages` (20 unless said), on its own frequency, each kept as **Markdown**:
+whole-page HTML→Markdown (`markdownify`; scripts, styles, nav and footer dropped; links
+made absolute; `title`, `source` and `description` up top), not readability-style
+extraction, which drops the headings and lists of any page that is not an article. An
+address that is not HTML — a PDF, a feed — is kept as the file it is. Conversion is
+byte-stable across fetches, so a page is folded in again only when it actually changed.
+
+`app/connectors/drive.py` is the first provider connector: a Google sign-in
+(`drive.readonly`, nothing more — the grant's name comes from Drive's own `about`), then
+folders as rows, each on its own frequency — named as a person sees them from the top of
+My Drive (`Clients/Acme`, or `Shared drives/Marketing/…`; a name matching two folders is
+refused with the count, never guessed) or as the folder's link or id — or, the way people
+actually do it, picked with *browse*: My Drive's folders and the shared drives at the top,
+subfolders as you go, *Use this folder* writing the same path. Docs, Sheets and
+Slides are exported as Markdown, CSV and text; other files come as they are up to 20 MB;
+forms, shortcuts and sites are skipped, and so is a file that fails to download (tried
+next time). The cursor holds each file's `modifiedTime` per folder, so a tick fetches
+only what changed; the Drive id is the item's identity, so a rename is a move; a file
+reached through two folders of the list is taken once; bounded at 500 files and 100
+folders per row per tick. REST over httpx, no Google SDK.
+
 The app manages connections in Settings → Bundle, where they have the right-hand column
 (`Connections.tsx`).
 
@@ -421,6 +467,7 @@ out. Every query on a tenant table filters on `tenant` (`runs._where`).
 
 ### Environment (`backend/.env.example`)
 
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (a Google Cloud OAuth client of type *Web application*, the Drive API enabled, redirect URI `<API_PUBLIC_URL>/grants/oauth/drive/callback`), `API_PUBLIC_URL` (blank: `WEB_URL` + `/api`),
 `DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR`,
 `ANTHROPIC_API_KEY`, `DEVICE_SECRET`, `AUTH_PROVIDER` (`builtin` | `oidc`), builtin only:
 `AUTH_SECRET`; oidc only: `AUTH_ISSUER`,
@@ -472,7 +519,10 @@ Under `/teams/{team}`, membership required:
 | GET/POST | `/bundles/{b}/connections` | read / bundles | list · set one up (credentials tried first; first sync started) |
 | PUT/DELETE | `/bundles/{b}/connections/{id}` | bundles | settings, secrets, interval, enabled · remove it and everything it wrote |
 | POST | `/bundles/{b}/connections/{id}/sync` | write | sync now (202; 409 while one runs) |
+| POST | `/bundles/{b}/connectors/{kind}/browse` | bundles | what a browsable field offers one level down from `at`, with the caller's sign-in |
 | GET/POST | `/grants` | signed in | your sign-ins, with how many connections use each · add one (a token, tried first; the connector names it) |
+| GET | `/grants/oauth/{kind}/start` | signed in | the provider's consent-page URL (PKCE, signed state) |
+| GET | `/grants/oauth/{kind}/callback` | the state | where the provider sends the browser; trades the code, keeps the grant, redirects to the app |
 | DELETE | `/grants/{id}` | signed in | gone at once; connections that used it stay and say so at their next sync |
 | GET/POST | `/bundles/{b}/questions[/{index}]` · `/todos[/{index}]` | read / write | the questions · the tasks: list, tick |
 | POST / GET | `/bundles/{b}/assist[/{job}]` | write / read | start one assistant turn (202, `{job}`) · poll it: `{done:false}`, then the reply and what changed, or an error |
@@ -499,7 +549,7 @@ everything else, mono for paths. The header and the login page are the site's cl
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Re-ingest* (a clean run is skipped by the queue; this is the one way to ask for it), *Edit* on a wiki page or a markdown source |
 | `Grants.tsx` | Settings → Account: *Connectors* — every connector and what it needs (none, a token, a provider sign-in not yet possible), your sign-ins per connector with how many connections use each, add (the connector's `grant_fields`) and remove |
-| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields`, a `multiline` field as a textarea, a sign-in picked from yours), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
+| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields` — no name: the connector names it — a `rows` field as a small table with *add another*, a `browse` cell with a browser under it (top / up / choices / *Use this folder*), a `multiline` field as a textarea, no interval when the connector ticks, a sign-in picked from yours; a connector already connected is not offered again), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
 | `Editor.tsx` | the WYSIWYG editor: Milkdown's Crepe (remark in, remark out — footnotes, tables and fences round-trip), loaded lazily on *Edit*. Frontmatter is kept aside verbatim by `forEditing`; saves carry `If-Match` (sha256 of the text as read) and a 412 keeps the editor open |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
 | `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |
