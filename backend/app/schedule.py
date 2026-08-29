@@ -1,4 +1,4 @@
-"""Nightly lint.
+"""Nightly lint, and the connections' syncs.
 
 ponytail: a daemon thread, not a cron container or a broker. The app is one process on
 one Railway service, so a thread that wakes every fifteen minutes and asks "has this
@@ -18,8 +18,10 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from sqlalchemy import select
+
 from app import runs
-from app.db import LINT_OFF
+from app.db import LINT_OFF, Connection, session
 from app.ingest import LINT, enqueue
 
 log = logging.getLogger(__name__)
@@ -94,6 +96,27 @@ def sweep() -> None:
             continue
         log.info("nightly lint: %s/%s", home.parent.name, home.name)
         enqueue(home, LINT)  # the bundle's worker runs it after whatever is already queued
+    sync_due(now)
+
+
+def sync_due(now: datetime) -> None:
+    """Every connection whose interval has passed, each in its own thread — a pull is
+    network time, and one slow source must not hold the others. From the rows, not the
+    disk: a connection whose bundle is gone from the volume is skipped, not synced into
+    a path that would recreate it."""
+    from app import syncing  # local: files imports this module, and syncing imports files
+
+    root = Path(os.environ.get("WIKI_ROOT", "/data"))
+    with session() as s:
+        rows = s.scalars(select(Connection).where(Connection.enabled)).all()
+        wanted = [(r.id, r.name, root / r.tenant / r.bundle) for r in rows if syncing.due(r, now)]
+    for connection_id, name, home in wanted:
+        if not (home / "CLAUDE.md").is_file() or syncing.active(connection_id):
+            continue
+        log.info("sync: %s in %s/%s", name, home.parent.name, home.name)
+        threading.Thread(
+            target=syncing.run, args=(home, connection_id), daemon=True, name="sync"
+        ).start()
 
 
 def run_forever() -> None:
@@ -101,7 +124,7 @@ def run_forever() -> None:
         try:
             sweep()
         except Exception:
-            log.exception("nightly lint sweep failed")
+            log.exception("scheduler sweep failed")
         time.sleep(CHECK_EVERY)
 
 

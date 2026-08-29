@@ -24,7 +24,9 @@ PAGE = "---\ntype: Concept\ntitle: Jane\nsources:\n  - id: a\n    title: A\n---\
 def ingested(monkeypatch):
     """Captures ingest triggers instead of queueing them for Claude."""
     calls: list[tuple] = []
-    monkeypatch.setattr("app.files.enqueue", lambda *a, **_k: calls.append(a))
+    # every module that queues an ingest imports the name itself
+    for module in ("app.files", "app.syncing", "app.connections"):
+        monkeypatch.setattr(f"{module}.enqueue", lambda *a, **_k: calls.append(a))
     return calls
 
 

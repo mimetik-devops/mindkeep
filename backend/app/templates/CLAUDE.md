@@ -21,6 +21,9 @@ sync will remove anything the server does not have. Changes go through Mindkeep:
   on, in `raw/` — a note (below) is the usual shape. Do not edit `questions.md` or
   `todo.md`; the agent keeps both, and a tick is made in the app.
 - **To fix a wrong page**, fix the source it cites, not the page. The page follows.
+- **`raw/connectors/` is kept by connections** — a Notion space, a page at a URL, set up
+  in the app — each folder a mirror of its source. Edit or delete a file in it and the
+  next sync puts it back; change the source instead.
 
 ## Layout
 
