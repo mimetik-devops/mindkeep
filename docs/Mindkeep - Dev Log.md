@@ -1429,6 +1429,16 @@ and 999px chips, as on the site. The old stroke mark is replaced by the site's l
 button they sit in. Selector-for-selector rewrite of `index.css`; nothing responsive or
 dark-mode was added — neither surface has it.
 
+### 4.47 The site's new logo and lockup (2026-08-29)
+
+Ruben: update the app's style to match the updated website. The site's commit "Updating
+logo and hero page" changed three things the app mirrors: the logo files (now 397×363, a
+wider mark, drawn at 28px in the header — `public/logo*.svg` and the favicon copied
+over, `Mark`'s aspect ratio updated), the "BY MIMETIK" line of the lockup (Space Grotesk
+400 at 10px with 0.24em tracking, no longer Instrument Serif), and the hero title's
+line-height (1.0 — at 0.9 a descender collided with the ascender below it), which the
+login field's title takes too. The rest of the commit is copy and the hero's second
+button; nothing in the app corresponds.
 ### 4.46 Pages edited in place: a WYSIWYG editor on the page view (2026-08-29)
 
 Ruben: add the ability to edit `.md` files directly from the website with a WYSIWYG editor.

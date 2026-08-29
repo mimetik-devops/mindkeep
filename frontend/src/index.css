@@ -117,10 +117,10 @@ button:focus-visible {
   letter-spacing: -0.02em;
 }
 .wordmark .by {
-  font-family: var(--disp);
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
 }
 .grow {
@@ -1372,7 +1372,8 @@ button:focus-visible {
   font-family: var(--disp);
   font-size: 72px;
   font-weight: 400;
-  line-height: 0.9;
+  /* 1.0, as on the site: a descender and the ascender below it collide at 0.9 */
+  line-height: 1;
   letter-spacing: -0.025em;
 }
 .login p {
