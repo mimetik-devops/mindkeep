@@ -1704,6 +1704,16 @@ connection of a kind — the form holds the plural, the picker says *already con
 edit it* — and the connector `name(config)`s it, never a person: the hosts, joined. The
 migration for grants also swaps the connection's uniqueness from name to kind.
 
+Ruben also pointed the connector at `https://futuros.io/?lang=en` and got Spanish. Not the
+connector: futuros.io serves one page, Spanish, for every variant — `/`, `/?lang=en`, even
+with `Accept-Language: en` — and switches language in the browser from an inline
+dictionary, which nothing without JavaScript can run. Fixed on the site (foresight-home
+PR #2): `tools/prerender.mjs` writes `/en/` and `/ca/` as real pages from the same
+dictionary, the toggle navigates between the three, the sitemap and `hreflang` point at
+them. The general answer — a per-site "render in a browser" option on Playwright and a
+headless Chromium in the backend image — is a separate feature for SPAs and client-side
+i18n; not built.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every
