@@ -188,6 +188,53 @@ class Account(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class Connection(Base):
+    """A connector, configured on one bundle: its settings (secrets sealed, see vault.py),
+    its schedule, the connector's own cursor, and how the last sync went. The files it
+    writes live under raw/<name>/ in the bundle; ConnectorItem says which."""
+
+    __tablename__ = "connection"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128))
+    bundle: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(80))
+    config: Mapped[str] = mapped_column(Text)  # JSON, secret fields encrypted
+    cursor: Mapped[str] = mapped_column(Text)  # JSON, the connector's own
+    every: Mapped[int] = mapped_column(Integer)  # minutes between syncs
+    enabled: Mapped[bool] = mapped_column(Boolean)
+    created_by: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # the last attempt, whether it worked or not; `error` says which
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    error: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+
+    __table_args__ = (
+        UniqueConstraint("tenant", "bundle", "name", name="uq_connection_name"),
+        Index("ix_connection_bundle", "tenant", "bundle"),
+    )
+
+
+class ConnectorItem(Base):
+    """One file a connection wrote, by the source's own id — what makes the next sync a
+    diff: unchanged is skipped, renamed is moved, missing is removed."""
+
+    __tablename__ = "connector_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant: Mapped[str] = mapped_column(String(128))
+    bundle: Mapped[str] = mapped_column(String(64))
+    connection_id: Mapped[str] = mapped_column(String(32))
+    remote: Mapped[str] = mapped_column(String(1024))
+    path: Mapped[str] = mapped_column(Text)  # relative to the bundle: raw/<name>/...
+    digest: Mapped[str] = mapped_column(String(64))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (UniqueConstraint("connection_id", "remote", name="uq_connector_item"),)
+
+
 LINT_OFF = -1
 
 

@@ -13,7 +13,11 @@ from pathlib import Path
 
 from sqlalchemy import delete, select, update
 
-from app.db import BundleSetting, IngestRun, SourceMove, now, session
+from app.db import BundleSetting, Connection, ConnectorItem, IngestRun, SourceMove, now, session
+
+# every table keyed by (tenant, bundle): re-keyed together when a bundle moves, is renamed
+# or deleted, and when a legacy tenant is re-keyed
+KEYED = (IngestRun, BundleSetting, SourceMove, Connection, ConnectorItem)
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +57,7 @@ def rekey_legacy_tenants(tenant_id: Callable[[str], str]) -> int:
 def rename_tenant(old: str, new: str) -> None:
     """Every row a tenant owns, re-keyed. Once, when its directory moves."""
     with session() as s:
-        for table in (IngestRun, BundleSetting, SourceMove):
+        for table in KEYED:
             s.execute(update(table).where(table.tenant == old).values(tenant=new))
         s.commit()
 
@@ -61,7 +65,7 @@ def rename_tenant(old: str, new: str) -> None:
 def move_bundle(old: str, new: str, bundle: str) -> None:
     """Every row of one bundle, re-keyed to another team. Once, when the bundle moves."""
     with session() as s:
-        for table in (IngestRun, BundleSetting, SourceMove):
+        for table in KEYED:
             s.execute(
                 update(table).where(table.tenant == old, table.bundle == bundle).values(tenant=new)
             )
@@ -71,7 +75,7 @@ def move_bundle(old: str, new: str, bundle: str) -> None:
 def rename_bundle(tenant: str, old: str, new: str) -> None:
     """Every row of one bundle, under its new name. Once, when the bundle is renamed."""
     with session() as s:
-        for table in (IngestRun, BundleSetting, SourceMove):
+        for table in KEYED:
             s.execute(
                 update(table).where(table.tenant == tenant, table.bundle == old).values(bundle=new)
             )
@@ -81,7 +85,7 @@ def rename_bundle(tenant: str, old: str, new: str) -> None:
 def forget_bundle(tenant: str, bundle: str) -> None:
     """Every row of one bundle, gone. Once, when the bundle is deleted."""
     with session() as s:
-        for table in (IngestRun, BundleSetting, SourceMove):
+        for table in KEYED:
             s.execute(delete(table).where(table.tenant == tenant, table.bundle == bundle))
         s.commit()
 
@@ -89,7 +93,7 @@ def forget_bundle(tenant: str, bundle: str) -> None:
 def forget_tenant(tenant: str) -> None:
     """Every row a tenant owns, gone. Once, when the team is deleted."""
     with session() as s:
-        for table in (IngestRun, BundleSetting, SourceMove):
+        for table in KEYED:
             s.execute(delete(table).where(table.tenant == tenant))
         s.commit()
 

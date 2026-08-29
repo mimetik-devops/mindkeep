@@ -15,7 +15,9 @@ readable without tooling.
 The tree has two halves and one owner each.
 
 - **`raw/` is the owner's.** They add, correct and delete their own material. You read it
-  and never write it.
+  and never write it. Some folders in it are kept by a *connection* — a third-party
+  source Mindkeep pulls on schedule; their files change when the source does, and a
+  source that goes away takes its file with it, which retires the pages resting on it.
 - **`wiki/` is yours**, along with `log.md`. You create, rewrite and delete pages there.
   A person may edit an existing page in the app — their edit is a commit in the
   history, and what they wrote is the page now: keep it unless a source contradicts it.

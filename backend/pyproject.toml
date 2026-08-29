@@ -13,6 +13,7 @@ dependencies = [
     "anthropic",
     "pyyaml",
     "networkx",
+    "cryptography",
 ]
 
 [dependency-groups]

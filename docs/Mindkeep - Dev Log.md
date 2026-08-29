@@ -1512,6 +1512,66 @@ The second half matters beyond logos: with no header, a browser could keep an ol
 `index.html` pointing at bundles a deploy has removed. Verified on the built image with
 curl. Until the next deploy lands, a hard reload (Ctrl+Shift+R) is the way to see §4.47.
 
+### 4.49 Connectors: the architecture and the plumbing (2026-08-30)
+
+Ruben: the next feature is connectors — a way to bring in and keep up to date information
+from third-party sources (Google Drive, Gmail, Notion, Slack…) — with a plugin
+architecture so anyone can implement their own; the architecture and the plumbing first,
+then the first connector as a plugin and the UI to manage them. This is the first step.
+
+**The split.** A *connector* is code that reads one kind of source and hands back files:
+a subclass of `app.connectors.Connector` with a `kind`, a `title`, a form (`fields`, some
+`secret`), a `check(config)` that tries the credentials, and a `pull(config, cursor)` that
+returns `Pull(items=[Item(id, path, content)], cursor)`. That is the whole contract. A
+*connection* is a connector set up on one bundle (`connection` row: sealed config, cursor,
+interval, enabled, last attempt). Everything else is plumbing, the same for every
+connector — which is the point: a plugin is the pull and nothing else.
+
+**Discovery.** Built-ins are the modules of `app/connectors/`; anyone else's is a package
+installed into the backend image that names its class under the entry-point group
+`mindkeep.connectors`. Both roads end in one registry keyed by `kind`; a plugin with a
+built-in's kind replaces it. The backend is not itself an installed distribution
+(`pip install .` in the Dockerfile sees only `pyproject.toml`), so built-ins are found by
+scanning the package rather than by entry point — the test suite registers its fake
+connector through a fake entry point, so the plugin road is the one under test.
+
+**The plumbing** (`syncing.py`): pull, diff against `connector_item` (one row per file the
+connection wrote, keyed by the source's own id — unchanged is skipped, renamed is a move,
+missing is removed), write under `raw/<name>/` through `raw_path`, one scoped commit
+(`sync <name>: +a ~c -r`), an ingest queued per changed file, a removed source retiring
+its pages as a delete does. A connector may return the whole set (`complete=True`) or only
+what changed plus the ids that went (`complete=False`, `removed`), with an opaque cursor.
+Secrets (`vault.py`): fields marked `secret` are Fernet-sealed at rest with a key derived
+from `DEVICE_SECRET`, never sent to a browser (a marker says one is set; the marker sent
+back means keep it), tried by `check` before they are saved. Schedule: the nightly-lint
+sweep also runs every enabled connection whose interval has passed, each in its own
+thread. Permissions: managing is `bundles`, *sync now* is `write`. `cryptography` is
+now a declared dependency rather than pyjwt's transitive one.
+
+**Mirror semantics, stated.** The folder a connection writes is the connection's: a file
+in it edited, deleted or moved out of band — the web app, the desktop client, whose raw/
+syncs both ways — is put back at the next sync, the person's version in the history. One
+rule, no tombstones, and every mirror converges on what the source holds. The manual and
+the bundle's CLAUDE.md say so. Disconnecting removes what the connection wrote, retiring
+the pages that rested on it.
+
+**Traps handled.** `runs.py` re-keys its tables in five places (legacy tenants, move,
+rename, delete bundle, delete team): the two new tables join a `KEYED` tuple there. The
+sweep reads connections from the rows, not the volume, and skips one whose bundle is gone
+from disk. The `ingested` fixture now patches every module that imports `enqueue`.
+
+**Decided, not built.** `auth = "oauth2"` is declared in the contract so a plugin can say
+what it needs, but the plumbing does not do the dance — redirect route, app credentials,
+token refresh; such a kind is listed as unavailable. It comes with the first connector
+that needs it. **Cost:** each changed file is one ingest, as an upload is — a first sync of
+500 files is 500 agent runs in a row; the changed-file list in `syncing.apply` is where a
+batching window goes (§5 has named this since the start). No UI yet: the routes are
+there for it. The one built-in is `url` — one address, fetched on schedule, the worked
+example and the end-to-end proof.
+
+**Next:** the first real connector. Notion (an internal-integration token) is the plumbing
+as it is; Drive or Gmail means the OAuth step first.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

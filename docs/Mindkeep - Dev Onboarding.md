@@ -84,6 +84,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
   todo.md         tasks for a person, found by the agent — for someone who does
   raw/            the owner's documents, under their own names. The only human-written half.
     notes/<person>/…   findings contributed by local agents (see "Notes")
+    <connection>/…     what a connection pulls from a third-party source (see "Connectors")
   wiki/           everything the agent wrote, filed by type:
     people/  companies/  projects/  concepts/  meetings/  summaries/ …
   .git/           history (hidden from every listing, never synced)
@@ -94,6 +95,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 | File | Written by | Notes |
 |---|---|---|
 | `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
+| `raw/<connection>/**` | the connection's sync | a mirror of the source: hand edits and deletes are put back at the next sync |
 | `wiki/**` | the ingest/lint agent; a person may edit an existing page in the app | a page edit is a commit, never an ingest; the next ingest of a source the page cites may revise it — history keeps their version. Making pages stays the agent's |
 | `log.md` | the ingest/lint agent only | its own account of every run |
 | `index.md` | the server (`index.py`), after every run and undo | built from the pages' frontmatter; the agent's tools refuse it |
@@ -162,7 +164,11 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `graph.py` / `gaps.py` | The link graph built from the files in memory; Louvain areas; structural gaps (thin pairs of areas) |
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
-| `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history |
+| `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history; the same sweep syncs every connection that is due |
+| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `url` built-in |
+| `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; bodies as pydantic models |
+| `syncing.py` | One sync: pull, diff against `connector_item`, write, commit, queue; mirror semantics; `due()`; `disconnect()` |
+| `vault.py` | Secret fields sealed at rest (Fernet, key from `DEVICE_SECRET`), redacted on the way out, kept when the marker comes back |
 | `devices.py` | Per-machine tokens: create, holder, mine, forget |
 | `db.py` | SQLAlchemy models and session; `now()` |
 | `templates/manual.md` | The agent's system prompt. Never leaves the server |
@@ -285,6 +291,67 @@ what a person must *do* in `todo.md`, and turns knowledge gaps into questions. W
 it finishes cleanly and the server finds pages outside their type's folder
 (`ingest.misfiled`), a reorganise run is queued behind it automatically.
 
+### Connectors
+
+A **connector** is code that reads one kind of third-party source and hands back files
+(`app/connectors/`). A **connection** is a connector set up on one bundle with its own
+settings, secrets and schedule (`app/connections.py`): "the team wiki in Notion", "the
+pricing sheet at this URL". Everything a connector does not have to do is the plumbing's,
+the same for every connector:
+
+- **Where files land.** Under `raw/<connection name>/`, through the same road an upload
+  takes — `raw_path` for safe names, a scoped commit (`sync <name>: +a ~c -r`), an ingest
+  queued per changed file. The connection's folder is the connection's (**mirror
+  semantics**): a file in it edited, deleted or moved out of band — the web app, the
+  desktop client, whose `raw/` syncs both ways — is put back at the next sync; the
+  person's version is in the history. A removed source retires its pages, as a delete does.
+- **What changed.** `connector_item` holds one row per file the connection wrote, keyed by
+  the source's own id: unchanged is skipped, renamed is a move, missing is removed. A
+  connector may return the whole set each time (`Pull(complete=True)`, the default) or
+  only what changed plus the ids that went (`complete=False`, `removed=[…]`), with its own
+  opaque `cursor` handed back on the next pull.
+- **Secrets.** Fields the connector marks `secret` are Fernet-encrypted at rest
+  (`app/vault.py`, key derived from `DEVICE_SECRET`), never sent to a browser (a marker
+  says one is set; the marker sent back means "keep it"), tried by the connector's `check`
+  before they are saved.
+- **Schedule.** `schedule.py`'s sweep also runs every enabled connection whose interval
+  (`every`, minutes, 15 min to 7 days) has passed since its last attempt, each in its own
+  thread; a failing source is retried at its own pace. *Sync now* is a route.
+- **Permissions.** Managing connections is `bundles` (owners and admins — they hold
+  credentials and decide what flows in); *sync now* is `write`.
+- **Cost.** Each changed file is one ingest, as an upload is: a first sync of 500 files is
+  500 agent runs in a row. The changed-file list in `syncing.apply` is where a batching
+  window goes when that is decided.
+
+**Writing a connector.** A subclass of `app.connectors.Connector` with a `kind`:
+
+```python
+from app.connectors import Connector, ConnectorError, Field, Item, Pull
+
+class NotionConnector(Connector):
+    kind = "notion"                      # stable, lowercase: it names the rows
+    title = "Notion"
+    blurb = "The pages a Notion integration can see."
+    auth = "token"                       # "none" | "token" | "oauth2" (declared, not yet done)
+    fields = (Field("token", "Integration token", secret=True, help="Settings → Integrations"),)
+
+    def check(self, config):             # tried before a connection is saved
+        if not config["token"].startswith("ntn_"):
+            raise ConnectorError("that is not a Notion integration token")
+
+    def pull(self, config, cursor):      # files, and a cursor for next time
+        return Pull(items=[Item(id=page_id, path=f"{title}.md", content=markdown)])
+```
+
+Built-ins are found in the package; anyone else's is a Python package installed into the
+backend image that names its class under the entry-point group `mindkeep.connectors`
+(`[project.entry-points."mindkeep.connectors"] notion = "mindkeep_notion:NotionConnector"`).
+Both show up in `GET /teams/{t}/connectors` on the next start; a plugin with a built-in's
+kind replaces it. `app/connectors/url.py` — one address, fetched on schedule — is the
+worked example. `oauth2` is declared in the contract so a plugin can say what it needs,
+but the plumbing does not do the dance yet (redirect route, app credentials, refresh);
+such a kind is listed as unavailable until the first connector that needs it brings it.
+
 ### Graph and gaps
 
 Nothing is stored: `graph.build(home)` reads every page's links and `sources` and builds
@@ -314,6 +381,8 @@ Postgres holds **metadata only** — the wiki is files. Tables (`db.py`):
 | `ingest_run` | every run: tenant, bundle, source, timing, model, error, note, `based_on`, `commit`, `undone_at` |
 | `bundle_setting` | per-bundle lint hour |
 | `source_move` | moves the server performed, handed to the next lint, settled when it acts |
+| `connection` | a connector on a bundle: kind, name, sealed config, cursor, interval, enabled, last attempt and how it went |
+| `connector_item` | one row per file a connection wrote: the source's id, the path, the digest |
 | `team`, `membership`, `invite` | teams |
 | `device` | per-machine tokens |
 
@@ -370,6 +439,10 @@ Under `/teams/{team}`, membership required:
 | POST | `/bundles/{b}/runs/{id}/undo` · `/redo` | history | |
 | GET/PUT/POST | `/bundles/{b}/lint` | read / write | state · set hour · lint now |
 | POST | `/bundles/{b}/reorganise` | write | file every page by its type |
+| GET | `/connectors` | signed in | the catalog: every connector installed, its fields, whether it is available |
+| GET/POST | `/bundles/{b}/connections` | read / bundles | list · set one up (credentials tried first; first sync started) |
+| PUT/DELETE | `/bundles/{b}/connections/{id}` | bundles | settings, secrets, interval, enabled · remove it and everything it wrote |
+| POST | `/bundles/{b}/connections/{id}/sync` | write | sync now (202; 409 while one runs) |
 | GET/POST | `/bundles/{b}/questions[/{index}]` · `/todos[/{index}]` | read / write | the questions · the tasks: list, tick |
 | POST / GET | `/bundles/{b}/assist[/{job}]` | write / read | start one assistant turn (202, `{job}`) · poll it: `{done:false}`, then the reply and what changed, or an error |
 | POST | `/bundles/{b}/verify/{path}` | write | stamp a page `verified` by the caller's identity |
