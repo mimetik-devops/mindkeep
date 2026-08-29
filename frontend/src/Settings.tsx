@@ -15,6 +15,7 @@ import {
   startReorganise,
   type Team,
 } from "./api";
+import { Connections } from "./Connections";
 import { Members } from "./Members";
 import { TeamSettings } from "./TeamSettings";
 import { confirm } from "./dialog";
@@ -228,6 +229,8 @@ export function Settings({
               </p>
             )}
           </section>
+
+          <Connections bundle={bundle} team={team} />
 
           {manages && (
             <section className="card">

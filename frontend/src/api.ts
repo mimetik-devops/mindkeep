@@ -373,6 +373,64 @@ const json = (body: unknown, method = "POST") => ({
 });
 
 export const listTeams = () => call<Team[]>("/teams");
+// ---- connections: a connector (a plugin on the server) configured on a bundle ----
+
+/** One field of a connector's form, as the server describes it. */
+export type ConnectorField = {
+  name: string;
+  label: string;
+  secret: boolean;
+  help: string;
+  required: boolean;
+};
+/** A connector the server has: what a person can set up. `available` is false for one
+ * whose sign-in the server cannot do yet. */
+export type ConnectorKind = {
+  kind: string;
+  title: string;
+  blurb: string;
+  auth: "none" | "token" | "oauth2";
+  available: boolean;
+  fields: ConnectorField[];
+};
+/** A connection: secrets come back as REDACTED, and sent back as REDACTED mean "keep". */
+export type Connection = {
+  id: string;
+  kind: string;
+  name: string;
+  folder: string;
+  config: Record<string, string>;
+  every: number;
+  enabled: boolean;
+  syncing: boolean;
+  synced_at: string;
+  error: string;
+  summary: string;
+  installed: boolean;
+};
+export const REDACTED = "••••••••";
+
+export const listConnectors = () => call<ConnectorKind[]>(`/teams/${current}/connectors`);
+export const listConnections = (bundle: string) => call<Connection[]>(`${at(bundle)}/connections`);
+/** The `bundles` permission. The credentials are tried first; a 400 says what was wrong. */
+export const addConnection = (
+  bundle: string,
+  body: { kind: string; name: string; config: Record<string, string>; every: number },
+) => call<Connection>(`${at(bundle)}/connections`, json(body));
+export const updateConnection = (
+  bundle: string,
+  id: string,
+  patch: { config?: Record<string, string>; every?: number; enabled?: boolean },
+) => call<Connection>(`${at(bundle)}/connections/${id}`, json(patch, "PUT"));
+/** Everything it pulled goes with it; pages resting on those files are retired. */
+export const removeConnection = (bundle: string, id: string) =>
+  call<{ deleted: string; removed: number }>(`${at(bundle)}/connections/${id}`, {
+    method: "DELETE",
+  });
+/** The `write` permission; 409 while one runs. */
+export const syncConnection = (bundle: string, id: string) =>
+  call<{ syncing: string }>(`${at(bundle)}/connections/${id}/sync`, { method: "POST" });
+
 /** The `bundles` permission; the name must be free; not mid-ingest. Resolves to the new name. */
 export const renameBundle = (bundle: string, to: string) =>
   call<{ name: string }>(at(bundle), json({ to }, "PUT"));
