@@ -15,6 +15,7 @@ import {
   type Team,
 } from "./api";
 import { Connections } from "./Connections";
+import { Grants } from "./Grants";
 import { Members } from "./Members";
 import { TeamSettings } from "./TeamSettings";
 import { confirm } from "./dialog";
@@ -308,6 +309,8 @@ export function Settings({
           <Members team={team} />
         </>
       )}
+
+      {section === "Account" && <Grants />}
 
       {section === "Account" && (
         <section className="card">

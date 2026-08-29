@@ -1,10 +1,20 @@
 """What a connector is: the contract a plugin implements.
 
-A connector knows how to read one kind of third-party source — a web page, a Notion
+A connector knows how to read one kind of third-party source — a website, a Notion
 workspace, a Drive folder — and hand back files. That is all it does. Where the files
 land, what changed since last time, the commit, the ingest, the schedule, the secrets:
-the plumbing (`app/connections.py`, `app/syncing.py`) does those, the same way for every
-connector, so a plugin is the pull and nothing else.
+the plumbing (`app/connections.py`, `app/syncing.py`, `app/grants.py`) does those, the
+same way for every connector, so a plugin is the pull and nothing else.
+
+Two things a person fills in, kept apart because they live apart:
+
+- A **grant** is a person's standing with the provider — a token, or (to come) an OAuth
+  sign-in. It is the person's, made once in their account settings, and any connection
+  they set up may use it. `auth` says whether a connector needs one; `grant_fields` is
+  the form for a token; `oauth` is the dance for a sign-in.
+- A **connection**'s `fields` are the scope on one bundle: which addresses, which
+  folders, which channels. A field may be `multiline`: a list, one per line, so one
+  connection watches several things and a token is entered once.
 
 A plugin is a subclass of `Connector` with a `kind`. Built-ins live in this package;
 anyone else's is a Python package that names its class under the entry-point group
@@ -22,14 +32,42 @@ class ConnectorError(Exception):
 
 @dataclass(frozen=True)
 class Field:
-    """One thing a person fills in to set a connection up. `secret` values are encrypted
-    at rest and never sent back to the browser."""
+    """One thing a person fills in. `secret` values are encrypted at rest and never sent
+    back to the browser; `multiline` ones are a list, one item per line."""
 
     name: str
     label: str
     secret: bool = False
     help: str = ""
     required: bool = True
+    multiline: bool = False
+
+
+@dataclass(frozen=True)
+class OAuth:
+    """How a provider's sign-in works, for the plumbing to run. Declared by the connector;
+    the app's own client id and secret come from the server's environment."""
+
+    authorize_url: str
+    token_url: str
+    scopes: tuple[str, ...]
+
+
+@dataclass
+class Grant:
+    """A person's standing with the provider, as the connector receives it: the secrets
+    it asked for (`grant_fields`), or for an OAuth kind an `access_token` the plumbing has
+    refreshed before the call. `label` is what the person sees it named — an e-mail, a
+    workspace — which the connector chose when the grant was made."""
+
+    kind: str
+    label: str
+    secrets: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def token(self) -> str:
+        """The one secret most providers need, whatever it was called."""
+        return self.secrets.get("access_token") or self.secrets.get("token", "")
 
 
 @dataclass(frozen=True)
@@ -73,14 +111,27 @@ class Connector:
     title: ClassVar[str] = ""
     blurb: ClassVar[str] = ""
     fields: ClassVar[tuple[Field, ...]] = ()
-    # ponytail: `oauth2` is declared so a plugin can say what it needs, but the plumbing
-    # does not do the dance yet — redirect route, app credentials, refresh. It comes with
-    # the first connector that needs it. Until then such a kind is listed as unavailable.
+    # "none": no grant. "token": a grant made from `grant_fields`, checked by
+    # `check_grant`. "oauth2": a grant made by the provider's sign-in, described by
+    # `oauth`. ponytail: the dance itself is not done yet — it comes with the first
+    # connector that needs it; until then such a kind is listed as unavailable.
     auth: ClassVar[Literal["none", "token", "oauth2"]] = "none"
+    grant_fields: ClassVar[tuple[Field, ...]] = ()
+    oauth: ClassVar[OAuth | None] = None
 
-    def check(self, config: dict[str, str]) -> None:
-        """Try the credentials before a connection is saved. Raise ConnectorError with a
+    def check_grant(self, secrets: dict[str, str]) -> str:
+        """Try a token before the grant is saved. Return what to call it — the e-mail,
+        the workspace, the bot's name; raise ConnectorError with a sentence otherwise."""
+        return self.title
+
+    def check(self, config: dict[str, str], grant: Grant | None) -> None:
+        """Try a connection's scope before it is saved. Raise ConnectorError with a
         sentence a person can act on; return quietly when all is well."""
 
-    def pull(self, config: dict[str, str], cursor: dict[str, Any]) -> Pull:
+    def pull(self, config: dict[str, str], cursor: dict[str, Any], grant: Grant | None) -> Pull:
         raise NotImplementedError
+
+
+def lines(value: str) -> list[str]:
+    """A multiline field's items: one per line, blank lines and edges dropped."""
+    return [line.strip() for line in value.splitlines() if line.strip()]

@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   addConnection,
   can,
   type Connection,
+  type ConnectorField,
   type ConnectorKind,
+  type Grant,
   listConnections,
   listConnectors,
+  listGrants,
   REDACTED,
   removeConnection,
   syncConnection,
@@ -14,6 +17,7 @@ import {
   updateConnection,
 } from "./api";
 import { confirm } from "./dialog";
+import { Chevron } from "./icons";
 import { when } from "./useSources";
 
 /** The intervals a person can pick. Minutes, as the server counts them. */
@@ -31,32 +35,56 @@ type Form = {
   config: Record<string, string>;
   every: number;
   enabled: boolean;
+  grant: string;
 };
 
-const blank = (kind: string): Form => ({ kind, name: "", config: {}, every: 60, enabled: true });
+const blank = (kind: string, grant = ""): Form => ({
+  kind,
+  name: "",
+  config: {},
+  every: 60,
+  enabled: true,
+  grant,
+});
+
+/** Why a connector cannot be picked right now, or "" when it can. */
+function blocked(k: ConnectorKind, grants: Grant[]): string {
+  if (!k.available) return "needs a sign-in Mindkeep cannot do yet";
+  if (k.auth !== "none" && !grants.some((g) => g.kind === k.kind)) {
+    return "sign in first — Settings → Account → Connectors";
+  }
+  return "";
+}
 
 /**
  * A bundle's connections: third-party sources pulled on schedule. The catalog of
  * connectors comes from the server — a plugin installed there shows up here with its own
  * form — so nothing in this file knows what a connector wants; it draws the fields it is
- * told about. Managing is the `bundles` permission, syncing now is `write`.
+ * told about. A connector that needs a sign-in uses one of yours (Settings → Account →
+ * Connectors).
+ * Managing is the `bundles` permission, syncing now is `write`.
  */
 export function Connections({ bundle, team }: { bundle: string; team: Team }) {
   const [kinds, setKinds] = useState<ConnectorKind[]>([]);
+  const [grants, setGrants] = useState<Grant[]>([]);
   const [rows, setRows] = useState<Connection[]>([]);
   const [error, setError] = useState("");
   // "new", a connection's id, or nothing — one form at a time
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(blank(""));
   const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false); // the picker of connectors
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const manages = can(team, "bundles");
   const writes = can(team, "write");
 
   const load = () =>
-    Promise.all([listConnectors(), listConnections(bundle)])
-      .then(([known, mine]) => {
+    Promise.all([listConnectors(), listConnections(bundle), listGrants()])
+      .then(([known, mine, own]) => {
         setKinds(known);
         setRows(mine);
+        setGrants(own);
       })
       .catch((e: Error) => setError(e.message));
 
@@ -72,13 +100,29 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
     return () => clearInterval(timer);
   }, [syncing, bundle]);
 
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (!trigger.current?.contains(target) && !menu.current?.contains(target)) setOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
   const fail = (e: Error) => setError(e.message.replace(/^\d{3} /, ""));
   const kind = kinds.find((k) => k.kind === form.kind);
+  const usable = grants.filter((g) => g.kind === form.kind);
 
-  function startNew() {
-    const first = kinds.find((k) => k.available);
+  function startNew(k: ConnectorKind) {
+    setOpen(false);
     setError("");
-    setForm(blank(first?.kind ?? ""));
+    setForm(blank(k.kind, grants.find((g) => g.kind === k.kind)?.id ?? ""));
     setEditing("new");
   }
 
@@ -90,6 +134,7 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
       config: { ...row.config },
       every: row.every,
       enabled: row.enabled,
+      grant: row.grant?.id ?? "",
     });
     setEditing(row.id);
   }
@@ -104,12 +149,14 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
           name: form.name,
           config: form.config,
           every: form.every,
+          grant: form.grant || undefined,
         });
       } else if (editing) {
         await updateConnection(bundle, editing, {
           config: form.config,
           every: form.every,
           enabled: form.enabled,
+          grant: form.grant || undefined,
         });
       }
       setEditing(null);
@@ -139,6 +186,35 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
 
   const titleOf = (k: string) => kinds.find((x) => x.kind === k)?.title ?? k;
 
+  const input = (f: ConnectorField) => {
+    const value = form.config[f.name] ?? "";
+    const change = (v: string) => setForm({ ...form, config: { ...form.config, [f.name]: v } });
+    if (f.multiline) {
+      return (
+        <textarea
+          aria-label={f.label}
+          rows={3}
+          value={value}
+          placeholder={f.help}
+          onChange={(e) => change(e.target.value)}
+        />
+      );
+    }
+    return (
+      <input
+        aria-label={f.label}
+        type={f.secret ? "password" : "text"}
+        value={value}
+        placeholder={f.help}
+        onFocus={(e) => {
+          // the marker stands for a secret that is set; typing replaces it
+          if (f.secret && e.target.value === REDACTED) e.target.select();
+        }}
+        onChange={(e) => change(e.target.value)}
+      />
+    );
+  };
+
   return (
     <section className="card">
       <h2>Connections</h2>
@@ -165,6 +241,7 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
                 <b>{row.name}</b>
                 <span className="soft">
                   {titleOf(row.kind)}
+                  {row.grant && ` as ${row.grant.label}`}
                   {!row.installed && " — not installed on this server"}
                   {!row.enabled && " · paused"}
                 </span>
@@ -184,12 +261,14 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
                   </button>
                 )}
               </div>
-              <div className={`how${row.error ? " bad" : ""}`}>
+              <div className={`how${row.error || row.grant_gone ? " bad" : ""}`}>
                 {row.error
                   ? row.error
-                  : row.synced_at
-                    ? `${row.summary} · synced ${when(row.synced_at)}`
-                    : "never synced"}
+                  : row.grant_gone
+                    ? "the sign-in this connection used is gone — pick another"
+                    : row.synced_at
+                      ? `${row.summary} · synced ${when(row.synced_at)}`
+                      : "never synced"}
                 {row.enabled &&
                   ` · ${EVERY.find(([m]) => m === row.every)?.[1] ?? `every ${row.every} min`}`}
               </div>
@@ -200,12 +279,41 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
       {rows.length === 0 && !editing && <p className="soft">No connections yet.</p>}
 
       {manages && !editing && (
-        <button className="lint" onClick={startNew} disabled={!kinds.some((k) => k.available)}>
-          Add a connection
-        </button>
+        <div className="picker">
+          <button
+            ref={trigger}
+            className="lint"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            disabled={kinds.length === 0}
+            onClick={() => setOpen(!open)}
+          >
+            Add a connection <Chevron />
+          </button>
+          {open && (
+            <div ref={menu} role="menu" className="pickermenu wide">
+              {kinds.map((k) => {
+                const why = blocked(k, grants);
+                return (
+                  <button
+                    key={k.kind}
+                    role="menuitem"
+                    className="menuitem"
+                    disabled={why !== ""}
+                    title={why}
+                    onClick={() => startNew(k)}
+                  >
+                    {k.title}
+                    <span className="soft">{why || k.blurb}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
 
-      {editing && (
+      {editing && kind && (
         <form
           className="connection-form"
           onSubmit={(e) => {
@@ -213,31 +321,14 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
             save();
           }}
         >
-          {editing === "new" ? (
-            <label className="field">
-              <span>Source</span>
-              <select
-                aria-label="Connector"
-                value={form.kind}
-                onChange={(e) => setForm({ ...blank(e.target.value), every: form.every })}
-              >
-                {kinds.map((k) => (
-                  <option key={k.kind} value={k.kind} disabled={!k.available}>
-                    {k.title}
-                    {!k.available && " — needs a sign-in Mindkeep cannot do yet"}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <div className="field">
-              <span>Source</span>
-              <span className="soft">
-                {titleOf(form.kind)} · {form.name}
-              </span>
-            </div>
-          )}
-          {kind && editing === "new" && <p className="soft">{kind.blurb}</p>}
+          <div className="field">
+            <span>Source</span>
+            <span className="soft">
+              {kind.title}
+              {editing !== "new" && ` · ${form.name}`}
+            </span>
+          </div>
+          {editing === "new" && <p className="soft">{kind.blurb}</p>}
 
           {editing === "new" && (
             <label className="field">
@@ -251,25 +342,31 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
             </label>
           )}
 
-          {kind?.fields.map((f) => (
+          {kind.auth !== "none" && (
+            <label className="field">
+              <span>Sign-in</span>
+              <select
+                aria-label="Sign-in"
+                value={form.grant}
+                onChange={(e) => setForm({ ...form, grant: e.target.value })}
+              >
+                {!usable.some((g) => g.id === form.grant) && <option value="">Choose one</option>}
+                {usable.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {kind.fields.map((f) => (
             <label className="field" key={f.name} title={f.help}>
               <span>
                 {f.label}
                 {!f.required && <span className="soft"> (optional)</span>}
               </span>
-              <input
-                aria-label={f.label}
-                type={f.secret ? "password" : "text"}
-                value={form.config[f.name] ?? ""}
-                placeholder={f.help}
-                onFocus={(e) => {
-                  // the marker stands for a secret that is set; typing replaces it
-                  if (f.secret && e.target.value === REDACTED) e.target.select();
-                }}
-                onChange={(e) =>
-                  setForm({ ...form, config: { ...form.config, [f.name]: e.target.value } })
-                }
-              />
+              {input(f)}
             </label>
           ))}
 
@@ -304,7 +401,11 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
             <button type="button" className="more" onClick={() => setEditing(null)}>
               cancel
             </button>
-            <button type="submit" className="lint" disabled={saving || !form.kind}>
+            <button
+              type="submit"
+              className="lint"
+              disabled={saving || (kind.auth !== "none" && !form.grant)}
+            >
               {saving
                 ? editing === "new"
                   ? "Trying it…"

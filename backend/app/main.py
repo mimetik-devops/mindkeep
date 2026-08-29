@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import accounts, connections, devices, files, ingest, runs, schedule, teams
+from app import accounts, connections, devices, files, grants, ingest, runs, schedule, teams
 from app.auth import CurrentProfile, CurrentRole, CurrentUser, Person, device_token
 from app.files import raw_path
 
@@ -85,6 +85,7 @@ if origins := [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",
 app.include_router(files.router)
 app.include_router(teams.router)
 app.include_router(connections.router)
+app.include_router(grants.router)
 if accounts.enabled():
     app.include_router(accounts.router)
 

@@ -1,5 +1,5 @@
-"""A website, kept as Markdown: the page at an address, and the pages it links to on the
-same site, fetched again on schedule and folded into the wiki when they change.
+"""Websites, kept as Markdown: the page at each address, and the pages it links to on
+the same site, fetched again on schedule and folded into the wiki when they change.
 
 Markdown, not HTML — for the same reason a web clipper saves Markdown. The agent reads a
 page's words, not its markup; a marketing page of 14,000 characters of HTML is 4,000 of
@@ -9,10 +9,12 @@ headings and lists of any page that is not an article, and most of the pages wor
 tracking are not articles. Stable across fetches, so the plumbing's digest is a real
 "did it change".
 
-An address that is not HTML — a PDF, a CSV, a feed — is saved as the file it is.
+Each address is one site; its pages land under the site's host, so a connection may watch
+several and none of them collide. An address that is not HTML — a PDF, a CSV, a feed — is
+saved as the file it is.
 
 This is also the worked example of a connector: a form, a `check` that tries the
-address, a `pull` that returns items. Everything else is the plumbing's.
+addresses, a `pull` that returns items. No grant: the web serves these without a login.
 """
 
 import re
@@ -24,7 +26,7 @@ import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 
-from app.connectors.base import Connector, ConnectorError, Field, Item, Pull
+from app.connectors.base import Connector, ConnectorError, Field, Grant, Item, Pull, lines
 
 TIMEOUT = 30
 AGENT = "Mindkeep (+https://mindkeep.io)"
@@ -99,39 +101,43 @@ def _yaml(text: str) -> str:
 
 
 def page_path(url: str) -> str:
-    """Where a page lands, from its address: `/` is index.md, `/docs/setup.html` is
-    docs/setup.md, `/docs` is docs.md."""
-    path = urlparse(url).path.strip("/")
-    if not path:
-        return "index.md"
-    path = re.sub(r"\.html?$", "", path)
-    return f"{path}.md"
+    """Where a page lands, from its address: under its host, `/` is index.md,
+    `/docs/setup.html` is docs/setup.md, `/docs` is docs.md."""
+    parts = urlparse(url)
+    path = parts.path.strip("/")
+    name = "index.md" if not path else re.sub(r"\.html?$", "", path) + ".md"
+    return f"{parts.netloc}/{name}"
 
 
 def file_path(url: str, kind: str) -> str:
-    """A file that is not a page keeps its own name, with a suffix from the content type
-    when the address carries none."""
+    """A file that is not a page keeps its own name under its host, with a suffix from
+    the content type when the address carries none."""
     parts = urlparse(url)
     last = parts.path.rstrip("/").rsplit("/", 1)[-1]
     stem = re.sub(r"[^A-Za-z0-9 ._-]", "-", last or parts.netloc).strip(" .-") or "file"
     if (not last or "." not in last) and (suffix := SUFFIX.get(kind)):
         stem += suffix
-    return stem
+    return f"{parts.netloc}/{stem}"
 
 
 class WebsiteConnector(Connector):
     kind = "website"
-    title = "A website"
+    title = "Websites"
     blurb = (
-        "A page and the pages it links to on the same site, kept as Markdown and folded in "
-        "again whenever one changes. An address that is not a page — a PDF, a feed — is "
-        "kept as the file it is."
+        "Pages at public addresses, and the pages they link to on the same site, kept as "
+        "Markdown and folded in again whenever one changes. An address that is not a page "
+        "— a PDF, a feed — is kept as the file it is."
     )
     fields = (
-        Field("url", "Address", help="https://…  — something the web serves without a login."),
+        Field(
+            "urls",
+            "Addresses",
+            multiline=True,
+            help="One per line, https://…  — what the web serves without a login.",
+        ),
         Field(
             "pages",
-            "Pages at most",
+            "Pages at most, per site",
             required=False,
             help=f"How far to follow links on the same site. {PAGES_DEFAULT} unless you say; "
             f"1 for the one page; {PAGES_MAX} at most.",
@@ -146,24 +152,35 @@ class WebsiteConnector(Connector):
             raise ConnectorError(f"pages: a number from 1 to {PAGES_MAX}")
         return int(given)
 
-    def check(self, config: dict[str, str]) -> None:
-        url = config.get("url", "").strip()
-        if not url.startswith(("http://", "https://")):
-            raise ConnectorError("the address has to start with http:// or https://")
+    def _starts(self, config: dict[str, str]) -> list[str]:
+        starts = [canonical(u) for u in lines(config.get("urls", ""))]
+        for url in starts:
+            if not url.startswith(("http://", "https://")):
+                raise ConnectorError(f"{url}: an address has to start with http:// or https://")
+        if not starts:
+            raise ConnectorError("at least one address")
+        return starts
+
+    def check(self, config: dict[str, str], grant: Grant | None) -> None:
         self._limit(config)
-        fetch(url)
+        for url in self._starts(config):
+            fetch(url)
 
-    def pull(self, config: dict[str, str], cursor: dict[str, Any]) -> Pull:
-        start = canonical(config["url"].strip())
+    def pull(self, config: dict[str, str], cursor: dict[str, Any], grant: Grant | None) -> Pull:
         limit = self._limit(config)
-        content, kind = fetch(start)
-        if kind != "text/html":
-            return Pull(items=[Item(id=start, path=file_path(start, kind), content=content)])
-
-        # breadth first from the start page, same host only, fetched as they are reached
-        # and never past the limit — a link is fetched when its turn comes, not when seen
         items: list[Item] = []
         taken: set[str] = set()
+        for start in self._starts(config):
+            items.extend(self._site(start, limit, taken))
+        return Pull(items=items)
+
+    def _site(self, start: str, limit: int, taken: set[str]) -> list[Item]:
+        """One site, breadth first from its start page, same host only, fetched as pages
+        are reached and never past the limit — a link is fetched when its turn comes."""
+        content, kind = fetch(start)
+        if kind != "text/html":
+            return [Item(id=start, path=file_path(start, kind), content=content)]
+        items: list[Item] = []
         seen = {start}
         queue = deque([(start, content, kind)])
         while queue and len(items) < limit:
@@ -184,4 +201,4 @@ class WebsiteConnector(Connector):
                     queue.append((link, *fetch(link)))
                 except ConnectorError:
                     continue  # a dead link is the site's problem, not the sync's
-        return Pull(items=items)
+        return items

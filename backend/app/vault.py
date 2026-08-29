@@ -59,6 +59,23 @@ def redact(stored: str, connector: Connector) -> dict[str, str]:
     }
 
 
+def seal_all(secrets: dict[str, str]) -> str:
+    """A grant's secrets: every value sealed."""
+    return json.dumps(
+        {k: _fernet().encrypt(v.encode()).decode() if v else "" for k, v in secrets.items()}
+    )
+
+
+def unseal_all(stored: str) -> dict[str, str]:
+    out = {}
+    for k, v in json.loads(stored or "{}").items():
+        try:
+            out[k] = _fernet().decrypt(v.encode()).decode() if v else ""
+        except InvalidToken:  # a DEVICE_SECRET that changed: the secret is unreadable
+            out[k] = ""
+    return out
+
+
 def merge(given: dict[str, str], stored: str, connector: Connector) -> dict[str, str]:
     """A form sent back with the marker still in a secret field means "keep what is set"."""
     kept = unseal(stored, connector)

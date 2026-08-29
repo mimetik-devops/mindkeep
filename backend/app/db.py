@@ -201,6 +201,8 @@ class Connection(Base):
     kind: Mapped[str] = mapped_column(String(40))
     name: Mapped[str] = mapped_column(String(80))
     config: Mapped[str] = mapped_column(Text)  # JSON, secret fields encrypted
+    # the person's grant it syncs with, for a connector that needs one (grants.py)
+    grant_id: Mapped[str | None] = mapped_column(String(32), default=None)
     cursor: Mapped[str] = mapped_column(Text)  # JSON, the connector's own
     every: Mapped[int] = mapped_column(Integer)  # minutes between syncs
     enabled: Mapped[bool] = mapped_column(Boolean)
@@ -233,6 +235,26 @@ class ConnectorItem(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (UniqueConstraint("connection_id", "remote", name="uq_connector_item"),)
+
+
+class Grant(Base):
+    """A person's standing with a provider — a token, or an OAuth sign-in — made once in
+    their account settings and usable by any connection they set up. Keyed by the
+    person, not a team, like a device. `secret` is the sealed JSON of what the connector
+    asked for; for an OAuth kind, its tokens and `expires_at`. See grants.py."""
+
+    __tablename__ = "grant"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sub: Mapped[str] = mapped_column(String(128))
+    kind: Mapped[str] = mapped_column(String(40))
+    label: Mapped[str] = mapped_column(String(200))
+    secret: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    error: Mapped[str] = mapped_column(Text, default="")
+
+    __table_args__ = (Index("ix_grant_sub", "sub"),)
 
 
 LINT_OFF = -1

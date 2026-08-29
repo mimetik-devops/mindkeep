@@ -26,9 +26,9 @@ from pathlib import Path
 
 from sqlalchemy import delete, select
 
-from app import history, vault
+from app import grants, history, vault
 from app.connectors import ConnectorError, registry
-from app.db import Connection, ConnectorItem, session
+from app.db import Connection, ConnectorItem, Grant, session
 from app.files import prune_empty, raw_path
 from app.ingest import enqueue, pages_citing
 
@@ -85,7 +85,10 @@ def _run(home: Path, connection_id: str) -> str:
             if connector is None:
                 raise ConnectorError(f"no connector of kind {row.kind} is installed")
             config = vault.unseal(row.config, connector)
-            pull = connector.pull(config, json.loads(row.cursor or "{}"))
+            grant: Grant | None = s.get(Grant, row.grant_id) if row.grant_id else None
+            if row.grant_id and grant is None:
+                raise ConnectorError("the sign-in this connection used is gone — pick another")
+            pull = connector.pull(config, json.loads(row.cursor or "{}"), grants.unpack(grant))
             summary = apply(home, s, row, pull)
             row.cursor = json.dumps(pull.cursor)
             row.error = ""

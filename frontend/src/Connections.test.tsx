@@ -8,6 +8,17 @@ const added: unknown[] = [];
 const updated: unknown[] = [];
 const synced: string[] = [];
 let rows: unknown[] = [];
+let grants: unknown[] = [];
+
+const field = (name: string, label: string, extra = {}) => ({
+  name,
+  label,
+  secret: false,
+  help: "",
+  required: true,
+  multiline: false,
+  ...extra,
+});
 
 vi.mock("./api", () => ({
   REDACTED: "••••••••",
@@ -15,14 +26,24 @@ vi.mock("./api", () => ({
   listConnectors: vi.fn(async () => [
     {
       kind: "website",
-      title: "A website",
-      blurb: "A page and the pages it links to.",
+      title: "Websites",
+      blurb: "Pages at public addresses.",
       auth: "none",
       available: true,
       fields: [
-        { name: "url", label: "Address", secret: false, help: "https://…", required: true },
-        { name: "pages", label: "Pages at most", secret: false, help: "", required: false },
+        field("urls", "Addresses", { multiline: true, help: "One per line" }),
+        field("pages", "Pages at most", { required: false }),
       ],
+      grant_fields: [],
+    },
+    {
+      kind: "notion",
+      title: "Notion",
+      blurb: "A workspace.",
+      auth: "token",
+      available: true,
+      fields: [field("space", "Space")],
+      grant_fields: [field("token", "Token", { secret: true })],
     },
     {
       kind: "drive",
@@ -31,9 +52,11 @@ vi.mock("./api", () => ({
       auth: "oauth2",
       available: false,
       fields: [],
+      grant_fields: [],
     },
   ]),
   listConnections: vi.fn(async () => rows),
+  listGrants: vi.fn(async () => grants),
   addConnection: vi.fn(async (_b: string, body: unknown) => {
     added.push(body);
     return {};
@@ -67,15 +90,22 @@ async function mount(team = owner) {
 }
 
 const button = (host: HTMLElement, text: string) =>
-  [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === text)!;
-const field = (host: HTMLElement, label: string) =>
-  host.querySelector(`[aria-label="${label}"]`) as HTMLInputElement | HTMLSelectElement;
-const type = async (el: HTMLInputElement | HTMLSelectElement, value: string) => {
-  const setter = Object.getOwnPropertyDescriptor(
-    el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype,
-    "value",
-  )!.set!;
-  setter.call(el, value);
+  [...host.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(text))!;
+const menuitem = (host: HTMLElement, title: string) =>
+  [...host.querySelectorAll<HTMLButtonElement>(".menuitem")].find((b) =>
+    b.textContent?.startsWith(title),
+  )!;
+const control = (host: HTMLElement, label: string) =>
+  host.querySelector(`[aria-label="${label}"]`) as
+    HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+const type = async (el: HTMLElement, value: string) => {
+  const proto =
+    el instanceof HTMLSelectElement
+      ? HTMLSelectElement.prototype
+      : el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
   await act(async () =>
     el.dispatchEvent(
       new Event(el instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }),
@@ -83,38 +113,63 @@ const type = async (el: HTMLInputElement | HTMLSelectElement, value: string) => 
   );
 };
 
-test("a connection is set up from the connector's own fields", async () => {
+test("the picker offers what can be set up, and a website is set up from its fields", async () => {
   rows = [];
+  grants = [];
   const host = await mount();
   expect(host.textContent).toContain("No connections yet");
   await act(async () => button(host, "Add a connection").click());
-  // the picker lists every connector, offering only the available ones
-  const picker = field(host, "Connector") as HTMLSelectElement;
-  expect([...picker.options].map((o) => o.disabled)).toEqual([false, true]);
-  expect(picker.options[1].textContent).toContain("needs a sign-in");
-  await type(field(host, "Connection name"), "mindkeep.io");
-  await type(field(host, "Address"), "https://mindkeep.io/");
-  await type(field(host, "Pages at most"), "1");
-  await type(field(host, "Sync every"), "1440");
+  // every connector is listed; the ones that cannot be picked say why
+  expect(menuitem(host, "Websites").disabled).toBe(false);
+  expect(menuitem(host, "Notion").disabled).toBe(true);
+  expect(menuitem(host, "Notion").textContent).toContain("sign in first");
+  expect(menuitem(host, "Google Drive").disabled).toBe(true);
+  expect(menuitem(host, "Google Drive").textContent).toContain("cannot do yet");
+  await act(async () => menuitem(host, "Websites").click());
+  await type(control(host, "Connection name"), "Sites");
+  expect(control(host, "Addresses").tagName).toBe("TEXTAREA");
+  await type(control(host, "Addresses"), "https://mindkeep.io/\nhttps://mimetik.ai/");
+  await type(control(host, "Pages at most"), "1");
+  await type(control(host, "Sync every"), "1440");
   await act(async () => button(host, "Connect").click());
   expect(added).toEqual([
     {
       kind: "website",
-      name: "mindkeep.io",
-      config: { url: "https://mindkeep.io/", pages: "1" },
+      name: "Sites",
+      config: { urls: "https://mindkeep.io/\nhttps://mimetik.ai/", pages: "1" },
       every: 1440,
+      grant: undefined,
     },
   ]);
 });
 
-test("a connection is listed with its state, synced now, and edited", async () => {
+test("a connector that needs a sign-in uses one of yours", async () => {
+  rows = [];
+  grants = [
+    { id: "g1", kind: "notion", label: "Ada's workspace", created_at: "", error: "", uses: 0 },
+  ];
+  added.length = 0;
+  const host = await mount();
+  await act(async () => button(host, "Add a connection").click());
+  expect(menuitem(host, "Notion").disabled).toBe(false);
+  await act(async () => menuitem(host, "Notion").click());
+  expect((control(host, "Sign-in") as HTMLSelectElement).value).toBe("g1");
+  await type(control(host, "Connection name"), "Wiki");
+  await type(control(host, "Space"), "docs");
+  await act(async () => button(host, "Connect").click());
+  expect(added).toEqual([
+    { kind: "notion", name: "Wiki", config: { space: "docs" }, every: 60, grant: "g1" },
+  ]);
+});
+
+test("a connection is listed with its state and sign-in, synced now, and edited", async () => {
   rows = [
     {
       id: "c1",
-      kind: "website",
-      name: "mindkeep.io",
-      folder: "raw/connectors/mindkeep.io",
-      config: { url: "https://mindkeep.io/", pages: "1" },
+      kind: "notion",
+      name: "Wiki",
+      folder: "raw/connectors/Wiki",
+      config: { space: "docs" },
       every: 60,
       enabled: true,
       syncing: false,
@@ -122,45 +177,49 @@ test("a connection is listed with its state, synced now, and edited", async () =
       error: "",
       summary: "+1 ~0 -0",
       installed: true,
+      grant: { id: "g1", label: "Ada's workspace" },
+      grant_gone: false,
     },
   ];
+  grants = [
+    { id: "g1", kind: "notion", label: "Ada's workspace", created_at: "", error: "", uses: 1 },
+  ];
   const host = await mount();
-  expect(host.textContent).toContain("mindkeep.io");
+  expect(host.textContent).toContain("Notion as Ada's workspace");
   expect(host.textContent).toContain("+1 ~0 -0 · synced today");
-  expect(host.textContent).toContain("every hour");
   await act(async () => button(host, "sync now").click());
   expect(synced).toEqual(["c1"]);
 
   await act(async () => button(host, "edit").click());
-  expect((field(host, "Address") as HTMLInputElement).value).toBe("https://mindkeep.io/");
-  await act(async () => (field(host, "Paused") as HTMLInputElement).click());
+  expect((control(host, "Space") as HTMLInputElement).value).toBe("docs");
+  await act(async () => (control(host, "Paused") as HTMLInputElement).click());
   await act(async () => button(host, "Save").click());
   expect(updated).toEqual([
-    {
-      id: "c1",
-      patch: { config: { url: "https://mindkeep.io/", pages: "1" }, every: 60, enabled: false },
-    },
+    { id: "c1", patch: { config: { space: "docs" }, every: 60, enabled: false, grant: "g1" } },
   ]);
 });
 
-test("a viewer sees the list and none of the buttons", async () => {
+test("a viewer sees the list, a revoked sign-in, and none of the buttons", async () => {
   rows = [
     {
       id: "c1",
-      kind: "website",
-      name: "mindkeep.io",
-      folder: "raw/connectors/mindkeep.io",
+      kind: "notion",
+      name: "Wiki",
+      folder: "raw/connectors/Wiki",
       config: {},
       every: 60,
       enabled: true,
       syncing: false,
       synced_at: "",
-      error: "the site answered 503",
+      error: "",
       summary: "",
       installed: true,
+      grant: null,
+      grant_gone: true,
     },
   ];
+  grants = [];
   const host = await mount({ ...owner, role: "viewer", permissions: ["read"] });
-  expect(host.textContent).toContain("the site answered 503");
+  expect(host.textContent).toContain("the sign-in this connection used is gone");
   expect(host.querySelectorAll("button")).toHaveLength(0);
 });

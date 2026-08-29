@@ -558,8 +558,45 @@ button:focus-visible {
   font-size: 13px;
   color: var(--muted);
 }
-.connections .how.bad {
+.connections .how.bad,
+.connections .how .bad {
   color: var(--red);
+}
+.connections .how .more {
+  margin-left: 6px;
+}
+/* the connector picker: a title and, under it, what it does or why it cannot be picked */
+.pickermenu.wide {
+  min-width: 320px;
+  max-width: 420px;
+}
+.pickermenu.wide .menuitem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+.pickermenu.wide .menuitem .soft {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: normal;
+}
+.pickermenu.wide .menuitem:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.connection-form .field textarea {
+  min-width: 200px;
+  padding: 8px 11px;
+  border: 1.2px solid var(--line);
+  border-radius: 8px;
+  background: var(--cream);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  resize: vertical;
 }
 .connection-form {
   display: flex;

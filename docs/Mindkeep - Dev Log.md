@@ -1636,6 +1636,54 @@ pages anyway (the route stays; only the manual trigger goes, and `startReorganis
 it). Connections get the right-hand column to themselves — the bundle's own knobs on the
 left, its connections on the right, the columns wrapping under 460px each.
 
+### 4.53 Sign-ins are the person's; connections use them (2026-08-30)
+
+Ruben, before Gmail and Drive: if Google is one sign-in per person per provider, the
+sign-in has to be the person's, not a bundle's — a Connectors section in the account
+settings where you authenticate, after which those connectors become available in the
+bundle settings to create connections. Also: the add button should be a dropdown of the
+connectors; and one connection should be able to watch several websites, so credentials
+are entered once. Built now, so Google is additive.
+
+**The split.** A *grant* (user-facing: a sign-in) is a person's standing with a provider —
+a token today, an OAuth sign-in to come — kept in `grant`, keyed by the person like a
+device, made once in Settings → Account → *Sign-ins*, usable by any connection they set up
+in any team. A *connection* references one (`connection.grant_id`) when its connector
+needs one. The contract gains `auth` semantics (`none` | `token` | `oauth2`),
+`grant_fields` with `check_grant(secrets) -> label` for a token kind, an `OAuth`
+declaration (authorize and token URLs, scopes) for a provider sign-in, and `check(config,
+grant)` / `pull(config, cursor, grant)` — a `Grant` dataclass with the secrets in the
+clear for that call, `grant.token` for the one most providers need, and room for an
+`access_token` the plumbing will refresh before the call once OAuth is done. That
+signature break is the one-way door, taken now while the only connector is ours. In code
+it is a grant because `accounts.py` already signs people in to Mindkeep itself.
+
+**Decided and tested.** Deleting a grant never cascades: connections that used it keep
+their rows and files and report *the sign-in this connection used is gone* at their next
+sync, until given another (`PUT …/connections/{id}` with `grant`) — one person's
+revocation must not empty a bundle others read. The other way round is stated too: a
+connection keeps syncing with its maker's grant into a bundle other people read; the
+person put their credential to work for that bundle. A grant is only ever the caller's
+own, of the connector's kind; a kind that needs none refuses one. Secrets are sealed with
+the same vault (`seal_all` / `unseal_all`), tried by `check_grant` before they are kept.
+
+**Scope, plural.** A `Field` may be `multiline`: a list, one per line. The website
+connector's address is now *Addresses*, and each site's pages land under its host —
+`raw/connectors/<name>/<host>/…` — unconditionally, so adding a second site later moves
+nothing. One connection per purpose, not per target; credentials once per connection now,
+once per grant for providers.
+
+**The UI.** Settings → Account gets *Connectors* (Ruben's name for it; the card first said
+*Sign-ins*): every connector with what it needs — *no
+sign-in needed*, a token (add one: the connector's `grant_fields`, *Sign in* tries it),
+or *signs in through the provider — not yet in Mindkeep* with a disabled button waiting
+for Google — and your sign-ins per connector with how many connections use each; removing
+one says how many will stop. Settings → Bundle's *Add a connection* is a menu now, in the
+app's picker style: each connector with what it does, or why it cannot be picked — *sign
+in first — Settings → Account*, or *needs a sign-in Mindkeep cannot do yet*. The form
+shows a *Sign-in* choice for a connector that needs one (yours of that kind, the first
+preselected), a textarea for a multiline field. A row says *as Ada's workspace*.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every
