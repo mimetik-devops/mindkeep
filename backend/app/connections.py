@@ -63,7 +63,7 @@ def catalog() -> list[dict[str, object]]:
             "title": c.title,
             "blurb": c.blurb,
             "auth": c.auth,
-            "available": c.auth != "oauth2",
+            "available": c.auth != "oauth2" or grants.configured(c),
             "folder": f"raw/connectors/{c.folder or c.kind}",
             "tick": c.tick,
             "fields": [_field(f) for f in c.fields],
@@ -123,12 +123,13 @@ def _grant_for(s: Any, connector: Any, user: str, grant_id: str | None) -> Grant
     return row
 
 
-def _checked_with(connector: Any, config: dict[str, str], grant: Grant | None) -> None:
+def _checked_with(s: Any, connector: Any, config: dict[str, str], grant: Grant | None) -> None:
+    """The scope, tried with the grant as a sync would use it — renewed if need be."""
     for f in connector.fields:
         if f.required and not config.get(f.name, "").strip():
             raise HTTPException(400, f"{f.label} is required")
     try:
-        connector.check(config, grants.unpack(grant))
+        connector.check(config, grants.fresh(s, grant))
     except ConnectorError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -179,13 +180,11 @@ def add_connection(
     connector = registry().get(new.kind)
     if connector is None:
         raise HTTPException(404, f"no connector of kind {new.kind}")
-    if connector.auth == "oauth2":
-        raise HTTPException(400, f"{connector.title} needs a sign-in Mindkeep cannot do yet")
     tenant, bundle = _where(home)
     given = {f.name: new.config.get(f.name, "").strip() for f in connector.fields}
     with session() as s:
         grant = _grant_for(s, connector, user, new.grant)
-        _checked_with(connector, given, grant)
+        _checked_with(s, connector, given, grant)
         try:
             name = connector.name(given)[:80]
         except ConnectorError as e:
@@ -238,7 +237,7 @@ def update_connection(
         if patch.config is not None:
             given = {k: v.strip() for k, v in patch.config.items()}
             merged = vault.merge(given, row.config, connector)
-            _checked_with(connector, merged, grant)
+            _checked_with(s, connector, merged, grant)
             row.config = vault.seal(merged, connector)
             row.name = connector.name(merged)[:80]
         if patch.every is not None and not connector.tick:

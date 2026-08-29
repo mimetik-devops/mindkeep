@@ -65,12 +65,17 @@ def rows_of(config: dict[str, str], name: str) -> list[dict[str, Any]]:
 
 @dataclass(frozen=True)
 class OAuth:
-    """How a provider's sign-in works, for the plumbing to run. Declared by the connector;
-    the app's own client id and secret come from the server's environment."""
+    """How a provider's sign-in works, for the plumbing to run (grants.py). Declared by
+    the connector; the app's own client id and secret come from the server's environment
+    as `<PROVIDER>_CLIENT_ID` and `<PROVIDER>_CLIENT_SECRET` — `provider` is that prefix,
+    lowercase, shared by connectors of one provider. `params` are extra query parameters
+    for the authorize step — Google's `access_type=offline`, say."""
 
+    provider: str
     authorize_url: str
     token_url: str
     scopes: tuple[str, ...]
+    params: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -133,8 +138,8 @@ class Connector:
     fields: ClassVar[tuple[Field, ...]] = ()
     # "none": no grant. "token": a grant made from `grant_fields`, checked by
     # `check_grant`. "oauth2": a grant made by the provider's sign-in, described by
-    # `oauth`. ponytail: the dance itself is not done yet — it comes with the first
-    # connector that needs it; until then such a kind is listed as unavailable.
+    # `oauth` and run by grants.py — available once the server has the provider's
+    # client id and secret.
     auth: ClassVar[Literal["none", "token", "oauth2"]] = "none"
     grant_fields: ClassVar[tuple[Field, ...]] = ()
     oauth: ClassVar[OAuth | None] = None
@@ -156,8 +161,9 @@ class Connector:
         return self.title
 
     def check_grant(self, secrets: dict[str, str]) -> str:
-        """Try a token before the grant is saved. Return what to call it — the e-mail,
-        the workspace, the bot's name; raise ConnectorError with a sentence otherwise."""
+        """Try a grant before it is kept — a pasted token, or the tokens a sign-in just
+        returned (`access_token` among them). Return what to call it — the e-mail, the
+        workspace, the bot's name; raise ConnectorError with a sentence otherwise."""
         return self.title
 
     def check(self, config: dict[str, str], grant: Grant | None) -> None:

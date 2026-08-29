@@ -7,6 +7,7 @@ import {
   listConnectors,
   listGrants,
   removeGrant,
+  startOAuth,
 } from "./api";
 import { confirm } from "./dialog";
 import { when } from "./useSources";
@@ -16,7 +17,7 @@ import { when } from "./useSources";
  * connection you set up, on any bundle. The catalog says which connectors need one — a
  * token you paste, or (to come) a sign-in through the provider — and which need none.
  */
-export function Grants() {
+export function Grants({ notice = "" }: { notice?: string }) {
   const [kinds, setKinds] = useState<ConnectorKind[]>([]);
   const [mine, setMine] = useState<Grant[]>([]);
   const [error, setError] = useState("");
@@ -53,6 +54,14 @@ export function Grants() {
     }
   }
 
+  /** Off to the provider's consent page; it brings the browser back here. */
+  function signIn(kind: ConnectorKind) {
+    setError("");
+    startOAuth(kind.kind)
+      .then(({ url }) => window.location.assign(url))
+      .catch(fail);
+  }
+
   async function remove(g: Grant) {
     const uses =
       g.uses === 0
@@ -79,6 +88,7 @@ export function Grants() {
       </p>
 
       {error && <div className="banner">{error}</div>}
+      {notice && !error && <p className="soft notice">{notice}</p>}
 
       <ul className="connections">
         {kinds.map((k) => {
@@ -90,8 +100,8 @@ export function Grants() {
                 <span className="soft">
                   {k.auth === "none"
                     ? "no sign-in needed"
-                    : k.auth === "oauth2"
-                      ? "signs in through the provider — not yet in Mindkeep"
+                    : k.auth === "oauth2" && !k.available
+                      ? "signs in through the provider — not configured on this server"
                       : own.length === 0
                         ? "no sign-in yet"
                         : ""}
@@ -109,7 +119,12 @@ export function Grants() {
                   </button>
                 )}
                 {k.auth === "oauth2" && (
-                  <button className="more" disabled title="Coming with the first Google connector">
+                  <button
+                    className="more"
+                    disabled={!k.available}
+                    title={k.available ? "" : "The server has no client id and secret for it"}
+                    onClick={() => signIn(k)}
+                  >
                     sign in with {k.title}
                   </button>
                 )}

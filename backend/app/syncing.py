@@ -90,7 +90,7 @@ def _run(home: Path, connection_id: str) -> str:
             grant: Grant | None = s.get(Grant, row.grant_id) if row.grant_id else None
             if row.grant_id and grant is None:
                 raise ConnectorError("the sign-in this connection used is gone — pick another")
-            pull = connector.pull(config, json.loads(row.cursor or "{}"), grants.unpack(grant))
+            pull = connector.pull(config, json.loads(row.cursor or "{}"), grants.fresh(s, grant))
             summary = apply(home, s, row, pull)
             row.cursor = json.dumps(pull.cursor)
             row.error = ""
@@ -120,6 +120,8 @@ def apply(home: Path, s, row: Connection, pull) -> str:  # type: ignore[no-untyp
     seen: set[str] = set()
 
     for item in pull.items:
+        if item.id in seen:
+            continue  # a connector that lists one thing twice: the first word stands
         rel = f"{base}/{raw_path(item.path)}"
         digest = sha256(item.content).hexdigest()
         target = home / rel

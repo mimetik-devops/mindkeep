@@ -1714,6 +1714,56 @@ them. The general answer — a per-site "render in a browser" option on Playwrig
 headless Chromium in the backend image — is a separate feature for SPAs and client-side
 i18n; not built.
 
+### 4.55 Google Drive, and the sign-in with a provider (2026-08-30)
+
+Ruben: implement the Google Drive connector — multiple Drive paths, each at a specified
+interval. That is the OAuth step the contract had declared and not built, plus the first
+provider connector on top of it.
+
+**The dance, generic** (`grants.py`). A connector declares `OAuth(provider, authorize_url,
+token_url, scopes, params)`; the app's own client id and secret are `<PROVIDER>_CLIENT_ID`
+/ `_CLIENT_SECRET` in the environment, and a kind whose provider is not configured is
+listed but not offered — the catalog's `available` says so and the disabled button in
+the account card becomes the real one when it is. `start` answers the consent URL: PKCE
+(S256) and a `state` that is a signed note — HMAC on `DEVICE_SECRET` — of who asked and
+for what, good for ten minutes; `callback` (no bearer token: the state is the proof)
+trades the code, asks the connector's `check_grant` what to call the grant, seals the
+tokens with `expires_at`, and sends the browser back to `WEB_URL/?connected=<kind>` or
+`?connect_error=…`, where the app lands on Settings → Account → Connectors and says so.
+`fresh` is the one road for a sync and a check alike: an access token within 90 s of
+expiring is renewed and resealed; a refresh the provider refuses (`invalid_grant`) marks
+the grant *expired or revoked — sign in again* and the connection reports it, instead of
+a stack trace every quarter hour. Google gets `access_type=offline` and `prompt=consent`
+— it hands the refresh token over only on a consent screen, so every sign-in shows one.
+Grants stay per kind: a Drive grant will not serve Gmail (different scopes, its own
+consent) — the old note that "Gmail and Drive are one integration" is superseded on
+purpose. Redirect URI: `<API_PUBLIC_URL>/grants/oauth/drive/callback`, `API_PUBLIC_URL`
+defaulting to `WEB_URL` + `/api`.
+
+**The connector** (`connectors/drive.py`): `drive.readonly`, one scope — the grant's name
+is read from Drive's own `about`. One connection, folders as rows, each with its own
+frequency on the plumbing's quarter-hour tick, the cursor remembering per folder when it
+was pulled and each file's `modifiedTime`, so a tick fetches only what changed and a file
+that went away has its source removed; a file reached through two folders of the list is
+taken once. A folder is named as a person sees it from the top of My Drive
+(`Clients/Acme`), or given as its link or id (which reaches a shared drive); a name that
+matches two folders is refused with the count, never guessed; paths are resolved at every
+pull, so a renamed folder errors visibly rather than silently going stale. Docs, Sheets
+and Slides are exported as Markdown, CSV and text; other files as they are up to 20 MB;
+forms, shortcuts and sites are skipped, and so is a file whose download fails (tried
+next time) — one bad file must not stop the folder. Bounded at 500 files and 100
+folders per row per tick. The Drive id is the item's identity, so a rename is a move.
+REST over httpx; no Google SDK.
+
+**Verified, and what is not.** Google is never called in the tests: the token endpoint
+and the Drive API are stood in for, and what is tested is the dance (start URL, callback
+with our own state, a forged state refused, `access_denied` relayed), the refresh (renewed
+before use, the refresh token kept, revoked marked), and the connector (paths, the
+ambiguous name, exports, the form skipped, the per-folder clock, a changed Doc, a gone
+PDF, a new Doc, a file dropped from the list). Not run: a real consent — there is no
+Google OAuth client yet, and the production variables are Ruben's to set. That first
+real sign-in is the actual test of the dance.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

@@ -165,9 +165,9 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
 | `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history; the same sweep syncs every connection that is due |
-| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` built-in |
+| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `Grant`, `OAuth`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` and `drive` built-ins |
 | `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; a connection that needs a sign-in references one of the caller's grants |
-| `grants.py` | A person's standing with a provider — a token today, an OAuth sign-in to come — made once, usable by any connection they set up; `unpack` hands a connector its secrets in the clear for one call. User-facing: a sign-in, under Settings → Account → *Connectors* |
+| `grants.py` | A person's standing with a provider — a pasted token, or a sign-in with the provider: the OAuth dance (`start`, `callback`, PKCE, signed state), `fresh` (refresh before use, revoked marked), `configured` — made once, usable by any connection they set up. User-facing: a sign-in, under Settings → Account → *Connectors* |
 | `syncing.py` | One sync: pull, diff against `connector_item`, write, commit, queue; mirror semantics; `due()`; `disconnect()` |
 | `vault.py` | Secret fields sealed at rest (Fernet, key from `DEVICE_SECRET`), redacted on the way out, kept when the marker comes back |
 | `devices.py` | Per-machine tokens: create, holder, mine, forget |
@@ -315,8 +315,8 @@ the same for every connector:
 - **Grants — sign-ins.** A connector's `auth` is `none`, `token` or `oauth2`. A *grant* is a
   person's standing with the provider: for a `token` kind, the secrets of `grant_fields`,
   tried by `check_grant` (which names it — an e-mail, a workspace); for an `oauth2` kind,
-  the tokens of the provider's sign-in (declared in `oauth`; the dance is not built yet,
-  such a kind is listed but not offered). A grant is the person's, not a bundle's: made
+  the tokens of the provider's sign-in, which `grants.py` runs from the connector's
+  `OAuth` declaration (below). A grant is the person's, not a bundle's: made
   once in Settings → Account → *Connectors*, usable by any connection they set up in any
   team, and passed to `check` and `pull` as a `Grant` with its secrets in the clear for
   that call only. A connection keeps syncing with its maker's grant into a bundle other
@@ -332,6 +332,25 @@ the same for every connector:
   is due, remembers it in its cursor, and returns `complete=False` with only what changed.
   The connector `name(config)`s the connection — the hosts of a website connection —
   never a person; the name follows the settings.
+- **The provider sign-in (OAuth 2).** A connector declares `OAuth(provider, authorize_url,
+  token_url, scopes, params)`; the app's own client id and secret are `<PROVIDER>_CLIENT_ID`
+  / `<PROVIDER>_CLIENT_SECRET` in the environment (`GOOGLE_…` for Drive), and a kind whose
+  provider is not configured is listed but not offered. `GET /grants/oauth/{kind}/start`
+  (signed in) answers the consent-page URL: PKCE (S256), and a `state` that is a signed
+  note — HMAC on `DEVICE_SECRET` — of who asked and for what, good for ten minutes. The
+  provider sends the browser to `GET /grants/oauth/{kind}/callback` (no bearer token: the
+  state is the proof), which trades the code for tokens, asks the connector's
+  `check_grant` what to call the grant, keeps the tokens sealed with `expires_at`, and
+  sends the browser back to `WEB_URL/?connected=<kind>` (or `?connect_error=…`); the app
+  lands on Settings → Account → Connectors and says so. The redirect URI is
+  `<API_PUBLIC_URL>/grants/oauth/{kind}/callback`, `API_PUBLIC_URL` defaulting to
+  `WEB_URL` + `/api` (right when Caddy proxies /api). Before every use — a sync, or a
+  `check` — `grants.fresh` renews an access token within 90 s of expiring and reseals
+  the grant; a refresh the provider refuses (`invalid_grant`: revoked) sets the grant's
+  `error` and the connection reports it. Google needs `access_type=offline` and
+  `prompt=consent` to hand over a refresh token — one consent screen per sign-in.
+  Grants are per kind: a Drive grant will not serve a Gmail connector (its scopes and
+  consent differ), by decision, not accident.
 - **Secrets.** Fields the connector marks `secret` are Fernet-encrypted at rest
   (`app/vault.py`, key derived from `DEVICE_SECRET`), never sent to a browser (a marker
   says one is set; the marker sent back means "keep it"), tried by the connector's `check`
@@ -377,14 +396,25 @@ Both show up in `GET /teams/{t}/connectors` on the next start; a plugin with a b
 kind replaces it. `app/connectors/website.py` is the worked example and the first real
 connector: a list of sites, each the page at an address and the pages it links to on the
 same site — under the address's path when it has one, so `x.com/docs` is that section —
-up to its own `pages` (20 unless said) on its own frequency, each kept as **Markdown** — whole-page HTML→Markdown
-(`markdownify`; scripts, styles, nav and footer dropped; links made absolute; `title`,
-`source` and `description` up top), not readability-style extraction, which drops the
-headings and lists of any page that is not an article. An address that is not HTML — a
-PDF, a feed — is kept as the file it is. Conversion is byte-stable across fetches, so a
-page is folded in again only when it actually changed. `oauth2` is declared in the contract so a plugin can say what it needs,
-but the plumbing does not do the dance yet (redirect route, app credentials, refresh);
-such a kind is listed as unavailable until the first connector that needs it brings it.
+up to its own `pages` (20 unless said), on its own frequency, each kept as **Markdown**:
+whole-page HTML→Markdown (`markdownify`; scripts, styles, nav and footer dropped; links
+made absolute; `title`, `source` and `description` up top), not readability-style
+extraction, which drops the headings and lists of any page that is not an article. An
+address that is not HTML — a PDF, a feed — is kept as the file it is. Conversion is
+byte-stable across fetches, so a page is folded in again only when it actually changed.
+
+`app/connectors/drive.py` is the first provider connector: a Google sign-in
+(`drive.readonly`, nothing more — the grant's name comes from Drive's own `about`), then
+folders as rows, each on its own frequency — named as a person sees them from the top of
+My Drive (`Clients/Acme`; a name matching two folders is refused with the count, never
+guessed) or as the folder's link or id (which reaches a shared drive). Docs, Sheets and
+Slides are exported as Markdown, CSV and text; other files come as they are up to 20 MB;
+forms, shortcuts and sites are skipped, and so is a file that fails to download (tried
+next time). The cursor holds each file's `modifiedTime` per folder, so a tick fetches
+only what changed; the Drive id is the item's identity, so a rename is a move; a file
+reached through two folders of the list is taken once; bounded at 500 files and 100
+folders per row per tick. REST over httpx, no Google SDK.
+
 The app manages connections in Settings → Bundle, where they have the right-hand column
 (`Connections.tsx`).
 
@@ -429,6 +459,7 @@ out. Every query on a tenant table filters on `tenant` (`runs._where`).
 
 ### Environment (`backend/.env.example`)
 
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (a Google Cloud OAuth client of type *Web application*, the Drive API enabled, redirect URI `<API_PUBLIC_URL>/grants/oauth/drive/callback`), `API_PUBLIC_URL` (blank: `WEB_URL` + `/api`),
 `DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR`,
 `ANTHROPIC_API_KEY`, `DEVICE_SECRET`, `AUTH_PROVIDER` (`builtin` | `oidc`), builtin only:
 `AUTH_SECRET`; oidc only: `AUTH_ISSUER`,
@@ -481,6 +512,8 @@ Under `/teams/{team}`, membership required:
 | PUT/DELETE | `/bundles/{b}/connections/{id}` | bundles | settings, secrets, interval, enabled · remove it and everything it wrote |
 | POST | `/bundles/{b}/connections/{id}/sync` | write | sync now (202; 409 while one runs) |
 | GET/POST | `/grants` | signed in | your sign-ins, with how many connections use each · add one (a token, tried first; the connector names it) |
+| GET | `/grants/oauth/{kind}/start` | signed in | the provider's consent-page URL (PKCE, signed state) |
+| GET | `/grants/oauth/{kind}/callback` | the state | where the provider sends the browser; trades the code, keeps the grant, redirects to the app |
 | DELETE | `/grants/{id}` | signed in | gone at once; connections that used it stay and say so at their next sync |
 | GET/POST | `/bundles/{b}/questions[/{index}]` · `/todos[/{index}]` | read / write | the questions · the tasks: list, tick |
 | POST / GET | `/bundles/{b}/assist[/{job}]` | write / read | start one assistant turn (202, `{job}`) · poll it: `{done:false}`, then the reply and what changed, or an error |
