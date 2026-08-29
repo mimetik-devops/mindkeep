@@ -10,7 +10,15 @@ import {
   startOAuth,
 } from "./api";
 import { confirm } from "./dialog";
-import { when } from "./useSources";
+
+/** A day, short: "30 Aug", or "today". */
+const dayOf = (iso: string) => {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  return at.toDateString() === new Date().toDateString()
+    ? "today"
+    : at.toLocaleDateString([], { day: "numeric", month: "short" });
+};
 
 /**
  * Your sign-ins: your standing with each provider, made once here and usable by any
@@ -97,15 +105,13 @@ export function Grants({ notice = "" }: { notice?: string }) {
             <li key={k.kind}>
               <div className="who">
                 <b>{k.title}</b>
-                <span className="soft">
-                  {k.auth === "none"
-                    ? "no sign-in needed"
-                    : k.auth === "oauth2" && !k.available
-                      ? "signs in through the provider — not configured on this server"
-                      : own.length === 0
-                        ? "no sign-in yet"
-                        : ""}
-                </span>
+                <span className="grow" />
+                {k.auth === "none" && <span className="soft">no sign-in needed</span>}
+                {k.auth === "oauth2" && !k.available && (
+                  <span className="soft" title="The server has no client id and secret for it">
+                    not configured on this server
+                  </span>
+                )}
                 {k.auth === "token" && adding !== k.kind && (
                   <button
                     className="more"
@@ -115,25 +121,28 @@ export function Grants({ notice = "" }: { notice?: string }) {
                       setAdding(k.kind);
                     }}
                   >
-                    add a sign-in
+                    {own.length ? "add another" : "add a sign-in"}
                   </button>
                 )}
-                {k.auth === "oauth2" && (
-                  <button
-                    className="more"
-                    disabled={!k.available}
-                    title={k.available ? "" : "The server has no client id and secret for it"}
-                    onClick={() => signIn(k)}
-                  >
-                    sign in with {k.title}
+                {k.auth === "oauth2" && k.available && (
+                  <button className="more" onClick={() => signIn(k)}>
+                    {own.length ? "add another" : `sign in with ${k.title}`}
                   </button>
                 )}
               </div>
               {own.map((g) => (
-                <div className="how" key={g.id}>
-                  {g.label} · since {when(g.created_at)} ·{" "}
-                  {g.uses === 0 ? "unused" : `${g.uses} connection${g.uses === 1 ? "" : "s"}`}
-                  {g.error && <span className="bad"> · {g.error}</span>}{" "}
+                <div className="signin" key={g.id}>
+                  <span className={`dot ${g.error ? "failed" : "done"}`} />
+                  <span className="label">{g.label}</span>
+                  <span className={g.error ? "bad" : "soft"}>
+                    {g.error
+                      ? g.error
+                      : `signed in ${dayOf(g.created_at)} · ${
+                          g.uses === 0
+                            ? "not used yet"
+                            : `used by ${g.uses} connection${g.uses === 1 ? "" : "s"}`
+                        }`}
+                  </span>
                   <button className="more" onClick={() => remove(g)}>
                     remove
                   </button>
