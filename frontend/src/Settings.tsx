@@ -57,8 +57,14 @@ export function Settings({
   onBundleMoved,
   onBundleRenamed,
   onBundleDeleted,
+  initialSection = "Bundle",
+  notice = "",
 }: {
   bundle: string;
+  /** Where to open — Account, after a provider's sign-in brings the browser back. */
+  initialSection?: Section;
+  /** What to say there: the sign-in that just landed, or what went wrong. */
+  notice?: string;
   team: Team;
   /** Every team you belong to — the ones you manage are where a bundle can go. */
   teams: Team[];
@@ -72,7 +78,7 @@ export function Settings({
   onBundleDeleted: (name: string) => void;
 }) {
   const { lint, refresh } = useLint(bundle);
-  const [section, setSection] = useState<Section>("Bundle");
+  const [section, setSection] = useState<Section>(initialSection);
   const [error, setError] = useState("");
   const [destination, setDestination] = useState("");
   const [newName, setNewName] = useState(bundle);
@@ -310,7 +316,7 @@ export function Settings({
         </>
       )}
 
-      {section === "Account" && <Grants />}
+      {section === "Account" && <Grants notice={notice} />}
 
       {section === "Account" && (
         <section className="card">

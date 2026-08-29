@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   addConnection,
+  browseConnector,
   can,
+  type Choice,
   type Connection,
   type ConnectorField,
   type ConnectorKind,
@@ -31,7 +33,7 @@ const EVERY = [
 
 type Form = {
   kind: string;
-  name: string;
+  name: string; // shown when editing; the connector chose it
   config: Record<string, string>;
   every: number;
   enabled: boolean;
@@ -48,13 +50,28 @@ const blank = (kind: string, grant = ""): Form => ({
 });
 
 /** Why a connector cannot be picked right now, or "" when it can. */
-function blocked(k: ConnectorKind, grants: Grant[]): string {
+function blocked(k: ConnectorKind, grants: Grant[], rows: Connection[]): string {
   if (!k.available) return "needs a sign-in Mindkeep cannot do yet";
+  if (rows.some((r) => r.kind === k.kind)) return "already connected — edit it";
   if (k.auth !== "none" && !grants.some((g) => g.kind === k.kind)) {
     return "sign in first — Settings → Account → Connectors";
   }
   return "";
 }
+
+type Row = Record<string, string>;
+
+/** A rows field's value: the JSON the form keeps, as rows — an empty one to start. */
+function rowsOf(value: string, f: ConnectorField): Row[] {
+  try {
+    const parsed = value ? (JSON.parse(value) as Row[]) : [];
+    return parsed.length ? parsed : [blankRow(f)];
+  } catch {
+    return [blankRow(f)];
+  }
+}
+const blankRow = (f: ConnectorField): Row =>
+  Object.fromEntries(f.rows.map((r) => [r.name, r.options.length ? r.help : ""]));
 
 /**
  * A bundle's connections: third-party sources pulled on schedule. The catalog of
@@ -74,6 +91,15 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
   const [form, setForm] = useState<Form>(blank(""));
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false); // the picker of connectors
+  // the browser, for one cell of one rows field: where it is, what is there
+  const [browsing, setBrowsing] = useState<{
+    field: string;
+    row: number;
+    col: string;
+    at: string;
+    choices: Choice[];
+    busy: boolean;
+  } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const manages = can(team, "bundles");
@@ -146,7 +172,6 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
       if (editing === "new") {
         await addConnection(bundle, {
           kind: form.kind,
-          name: form.name,
           config: form.config,
           every: form.every,
           grant: form.grant || undefined,
@@ -186,9 +211,168 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
 
   const titleOf = (k: string) => kinds.find((x) => x.kind === k)?.title ?? k;
 
+  /** Open the browser on a cell, or move it to `at`: the connector says what is there. */
+  async function look(field: string, row: number, col: string, at: string) {
+    setError("");
+    setBrowsing({ field, row, col, at, choices: [], busy: true });
+    try {
+      const got = await browseConnector(bundle, form.kind, {
+        field: col,
+        at,
+        grant: form.grant || undefined,
+      });
+      setBrowsing({ field, row, col, at: got.at, choices: got.choices, busy: false });
+    } catch (e) {
+      setBrowsing(null);
+      fail(e as Error);
+    }
+  }
+
   const input = (f: ConnectorField) => {
     const value = form.config[f.name] ?? "";
     const change = (v: string) => setForm({ ...form, config: { ...form.config, [f.name]: v } });
+    if (f.rows.length) {
+      const rows = rowsOf(value, f);
+      const set = (next: Row[]) => change(JSON.stringify(next));
+      const setCell = (i: number, name: string, v: string) =>
+        set(rows.map((r, j) => (j === i ? { ...r, [name]: v } : r)));
+      const up = (at: string) => at.split("/").slice(0, -1).join("/");
+      return (
+        <div className="rows">
+          {rows.map((row, i) => (
+            <div className="row" key={i}>
+              {f.rows.map((col) =>
+                col.browse ? (
+                  <span className="browsable" key={col.name}>
+                    <input
+                      aria-label={`${col.label} ${i + 1}`}
+                      title={col.label}
+                      placeholder={col.label + (col.help ? ` — ${col.help}` : "")}
+                      value={row[col.name] ?? ""}
+                      onChange={(e) => setCell(i, col.name, e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="more"
+                      aria-label={`Browse ${i + 1}`}
+                      onClick={() => look(f.name, i, col.name, up(row[col.name] ?? ""))}
+                    >
+                      browse
+                    </button>
+                    {browsing && browsing.field === f.name && browsing.row === i && (
+                      <div className="browser" role="dialog" aria-label={`Browse ${col.label}`}>
+                        <div className="where">
+                          <button
+                            type="button"
+                            className="more"
+                            onClick={() => look(f.name, i, col.name, "")}
+                          >
+                            top
+                          </button>
+                          {browsing.at && (
+                            <>
+                              <span className="soft"> / {browsing.at}</span>
+                              <button
+                                type="button"
+                                className="more"
+                                onClick={() => look(f.name, i, col.name, up(browsing.at))}
+                              >
+                                up
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {browsing.busy ? (
+                          <p className="soft">Looking…</p>
+                        ) : browsing.choices.length === 0 ? (
+                          <p className="soft">Nothing inside.</p>
+                        ) : (
+                          <ul>
+                            {browsing.choices.map((c) => (
+                              <li key={c.value}>
+                                <button
+                                  type="button"
+                                  className="choice"
+                                  onClick={() =>
+                                    c.opens
+                                      ? look(f.name, i, col.name, c.value)
+                                      : (setCell(i, col.name, c.value), setBrowsing(null))
+                                  }
+                                >
+                                  {c.label}
+                                  {c.opens && " ›"}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="where">
+                          {browsing.at && (
+                            <button
+                              type="button"
+                              className="lint"
+                              aria-label={`Use ${browsing.at}`}
+                              onClick={() => {
+                                setCell(i, col.name, browsing.at);
+                                setBrowsing(null);
+                              }}
+                            >
+                              Use this folder
+                            </button>
+                          )}
+                          <button type="button" className="more" onClick={() => setBrowsing(null)}>
+                            close
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </span>
+                ) : col.options.length ? (
+                  <select
+                    key={col.name}
+                    aria-label={`${col.label} ${i + 1}`}
+                    title={col.label}
+                    value={row[col.name] ?? ""}
+                    onChange={(e) =>
+                      set(rows.map((r, j) => (j === i ? { ...r, [col.name]: e.target.value } : r)))
+                    }
+                  >
+                    {col.options.map(([v, label]) => (
+                      <option key={v} value={v}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    key={col.name}
+                    aria-label={`${col.label} ${i + 1}`}
+                    title={col.label}
+                    placeholder={col.label + (col.help ? ` — ${col.help}` : "")}
+                    value={row[col.name] ?? ""}
+                    onChange={(e) =>
+                      set(rows.map((r, j) => (j === i ? { ...r, [col.name]: e.target.value } : r)))
+                    }
+                  />
+                ),
+              )}
+              <button
+                type="button"
+                className="more"
+                aria-label={`Remove ${i + 1}`}
+                disabled={rows.length === 1}
+                onClick={() => set(rows.filter((_, j) => j !== i))}
+              >
+                remove
+              </button>
+            </div>
+          ))}
+          <button type="button" className="more" onClick={() => set([...rows, blankRow(f)])}>
+            add another
+          </button>
+        </div>
+      );
+    }
     if (f.multiline) {
       return (
         <textarea
@@ -220,8 +404,9 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
       <h2>Connections</h2>
       <p>
         A source somewhere else — a website, a workspace — pulled into <code>raw/connectors/</code>{" "}
-        on schedule and folded into the wiki whenever it changes. The folder is the connection's: a
-        file edited there by hand is put back at the next sync.
+        on schedule and folded into the wiki whenever it changes. Each has its own depth and its own
+        schedule. The folder is the connection's: a file edited there by hand is put back at the
+        next sync.
       </p>
 
       {error && <div className="banner">{error}</div>}
@@ -270,6 +455,7 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
                       ? `${row.summary} · synced ${when(row.synced_at)}`
                       : "never synced"}
                 {row.enabled &&
+                  !kinds.find((k) => k.kind === row.kind)?.tick &&
                   ` · ${EVERY.find(([m]) => m === row.every)?.[1] ?? `every ${row.every} min`}`}
               </div>
             </li>
@@ -293,7 +479,7 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
           {open && (
             <div ref={menu} role="menu" className="pickermenu wide">
               {kinds.map((k) => {
-                const why = blocked(k, grants);
+                const why = blocked(k, grants, rows);
                 return (
                   <button
                     key={k.kind}
@@ -330,18 +516,6 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
           </div>
           {editing === "new" && <p className="soft">{kind.blurb}</p>}
 
-          {editing === "new" && (
-            <label className="field">
-              <span>Name</span>
-              <input
-                aria-label="Connection name"
-                value={form.name}
-                placeholder="Where it lands under raw/connectors/"
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </label>
-          )}
-
           {kind.auth !== "none" && (
             <label className="field">
               <span>Sign-in</span>
@@ -360,30 +534,39 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
             </label>
           )}
 
-          {kind.fields.map((f) => (
-            <label className="field" key={f.name} title={f.help}>
-              <span>
-                {f.label}
-                {!f.required && <span className="soft"> (optional)</span>}
-              </span>
-              {input(f)}
-            </label>
-          ))}
+          {kind.fields.map((f) =>
+            f.rows.length ? (
+              <div className="field stacked" key={f.name}>
+                <span>{f.label}</span>
+                {input(f)}
+              </div>
+            ) : (
+              <label className="field" key={f.name} title={f.help}>
+                <span>
+                  {f.label}
+                  {!f.required && <span className="soft"> (optional)</span>}
+                </span>
+                {input(f)}
+              </label>
+            ),
+          )}
 
-          <label className="field">
-            <span>Check for changes</span>
-            <select
-              aria-label="Sync every"
-              value={form.every}
-              onChange={(e) => setForm({ ...form, every: Number(e.target.value) })}
-            >
-              {EVERY.map(([minutes, label]) => (
-                <option key={minutes} value={minutes}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!kind.tick && (
+            <label className="field">
+              <span>Check for changes</span>
+              <select
+                aria-label="Sync every"
+                value={form.every}
+                onChange={(e) => setForm({ ...form, every: Number(e.target.value) })}
+              >
+                {EVERY.map(([minutes, label]) => (
+                  <option key={minutes} value={minutes}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {editing !== "new" && (
             <label className="field">

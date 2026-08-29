@@ -380,7 +380,22 @@ export type ConnectorField = {
   required: boolean;
   /** a list, one per line */
   multiline: boolean;
+  /** a choice: [value, label] pairs */
+  options: [string, string][];
+  /** a list of rows, each with these sub-fields, sent back as JSON */
+  rows: ConnectorField[];
+  /** the app offers a browse button; the choices come from the connector, level by level */
+  browse: boolean;
 };
+/** One thing to pick while browsing: what to store, what to show, whether it opens. */
+export type Choice = { value: string; label: string; opens: boolean };
+/** What a browsable field offers one level down from `at` ("" is the top), asked with
+ * the caller's own sign-in. The `bundles` permission. */
+export const browseConnector = (
+  bundle: string,
+  kind: string,
+  body: { field: string; at: string; grant?: string },
+) => call<{ at: string; choices: Choice[] }>(`${at(bundle)}/connectors/${kind}/browse`, json(body));
 /** A connector the server has: what a person can set up. `auth` says whether it needs a
  * sign-in — `grant_fields` is the form for a token; `available` is false for one whose
  * sign-in the server cannot do yet. `fields` is the scope of one connection. */
@@ -390,6 +405,10 @@ export type ConnectorKind = {
   blurb: string;
   auth: "none" | "token" | "oauth2";
   available: boolean;
+  /** where its files land in the bundle */
+  folder: string;
+  /** minutes, when the connector keeps its own clock — then a connection has no interval */
+  tick: number;
   fields: ConnectorField[];
   grant_fields: ConnectorField[];
 };
@@ -407,6 +426,9 @@ export const listGrants = () => call<Grant[]>("/grants");
 /** Tried first; the connector names it. A 400 says what was wrong. */
 export const addGrant = (kind: string, secrets: Record<string, string>) =>
   call<Grant>("/grants", json({ kind, secrets }));
+/** The provider's consent page, for the browser to go to; it comes back to the app with
+ * `?connected=<kind>` or `?connect_error=…` in the address. */
+export const startOAuth = (kind: string) => call<{ url: string }>(`/grants/oauth/${kind}/start`);
 /** Connections that used it keep their rows and say so at their next sync. */
 export const removeGrant = (id: string) =>
   call<{ deleted: string; orphaned: number }>(`/grants/${id}`, { method: "DELETE" });
@@ -437,13 +459,7 @@ export const listConnections = (bundle: string) => call<Connection[]>(`${at(bund
 /** The `bundles` permission. The credentials are tried first; a 400 says what was wrong. */
 export const addConnection = (
   bundle: string,
-  body: {
-    kind: string;
-    name: string;
-    config: Record<string, string>;
-    every: number;
-    grant?: string;
-  },
+  body: { kind: string; config: Record<string, string>; every: number; grant?: string },
 ) => call<Connection>(`${at(bundle)}/connections`, json(body));
 export const updateConnection = (
   bundle: string,

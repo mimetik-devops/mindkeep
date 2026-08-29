@@ -5,8 +5,8 @@ against what the connection wrote last time (`ConnectorItem`, one row per file, 
 the source's own id), writes only that, commits it as the connection's change, and queues
 the changed sources for ingest — the same road an upload takes.
 
-**Mirror semantics.** The folder a connection writes — `raw/connectors/<name>/` — is the
-connection's.
+**Mirror semantics.** The folder a connection writes — `raw/connectors/<folder>/`, the
+kind unless the connector says — is the connection's.
 A file in it that someone edits, deletes or moves out of band (the web app, the desktop
 client, whose raw/ syncs both ways) is put back at the next sync; the person's version is
 in the history, like a wiki page the agent revised. One rule, no tombstones, and the
@@ -56,8 +56,10 @@ def due(row: Connection, moment: datetime) -> bool:
 
 
 def folder(row: Connection) -> str:
-    """Where this connection's files live, relative to the bundle."""
-    return f"raw/connectors/{raw_path(row.name)}"
+    """Where this connection's files live, relative to the bundle: the connector's
+    folder, its kind unless it says otherwise."""
+    connector = registry().get(row.kind)
+    return f"raw/connectors/{(connector.folder if connector else '') or row.kind}"
 
 
 def run(home: Path, connection_id: str) -> str:
@@ -88,7 +90,7 @@ def _run(home: Path, connection_id: str) -> str:
             grant: Grant | None = s.get(Grant, row.grant_id) if row.grant_id else None
             if row.grant_id and grant is None:
                 raise ConnectorError("the sign-in this connection used is gone — pick another")
-            pull = connector.pull(config, json.loads(row.cursor or "{}"), grants.unpack(grant))
+            pull = connector.pull(config, json.loads(row.cursor or "{}"), grants.fresh(s, grant))
             summary = apply(home, s, row, pull)
             row.cursor = json.dumps(pull.cursor)
             row.error = ""
@@ -118,6 +120,8 @@ def apply(home: Path, s, row: Connection, pull) -> str:  # type: ignore[no-untyp
     seen: set[str] = set()
 
     for item in pull.items:
+        if item.id in seen:
+            continue  # a connector that lists one thing twice: the first word stands
         rel = f"{base}/{raw_path(item.path)}"
         digest = sha256(item.content).hexdigest()
         target = home / rel
@@ -149,10 +153,11 @@ def apply(home: Path, s, row: Connection, pull) -> str:  # type: ignore[no-untyp
             )
             added.append(rel)
 
+    # an id both written and named as removed stays: what was written is the newer word
     gone = (
         [rid for rid in known if rid not in seen]
         if pull.complete
-        else [rid for rid in pull.removed if rid in known]
+        else [rid for rid in pull.removed if rid in known and rid not in seen]
     )
     for rid in gone:
         old = known[rid]

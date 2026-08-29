@@ -6,7 +6,9 @@ import { Grants } from "./Grants";
 
 const added: unknown[] = [];
 const removed: string[] = [];
+const started: string[] = [];
 let mine: unknown[] = [];
+let driveAvailable = false;
 
 vi.mock("./api", () => ({
   listConnectors: vi.fn(async () => [
@@ -35,11 +37,15 @@ vi.mock("./api", () => ({
       title: "Google Drive",
       blurb: "",
       auth: "oauth2",
-      available: false,
+      available: driveAvailable,
       fields: [],
       grant_fields: [],
     },
   ]),
+  startOAuth: vi.fn(async (kind: string) => {
+    started.push(kind);
+    return { url: "https://accounts.google.com/consent" };
+  }),
   listGrants: vi.fn(async () => mine),
   addGrant: vi.fn(async (kind: string, secrets: unknown) => {
     added.push({ kind, secrets });
@@ -73,7 +79,7 @@ test("every connector is listed with what it needs, and a token is added as a si
   const host = await mount();
   expect(host.textContent).toContain("Websites");
   expect(host.textContent).toContain("no sign-in needed");
-  expect(host.textContent).toContain("not yet in Mindkeep");
+  expect(host.textContent).toContain("not configured on this server");
   expect(button(host, "sign in with Google Drive").disabled).toBe(true);
   await act(async () => button(host, "add a sign-in").click());
   await type(host.querySelector('[aria-label="Integration token"]')!, "ntn_secret");
@@ -97,4 +103,29 @@ test("a sign-in shows how many connections use it, and can be removed", async ()
   expect(host.textContent).toContain("2 connections");
   await act(async () => button(host, "remove").click());
   expect(removed).toEqual(["g1"]);
+});
+
+test("a provider sign-in goes to the consent page the server names", async () => {
+  mine = [];
+  driveAvailable = true;
+  const gone: string[] = [];
+  Object.defineProperty(window, "location", {
+    value: { ...window.location, assign: (url: string) => gone.push(url) },
+    writable: true,
+  });
+  const host = await mount();
+  expect(button(host, "sign in with Google Drive").disabled).toBe(false);
+  await act(async () => button(host, "sign in with Google Drive").click());
+  expect(started).toEqual(["drive"]);
+  expect(gone).toEqual(["https://accounts.google.com/consent"]);
+});
+
+test("what a sign-in left in the address is said on the card", async () => {
+  mine = [];
+  const host = document.createElement("div");
+  document.body.append(host);
+  await act(async () =>
+    createRoot(host).render(<Grants notice="Signed in — the connection can use it now." />),
+  );
+  expect(host.textContent).toContain("Signed in");
 });

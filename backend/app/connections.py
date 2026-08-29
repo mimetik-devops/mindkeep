@@ -3,14 +3,13 @@
 A *connector* is code — the `url` built-in, a Notion plugin (`app/connectors/`). A
 *connection* is one of them set up on one bundle with its own settings, secrets and
 schedule: "the team wiki in Notion", "the pricing sheet at this URL". Its files land under
-`raw/connectors/<name>/` and are kept in step by `syncing.py`.
+`raw/connectors/<folder>/` and are kept in step by `syncing.py`.
 
 Managing connections is the `bundles` permission — they hold credentials and decide what
 flows into the wiki; owners and admins. Asking for a sync now is `write`.
 """
 
 import logging
-import re
 import secrets
 import threading
 from collections.abc import Callable
@@ -33,13 +32,11 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/teams/{team}")
 
-NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,79}$")
 EVERY_MIN, EVERY_MAX, EVERY_DEFAULT = 15, 7 * 24 * 60, 60  # minutes
 
 
 class NewConnection(BaseModel):
     kind: str
-    name: str
     config: dict[str, str]
     every: int = EVERY_DEFAULT
     grant: str | None = None  # one of the caller's, for a connector that needs one
@@ -66,7 +63,9 @@ def catalog() -> list[dict[str, object]]:
             "title": c.title,
             "blurb": c.blurb,
             "auth": c.auth,
-            "available": c.auth != "oauth2",
+            "available": c.auth != "oauth2" or grants.configured(c),
+            "folder": f"raw/connectors/{c.folder or c.kind}",
+            "tick": c.tick,
             "fields": [_field(f) for f in c.fields],
             "grant_fields": [_field(f) for f in c.grant_fields],
         }
@@ -82,6 +81,9 @@ def _field(f: Any) -> dict[str, object]:
         "help": f.help,
         "required": f.required,
         "multiline": f.multiline,
+        "options": [list(o) for o in f.options],
+        "rows": [_field(r) for r in f.rows],
+        "browse": f.browse,
     }
 
 
@@ -122,12 +124,13 @@ def _grant_for(s: Any, connector: Any, user: str, grant_id: str | None) -> Grant
     return row
 
 
-def _checked_with(connector: Any, config: dict[str, str], grant: Grant | None) -> None:
+def _checked_with(s: Any, connector: Any, config: dict[str, str], grant: Grant | None) -> None:
+    """The scope, tried with the grant as a sync would use it — renewed if need be."""
     for f in connector.fields:
         if f.required and not config.get(f.name, "").strip():
             raise HTTPException(400, f"{f.label} is required")
     try:
-        connector.check(config, grants.unpack(grant))
+        connector.check(config, grants.fresh(s, grant))
     except ConnectorError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -155,6 +158,34 @@ def list_connectors(_: CurrentUser) -> list[dict[str, object]]:
     return catalog()
 
 
+class BrowseAsk(BaseModel):
+    field: str
+    at: str = ""
+    grant: str | None = None
+
+
+@router.post("/bundles/{name}/connectors/{kind}/browse")
+def browse(
+    home: Bundle, kind: str, user: CurrentUser, _: Manager, ask: BrowseAsk
+) -> dict[str, object]:
+    """What a browsable field offers one level down from `at` — the connector asks the
+    provider with the caller's own sign-in, renewed if need be. A POST, because the
+    sign-in and the place are a body, not an address."""
+    connector = registry().get(kind)
+    if connector is None:
+        raise HTTPException(404, f"no connector of kind {kind}")
+    with session() as s:
+        grant = _grant_for(s, connector, user, ask.grant)
+        try:
+            choices = connector.browse(ask.field, ask.at, grants.fresh(s, grant))
+        except ConnectorError as e:
+            raise HTTPException(400, str(e)) from e
+    return {
+        "at": ask.at,
+        "choices": [{"value": c.value, "label": c.label, "opens": c.opens} for c in choices],
+    }
+
+
 @router.get("/bundles/{name}/connections")
 def list_connections(home: Bundle) -> list[dict[str, object]]:
     tenant, bundle = _where(home)
@@ -171,30 +202,31 @@ def list_connections(home: Bundle) -> list[dict[str, object]]:
 def add_connection(
     home: Bundle, user: CurrentUser, _: Manager, new: NewConnection
 ) -> dict[str, object]:
-    """Set a connection up: the credentials are tried first (the connector's `check`),
-    then the row is made and its first sync started."""
+    """Set a connection up: the scope is tried first (the connector's `check`), the
+    connector names it, then the row is made and its first sync started. Nobody types a
+    name — the connector knows what the thing is called — and a bundle has one connection
+    of a kind: its form holds the plural, each item with its own settings."""
     connector = registry().get(new.kind)
     if connector is None:
         raise HTTPException(404, f"no connector of kind {new.kind}")
-    if connector.auth == "oauth2":
-        raise HTTPException(400, f"{connector.title} needs a sign-in Mindkeep cannot do yet")
-    name = new.name.strip()
-    if not NAME.match(name):
-        raise HTTPException(400, "a name: letters, digits, spaces, dots, dashes; 80 at most")
     tenant, bundle = _where(home)
     given = {f.name: new.config.get(f.name, "").strip() for f in connector.fields}
     with session() as s:
         grant = _grant_for(s, connector, user, new.grant)
-        _checked_with(connector, given, grant)
+        _checked_with(s, connector, given, grant)
+        try:
+            name = connector.name(given)[:80]
+        except ConnectorError as e:
+            raise HTTPException(400, str(e)) from e
         taken = s.scalar(
             select(Connection).where(
                 Connection.tenant == tenant,
                 Connection.bundle == bundle,
-                Connection.name == name,
+                Connection.kind == new.kind,
             )
         )
         if taken:
-            raise HTTPException(409, "this bundle already has a connection by that name")
+            raise HTTPException(409, f"{connector.title} is already connected — edit it")
         row = Connection(
             id=secrets.token_hex(16),
             tenant=tenant,
@@ -204,7 +236,7 @@ def add_connection(
             config=vault.seal(given, connector),
             grant_id=grant.id if grant else None,
             cursor="{}",
-            every=_every(new.every),
+            every=connector.tick or _every(new.every),
             enabled=True,
             created_by=user,
             created_at=datetime.now(UTC),
@@ -220,7 +252,7 @@ def add_connection(
 def update_connection(
     home: Bundle, connection_id: str, user: CurrentUser, _: Manager, patch: ConnectionPatch
 ) -> dict[str, object]:
-    """Settings, secrets and the sign-in change; the name does not — it is the folder. A
+    """Settings, secrets and the sign-in change, and the name follows the settings. A
     secret sent back as the marker is kept as it was; a changed config is tried before it
     is saved. A new sign-in has to be the caller's own."""
     with session() as s:
@@ -234,9 +266,10 @@ def update_connection(
         if patch.config is not None:
             given = {k: v.strip() for k, v in patch.config.items()}
             merged = vault.merge(given, row.config, connector)
-            _checked_with(connector, merged, grant)
+            _checked_with(s, connector, merged, grant)
             row.config = vault.seal(merged, connector)
-        if patch.every is not None:
+            row.name = connector.name(merged)[:80]
+        if patch.every is not None and not connector.tick:
             row.every = _every(patch.every)
         if patch.enabled is not None:
             row.enabled = patch.enabled
