@@ -42,7 +42,7 @@ Three deployable things, one repository:
 | Part | Directory | Stack | What it is |
 |---|---|---|---|
 | Backend | `backend/` | Python 3.13, FastAPI, SQLAlchemy 2, Alembic, Postgres 17, Anthropic SDK, git | The API, the ingest agent, the scheduler, the history, the built-in accounts |
-| Frontend | `frontend/` | TypeScript, React 19, Vite 6, Vitest, react-oidc-context | The web app |
+| Frontend | `frontend/` | TypeScript, React 19, Vite 6, Vitest, react-oidc-context, Milkdown Crepe | The web app |
 | Client | `client/` | Python 3.12+, stdlib (engine + CLI), PySide6 (tray app), Briefcase | The sync engine, the CLI, the desktop tray app |
 
 `docker-compose.yml` at the root runs all three plus Postgres for development.
@@ -94,7 +94,8 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 | File | Written by | Notes |
 |---|---|---|
 | `raw/**` | people (upload, sync, web) and the assistant | immutable to the agent; a deleted source retires its pages |
-| `wiki/**`, `log.md` | the ingest/lint agent only | regenerated from sources; hand edits are overwritten |
+| `wiki/**` | the ingest/lint agent; a person may edit an existing page in the app | a page edit is a commit, never an ingest; the next ingest of a source the page cites may revise it — history keeps their version. Making pages stays the agent's |
+| `log.md` | the ingest/lint agent only | its own account of every run |
 | `index.md` | the server (`index.py`), after every run and undo | built from the pages' frontmatter; the agent's tools refuse it |
 | `questions.md` | the agent (questions), the assistant (ticks, new questions) | answered through the assistant or a note in `raw/`; never edited by hand |
 | `todo.md` | the agent and the assistant (tasks) | ticked by a person in the app; never edited by hand |
@@ -357,7 +358,7 @@ Under `/teams/{team}`, membership required:
 | PUT | `/bundles/{b}/team` | bundles | move to another team |
 | GET | `/bundles/{b}/tree` | read | `path → sha256`, dot dirs excluded |
 | GET | `/bundles/{b}/files/{path}` · `/text/{path}` | read | raw bytes · readable text (`.docx` extracted with the stdlib; other binaries are reported as binary — a PDF reaches the agent as a document instead, see the ingest pipeline) |
-| PUT | `/bundles/{b}/files/{path}` | write | write a source; `If-Match` honoured. `wiki/`, `questions.md` and `todo.md` are refused (409) |
+| PUT | `/bundles/{b}/files/{path}` | write | write a source (queues an ingest), or rewrite a wiki page that exists (commits, queues nothing); `If-Match` honoured. A new page, anything but `.md` under `wiki/`, and the root files are refused (409) |
 | POST | `/bundles/{b}/raw/{path}` | write | upload (name cleaned, ingest queued) |
 | DELETE | `/bundles/{b}/raw/{path}` | write | delete; a cited source starts a retire run |
 | POST | `/bundles/{b}/move` | write | move a source; recorded for the lint |
@@ -392,14 +393,15 @@ everything else, mono for paths. The header and the login page are the site's cl
 | `providers/session.ts` · `builtin.tsx` · `oidc.tsx` | the adapter contract (`Provider` + `useSession()`, optional `Login` form) and two adapters. `builtin` (the default when `VITE_AUTH_PROVIDER` is unset) keeps the session token in localStorage and renders its own sign-in / register form; `oidc.tsx` is the standard code flow with PKCE (react-oidc-context) for any provider — Kinde in production, with the `offline` scope for a refresh token |
 | `api.ts` | every call to the backend; `setTeam`/`at(bundle)` build the prefixed URLs; `can(team, permission)`; types (`Team`, `Entry`, `Queue`, `Device`, `Lint`…) |
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
-| `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Ingest again* (a clean run is skipped by the queue; this is the one way to ask for it) |
+| `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Re-ingest* (a clean run is skipped by the queue; this is the one way to ask for it), *Edit* on a wiki page or a markdown source |
+| `Editor.tsx` | the WYSIWYG editor: Milkdown's Crepe (remark in, remark out — footnotes, tables and fences round-trip), loaded lazily on *Edit*. Frontmatter is kept aside verbatim by `forEditing`; saves carry `If-Match` (sha256 of the text as read) and a 412 keeps the editor open |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
 | `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |
 | `Activity.tsx` | the feed from git history + runs; undo/redo; the ingest-paused and failed banners |
 | `Settings.tsx` (+ `TeamSettings.tsx`, `Members.tsx`) | tabs Bundle / Team / Account: lint hour, reorganise, rename/move/delete bundle; team rename/delete, members, invites; devices |
 | `Picker.tsx`, `Bundles.tsx`, `Invite.tsx`, `Connect.tsx`, `Profile.tsx` | pickers and the two link-driven pages |
 | `dialog.tsx` | the app's own `confirm()`/`prompt()` — promise-based, one host at the root |
-| `okf.ts` | frontmatter split, markdown render (sanitised — wiki text may quote sources; `marked-footnote` turns the agent's `[^src]` citations into references and a footnotes list) |
+| `okf.ts` | frontmatter split, markdown render (sanitised — wiki text may quote sources; `marked-footnote` turns the agent's `[^src]` citations into references and a footnotes list), `forEditing` (frontmatter aside, the stray `</content>` an ingest leaves at the foot dropped) |
 | `useSources.ts` | polls sources fast while the agent works and slowly when not; `version` bumps when an ingest finishes so views reload; `useLint` |
 | `invites.ts`, `handoff.ts` | sessionStorage stashes for invite and connect links |
 

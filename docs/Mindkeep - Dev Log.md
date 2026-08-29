@@ -1439,6 +1439,64 @@ over, `Mark`'s aspect ratio updated), the "BY MIMETIK" line of the lockup (Space
 line-height (1.0 — at 0.9 a descender collided with the ascender below it), which the
 login field's title takes too. The rest of the commit is copy and the hero's second
 button; nothing in the app corresponds.
+### 4.46 Pages edited in place: a WYSIWYG editor on the page view (2026-08-29)
+
+Ruben: add the ability to edit `.md` files directly from the website with a WYSIWYG editor.
+The page view gets an *Edit* button on any wiki page and any markdown source; the body
+opens in Milkdown's Crepe (`frontend/src/Editor.tsx`, lazily loaded — it carries
+ProseMirror, CodeMirror and Vue, as much again as the rest of the app), with *Save* and
+*Cancel* where the button was. Frontmatter never enters the editor: `forEditing` keeps it
+aside verbatim and reattaches it on save, so the title, description and tags shown above
+the editor stay as they are. A save is a `PUT /files/{path}` with `If-Match` set to the
+sha256 of the text as it was read; a 412 (the agent, or someone else, rewrote it meanwhile)
+keeps the editor open with the work in it. Leaving a dirty edit — another file, or Cancel
+— asks first.
+
+**Editor choice.** MDXEditor (Lexical) fails on footnotes, and the agent cites with
+footnotes on every page; TipTap's markdown extension is lossy. Milkdown parses and
+serialises through remark with the GFM preset, which has footnote definitions. Checked
+against every page of the Mimetik wiki (63 pages) before building: zero parser errors and
+nothing lost; what changes is cosmetic — `~` and `_` escaped where GFM could misread them,
+table columns padded — and the hard-wrapped paragraphs are *not* reflowed. Bullets are
+serialised as `-` (`remarkStringifyOptionsCtx`), the agent's own style, so the first
+edit of a page does not rewrite every list. One real finding: 60 of the 63 pages end with a
+stray `</content>` — the closing tag of the document block the ingest was handed, echoed
+by the model — invisible once rendered (sanitised) but an HTML block inside the last
+footnote definition, which Milkdown drops *with the definition*. `forEditing` strips that
+line; the ingest-side cause is a follow-up.
+
+**The ownership rule bends, and says so.** `PUT /files/{path}` now accepts an existing
+`wiki/**.md` besides `raw/**`: committed as `edit wiki/…`, never queued (a corrected page
+is its own correction; a corrected source still queues an ingest). Making a page, anything
+under `wiki/` that is not markdown, and the root files (`index.md`, `log.md`, the lists,
+`CLAUDE.md`) stay refused. The activity feed counts a `wiki/` path in a non-run commit as
+people's; on disk, uncommitted, a `wiki/` file is still the agent mid-run, so the
+*pending* row stays raw/-only. The manual tells the agent a person's edit is the page now,
+to keep unless a source contradicts it. The tradeoff, stated: the next ingest of a source
+the page cites may revise a person's edit; their version is in the history. The mirror's
+`CLAUDE.md` is unchanged — a page edited in a synced copy is still not pushed.
+
+Not verified in a browser this time: the Chrome extension would not connect. The editor
+is covered by a jsdom mount test (StrictMode double-mount, footnote, table, fence), the
+round-trip spike above, and the backend test for the gate; the look of the toolbar and
+slash menu against the app's tokens is the thing to eyeball.
+
+Ruben's first look, same day: the editor should be the size of the page in reading mode
+(it was a narrower sheet with its own padding — now the same selectors as `.prose`, no
+frame); the toolbar's options, the block handle and the caret were barely visible (all
+three are drawn in Crepe's `outline` colour, which was mapped to the faint `--line`;
+now the muted ink, the caret 2px); and the block handle appeared far to the right of
+the block, so dragging it did nothing until the mouse crossed back into the text —
+floating-ui's `flip()` found no room in the page's 40px gutter for the handle plus
+Crepe's 16px offset. The handle now never flips (`floatingUIOptions.middleware: []`)
+and is stacked and small enough to fit the gutter. *Ingest again* is *Re-ingest*,
+*Delete source* is *Delete*.
+
+Second look: dragging the handle up and down still moved nothing — you had to drag the
+text itself. ProseMirror takes a drop only while the mouse is over its own element, and
+the handle sat in the page's gutter outside it (Crepe's demo works because its handle sits
+inside the editor's 120px padding). The gutter is now the editor's own padding, with a
+negative margin so the text stays put.
 
 ## 5. Open questions and known gaps
 

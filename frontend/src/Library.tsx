@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import {
   addFolder,
   addRaw,
+  digest,
   folders,
   moveRaw,
   readAsText,
@@ -11,13 +12,18 @@ import {
   retryIngest,
   tree,
   verifyPage,
+  writeFile,
 } from "./api";
 import { confirm, prompt } from "./dialog";
 import { filesIn, type Picked } from "./dropped";
 import { build, FileTree } from "./FileTree";
-import { Check, Trash } from "./icons";
-import { parse, render, verifiedBy } from "./okf";
+import { Check, Pencil, Trash } from "./icons";
+import { forEditing, parse, render, verifiedBy } from "./okf";
 import { elapsed, useSources } from "./useSources";
+
+// The editor carries ProseMirror, CodeMirror and Vue — as much again as the rest of the
+// app — so it arrives only when someone clicks Edit.
+const Editor = lazy(() => import("./Editor"));
 
 /** Folders open by default: the two that matter, and nothing deeper. */
 const OPEN = ["raw", "wiki"];
@@ -38,6 +44,13 @@ export function Library({ bundle }: { bundle: string }) {
   const [raw, setRaw] = useState("");
   const [error, setError] = useState("");
   const [unreadable, setUnreadable] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // what the editor holds now, and the file as it was read: the sha of that is the
+  // If-Match on save, so a page the agent rewrote meanwhile is refused, not overwritten
+  const draft = useRef("");
+  const loaded = useRef("");
   const picker = useRef<HTMLInputElement>(null);
   // which folder the picker is filling. A ref, not state: the dialog outlives the render
   // that opened it, and the change event must read what was chosen at click time.
@@ -80,11 +93,14 @@ export function Library({ bundle }: { bundle: string }) {
   useEffect(() => {
     setRaw("");
     setUnreadable("");
+    setEditing(false);
+    setDirty(false);
     // markdown renders; anything else is asked for as text, which is how the agent got
     // it — a .docx included. Only a format nothing can extract falls through to a message.
     const wanted = selected.endsWith(".md") ? readFile : readAsText;
     wanted(bundle, selected)
       .then((text) => {
+        loaded.current = text;
         setRaw(text);
         setError("");
       })
@@ -98,6 +114,9 @@ export function Library({ bundle }: { bundle: string }) {
   const isMarkdown = selected.endsWith(".md");
   const isRaw = selected.startsWith("raw/");
   const status = sources.find((s) => s.path === selected);
+  // a page or a markdown source, in place; the files at the root are the agent's and
+  // the server's, and a page is made by an ingest, never by hand
+  const editable = isMarkdown && (isRaw || selected.startsWith("wiki/"));
   const nodes = build([...paths, ...dirs.map((d) => `raw/${d}/`), ...HALVES]);
   // a folder counts every file beneath it, not just its direct children
   const counts = paths.reduce<Record<string, number>>((acc, path) => {
@@ -115,6 +134,60 @@ export function Library({ bundle }: { bundle: string }) {
       if (!next.delete(path)) next.add(path);
       return next;
     });
+
+  /** Leaving an unsaved edit — for another file, or by Cancel — asks first. */
+  async function leave(): Promise<boolean> {
+    if (!editing || !dirty) return true;
+    return confirm("Leave without saving? The changes to this page are lost.", {
+      ok: "Leave",
+      danger: true,
+    });
+  }
+
+  async function select(path: string) {
+    if (!(await leave())) return;
+    setEditing(false);
+    setDirty(false);
+    setSelected(path);
+  }
+
+  function edit() {
+    draft.current = forEditing(loaded.current).body;
+    setDirty(false);
+    setEditing(true);
+  }
+
+  async function cancel() {
+    if (!(await leave())) return;
+    setEditing(false);
+    setDirty(false);
+  }
+
+  /** The frontmatter as it was, the body as edited, one newline at the end. */
+  async function save() {
+    setSaving(true);
+    const text = forEditing(loaded.current).head + draft.current.replace(/\n*$/, "\n");
+    try {
+      await writeFile(bundle, selected, text, await digest(loaded.current));
+      loaded.current = text;
+      setRaw(text);
+      setEditing(false);
+      setDirty(false);
+      setError("");
+      refresh();
+    } catch (e) {
+      // the editor stays open with the work in it: a stale copy is not lost, only not saved
+      const stale = e instanceof Error && e.message.startsWith("412");
+      setError(
+        stale
+          ? "This page changed while you were editing it — the agent, or someone else. " +
+              "Copy what you changed, open the page again, and edit that."
+          : String(e),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function markVerified() {
     try {
@@ -226,7 +299,7 @@ export function Library({ bundle }: { bundle: string }) {
         <FileTree
           nodes={nodes}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={select}
           open={open}
           toggle={toggle}
           sources={sources}
@@ -255,7 +328,24 @@ export function Library({ bundle }: { bundle: string }) {
         )}
         {error && <div className="banner">{error}</div>}
 
-        <div className="crumbs">{selected.split("/").join(" / ")}</div>
+        <div className="pagebar">
+          <div className="crumbs">{selected.split("/").join(" / ")}</div>
+          {editable && !editing && (
+            <button className="quiet" onClick={edit}>
+              <Pencil /> Edit
+            </button>
+          )}
+          {editing && (
+            <div className="actions">
+              <button className="quiet" onClick={cancel} disabled={saving}>
+                Cancel
+              </button>
+              <button className="primary" onClick={save} disabled={saving || !dirty}>
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
+        </div>
 
         {meta.title && <h1>{meta.title}</h1>}
         {meta.description && <p className="lede">{meta.description}</p>}
@@ -272,7 +362,23 @@ export function Library({ bundle }: { bundle: string }) {
           </div>
         )}
 
-        {isMarkdown ? (
+        {editing ? (
+          <>
+            <Suspense fallback={<p className="soft">Loading the editor…</p>}>
+              <Editor
+                initial={draft.current}
+                onChange={(markdown) => {
+                  draft.current = markdown;
+                  setDirty(true);
+                }}
+              />
+            </Suspense>
+            <p className="soft">
+              The title, description and tags above come from the page's frontmatter, which stays as
+              it is.
+            </p>
+          </>
+        ) : isMarkdown ? (
           <div className="prose" dangerouslySetInnerHTML={{ __html: render(body) }} />
         ) : unreadable ? (
           <p className="empty">
@@ -338,10 +444,10 @@ export function Library({ bundle }: { bundle: string }) {
                   retryIngest(bundle, selected).then(refresh, (e) => setError(String(e)))
                 }
               >
-                Ingest again
+                Re-ingest
               </button>
               <button className="primary danger" onClick={remove}>
-                <Trash /> Delete source
+                <Trash /> Delete
               </button>
             </div>
           </section>
