@@ -51,7 +51,7 @@ const blank = (kind: string, grant = ""): Form => ({
 function blocked(k: ConnectorKind, grants: Grant[]): string {
   if (!k.available) return "needs a sign-in Mindkeep cannot do yet";
   if (k.auth !== "none" && !grants.some((g) => g.kind === k.kind)) {
-    return "sign in first — Settings → Account";
+    return "sign in first — Settings → Account → Connectors";
   }
   return "";
 }
@@ -60,7 +60,8 @@ function blocked(k: ConnectorKind, grants: Grant[]): string {
  * A bundle's connections: third-party sources pulled on schedule. The catalog of
  * connectors comes from the server — a plugin installed there shows up here with its own
  * form — so nothing in this file knows what a connector wants; it draws the fields it is
- * told about. A connector that needs a sign-in uses one of yours (Settings → Account).
+ * told about. A connector that needs a sign-in uses one of yours (Settings → Account →
+ * Connectors).
  * Managing is the `bundles` permission, syncing now is `write`.
  */
 export function Connections({ bundle, team }: { bundle: string; team: Team }) {

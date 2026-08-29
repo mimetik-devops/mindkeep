@@ -70,12 +70,12 @@ export function Grants() {
 
   return (
     <section className="card">
-      <h2>Sign-ins</h2>
+      <h2>Connectors</h2>
       <p>
-        Your standing with each provider a connector reads from — a token, or a sign-in with the
-        provider — made once here and usable by any connection you set up, on any bundle. A
-        connection keeps syncing with your sign-in into the bundle it is on, for everyone who reads
-        that bundle.
+        Every source Mindkeep can read from, and your sign-in with each — your standing with the
+        provider — a token, or a sign-in with the provider — made once here and usable by any
+        connection you set up, on any bundle. A connection keeps syncing with your sign-in into the
+        bundle it is on, for everyone who reads that bundle.
       </p>
 
       {error && <div className="banner">{error}</div>}
