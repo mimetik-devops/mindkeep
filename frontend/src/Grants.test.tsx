@@ -80,7 +80,7 @@ test("every connector is listed with what it needs, and a token is added as a si
   expect(host.textContent).toContain("Websites");
   expect(host.textContent).toContain("no sign-in needed");
   expect(host.textContent).toContain("not configured on this server");
-  expect(button(host, "sign in with Google Drive").disabled).toBe(true);
+  expect(button(host, "sign in with Google Drive")).toBeUndefined(); // nothing to press
   await act(async () => button(host, "add a sign-in").click());
   await type(host.querySelector('[aria-label="Integration token"]')!, "ntn_secret");
   await act(async () => button(host, "Sign in").click());
@@ -100,7 +100,8 @@ test("a sign-in shows how many connections use it, and can be removed", async ()
   ];
   const host = await mount();
   expect(host.textContent).toContain("Ada's workspace");
-  expect(host.textContent).toContain("2 connections");
+  expect(host.textContent).toContain("used by 2 connections");
+  expect(host.textContent).toContain("signed in today");
   await act(async () => button(host, "remove").click());
   expect(removed).toEqual(["g1"]);
 });

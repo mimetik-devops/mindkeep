@@ -565,6 +565,24 @@ button:focus-visible {
 .connections .how .more {
   margin-left: 6px;
 }
+/* a sign-in under its connector: dot, account, a short state, remove at the end */
+.connections .signin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 17px;
+  font-size: 13px;
+}
+.connections .signin .label {
+  font-weight: 500;
+  color: var(--ink);
+}
+.connections .signin .more {
+  margin-left: auto;
+}
+.connections .signin .bad {
+  color: var(--red);
+}
 .card .notice {
   color: var(--clay-deep);
 }
