@@ -165,7 +165,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
 | `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history; the same sweep syncs every connection that is due |
-| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `url` built-in |
+| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` built-in |
 | `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; bodies as pydantic models |
 | `syncing.py` | One sync: pull, diff against `connector_item`, write, commit, queue; mirror semantics; `due()`; `disconnect()` |
 | `vault.py` | Secret fields sealed at rest (Fernet, key from `DEVICE_SECRET`), redacted on the way out, kept when the marker comes back |
@@ -347,8 +347,14 @@ Built-ins are found in the package; anyone else's is a Python package installed 
 backend image that names its class under the entry-point group `mindkeep.connectors`
 (`[project.entry-points."mindkeep.connectors"] notion = "mindkeep_notion:NotionConnector"`).
 Both show up in `GET /teams/{t}/connectors` on the next start; a plugin with a built-in's
-kind replaces it. `app/connectors/url.py` — one address, fetched on schedule — is the
-worked example. `oauth2` is declared in the contract so a plugin can say what it needs,
+kind replaces it. `app/connectors/website.py` is the worked example and the first real
+connector: the page at an address and the pages it links to on the same site (up to
+`pages`, 20 unless said), each kept as **Markdown** — whole-page HTML→Markdown
+(`markdownify`; scripts, styles, nav and footer dropped; links made absolute; `title`,
+`source` and `description` up top), not readability-style extraction, which drops the
+headings and lists of any page that is not an article. An address that is not HTML — a
+PDF, a feed — is kept as the file it is. Conversion is byte-stable across fetches, so a
+page is folded in again only when it actually changed. `oauth2` is declared in the contract so a plugin can say what it needs,
 but the plumbing does not do the dance yet (redirect route, app credentials, refresh);
 such a kind is listed as unavailable until the first connector that needs it brings it.
 

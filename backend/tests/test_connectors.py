@@ -80,7 +80,7 @@ def row_of(connection_id: str) -> Connection:
 
 def test_a_plugin_is_found_through_its_entry_point_and_listed_with_the_built_ins(client, fake):
     kinds = {c["kind"]: c for c in client.get(f"{T}/connectors").json()}
-    assert "url" in kinds and kinds["url"]["available"]
+    assert "website" in kinds and kinds["website"]["available"]
     assert kinds["fake"]["fields"] == [
         {"name": "space", "label": "Space", "secret": False, "help": "", "required": True},
         {"name": "token", "label": "Token", "secret": True, "help": "", "required": True},
@@ -248,17 +248,79 @@ def test_the_sweep_syncs_what_is_due_and_only_that(client, fake, monkeypatch, tm
     assert ran == [cid]
 
 
-def test_the_url_connector_fetches_one_address_into_a_named_file(client, monkeypatch, tmp_path):
+SITE = {
+    "https://site.test/": (
+        b"<html><head><title>Site</title><meta name=description content='A test site'>"
+        b"<script>x()</script></head><body><nav><a href='/docs'>Docs</a></nav>"
+        b"<h1>Hello</h1><p>See <a href='/docs/'>the docs</a>, <a href='/about#team'>us</a>, "
+        b"<a href='https://elsewhere.test/'>them</a> and <a href='/deck.pdf'>the deck</a>.</p>"
+        b"<ul><li>one</li><li>two</li></ul><footer>foot</footer></body></html>",
+        "text/html",
+    ),
+    "https://site.test/docs": (
+        b"<html><body><h2>Docs</h2><p>Read me.</p></body></html>",
+        "text/html",
+    ),
+    "https://site.test/about": (b"<html><body><p>About us.</p></body></html>", "text/html"),
+    "https://site.test/deck.pdf": (b"%PDF-1.4 fake", "application/pdf"),
+}
+
+
+def fake_fetch(url: str) -> tuple[bytes, str]:
+    if url not in SITE:
+        raise ConnectorError(f"{url} answered 404")
+    return SITE[url]
+
+
+def test_a_website_is_kept_as_markdown_pages_on_the_same_site_within_the_limit(
+    client, monkeypatch, tmp_path
+):
     monkeypatch.setattr(connections, "background", lambda fn, *a: fn(*a))
-    monkeypatch.setattr("app.connectors.url.fetch", lambda url: (b"<h1>hi</h1>", "text/html"))
+    monkeypatch.setattr("app.connectors.website.fetch", fake_fetch)
     home = tmp_path / tenant_id("alice") / "default"
-    body = {"kind": "url", "name": "Docs", "config": {"url": "https://example.com/docs/page"}}
+    body = {"kind": "website", "name": "Site", "config": {"url": "https://site.test/", "pages": ""}}
     assert client.post(C, json=body).status_code == 201
-    assert (home / "raw/connectors/Docs/page.html").read_bytes() == b"<h1>hi</h1>"
-    body["name"], body["config"]["url"] = "Home", "https://example.com/"
-    client.post(C, json=body)
-    # a host name gets the content type's suffix
-    assert (home / "raw/connectors/Home/example.com.html").is_file()
-    body["name"], body["config"]["url"] = "Bad", "ftp://example.com"
-    refused = client.post(C, json=body)
-    assert refused.status_code == 400 and "http" in refused.json()["detail"]
+    folder = home / "raw/connectors/Site"
+    assert sorted(p.name for p in folder.rglob("*.md")) == ["about.md", "docs.md", "index.md"]
+    page = (folder / "index.md").read_text(encoding="utf-8")
+    # frontmatter from the page's own head; links absolute; noise gone; structure kept
+    assert page.startswith(
+        '---\ntitle: "Site"\nsource: https://site.test/\ndescription: "A test site"\n---\n'
+    )
+    assert "# Hello" in page and "- one\n- two" in page
+    assert "[the docs](https://site.test/docs/)" in page
+    assert "x()" not in page and "foot" not in page and "Docs\n" not in page.split("# Hello")[0]
+    # the same site only, fragments dropped, a linked PDF is not a page
+    assert not (folder / "deck.pdf").exists()
+    assert client.get(C).json()[0]["summary"] == "+3 ~0 -0"
+
+    # one page only, when asked; the limit is checked before anything is saved
+    body["name"], body["config"]["pages"] = "One", "1"
+    assert client.post(C, json=body).status_code == 201
+    assert sorted(p.name for p in (home / "raw/connectors/One").rglob("*.md")) == ["index.md"]
+    body["name"], body["config"]["pages"] = "Bad", "0"
+    assert client.post(C, json=body).status_code == 400
+    body["name"], body["config"] = "Ftp", {"url": "ftp://site.test", "pages": ""}
+    assert "http" in client.post(C, json=body).json()["detail"]
+
+
+def test_an_address_that_is_not_a_page_is_kept_as_the_file_it_is(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(connections, "background", lambda fn, *a: fn(*a))
+    monkeypatch.setattr("app.connectors.website.fetch", fake_fetch)
+    home = tmp_path / tenant_id("alice") / "default"
+    body = {"kind": "website", "name": "Deck", "config": {"url": "https://site.test/deck.pdf"}}
+    assert client.post(C, json=body).status_code == 201
+    assert (home / "raw/connectors/Deck/deck.pdf").read_bytes() == b"%PDF-1.4 fake"
+
+
+def test_page_paths_and_file_names_come_from_the_address():
+    from app.connectors.website import canonical, file_path, page_path
+
+    assert page_path("https://a.test/") == "index.md"
+    assert page_path("https://a.test/docs/setup.html") == "docs/setup.md"
+    assert page_path("https://a.test/docs") == "docs.md"
+    assert canonical("https://a.test/docs/#top") == "https://a.test/docs"
+    assert canonical("https://a.test/") == "https://a.test/"
+    assert file_path("https://a.test/", "text/csv") == "a.test.csv"
+    assert file_path("https://a.test/data/export", "application/json") == "export.json"
+    assert file_path("https://a.test/deck.pdf", "application/pdf") == "deck.pdf"
