@@ -80,8 +80,20 @@ export const readFile = (bundle: string, path: string) =>
 export const readAsText = (bundle: string, path: string) =>
   call<string>(`${at(bundle)}/text/${path}`);
 
-export const writeFile = (bundle: string, path: string, body: string) =>
-  call<{ path: string }>(`${at(bundle)}/files/${path}`, { method: "PUT", body });
+/** `ifMatch` is the sha256 of the file as it was read: the server refuses with 412 when
+ * it has moved on since, rather than let a stale copy win. Without it, last write wins. */
+export const writeFile = (bundle: string, path: string, body: string, ifMatch = "") =>
+  call<{ path: string }>(`${at(bundle)}/files/${path}`, {
+    method: "PUT",
+    body,
+    headers: ifMatch ? { "If-Match": ifMatch } : {},
+  });
+
+/** The sha256 the tree reports for a file, computed here from its text. */
+export async function digest(text: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 /** The server stamps `verified` with the identity on the token — never one we send. */
 export const verifyPage = (bundle: string, path: string) =>
