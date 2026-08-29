@@ -1579,6 +1579,29 @@ client uploads each file with its own `POST /raw/{path}` and each queues its own
 a connection's sync does the same, one ingest per changed file, serialised per bundle. The
 cost note above is about a batching window that would serve both and does not exist yet.
 
+### 4.50 The first connector: a website, kept as Markdown (2026-08-30)
+
+Ruben: website first — track a website and ingest changes every time there is one; test it
+with mindkeep.io; and the open question whether to track the HTML directly or convert to
+Markdown first, as the Obsidian web clipper does. Settled by trying both on mindkeep.io:
+the raw page is 14,077 characters of markup, nav, scripts and CSP noise; readability-style
+extraction (`trafilatura`) gives 1,740 characters and drops every heading and list, because
+a marketing or docs page is not an article; whole-page HTML→Markdown (`markdownify`) gives
+4,273 with headings, lists and links intact and a little nav chrome. Both forms are
+byte-stable across fetches. So: Markdown, whole page, lightly cleaned — scripts, styles,
+svg, nav and footer dropped, links and images made absolute so a citation can follow them,
+`title`, `source` and `description` from the page's own head up top. It is what the agent
+reads best, what a person sees in the Library, and what a mirror holds as ordinary files.
+
+`app/connectors/website.py` replaces the `url` built-in (which never shipped) and folds it
+in: the page at the address and, breadth first, the pages it links to on the same host —
+fragments dropped, trailing slashes normalised, `/docs/setup.html` landing as
+`docs/setup.md` and `/` as `index.md` — up to `pages` (20 unless said, 200 at most; a
+link is fetched when its turn comes, never past the limit). An address that answers with
+something other than HTML is kept as the file it is, named from the address with a suffix
+from its type. Against mindkeep.io: one page, 3.9 KB of Markdown, 1.1 s, identical on the
+second fetch. `beautifulsoup4` and `markdownify` join the dependencies (both typed).
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every
