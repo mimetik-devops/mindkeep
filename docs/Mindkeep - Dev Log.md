@@ -1482,6 +1482,12 @@ Crepe's 16px offset. The handle now never flips (`floatingUIOptions.middleware: 
 and is stacked and small enough to fit the gutter. *Ingest again* is *Re-ingest*,
 *Delete source* is *Delete*.
 
+Second look: dragging the handle up and down still moved nothing — you had to drag the
+text itself. ProseMirror takes a drop only while the mouse is over its own element, and
+the handle sat in the page's gutter outside it (Crepe's demo works because its handle sits
+inside the editor's 120px padding). The gutter is now the editor's own padding, with a
+negative margin so the text stays put.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

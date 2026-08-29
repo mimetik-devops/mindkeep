@@ -943,8 +943,12 @@ button:focus-visible {
   --crepe-font-default: var(--sans);
   --crepe-font-code: var(--mono);
 }
+/* The page's left gutter is folded into the editor's own box: a block can only be dropped
+   while the mouse is over the ProseMirror element, so a handle dragged up and down in a
+   gutter outside it never finds a drop point. The text does not move. */
 .editor .milkdown .ProseMirror {
-  padding: 0;
+  padding: 0 0 0 40px;
+  margin-left: -40px;
   line-height: 1.68;
 }
 .editor .milkdown .ProseMirror-focused {
