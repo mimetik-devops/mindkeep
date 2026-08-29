@@ -15,6 +15,15 @@ handle_path /api/* {
 }
 
 handle {
+	# Vite names its output by content hash, so /assets/* never changes under a URL and
+	# may be kept for good. Everything else — index.html above all — is revalidated on
+	# every load (the ETag makes that cheap), so a deploy is seen at once rather than
+	# whenever a browser's heuristic guess expires: without a header, an old index.html
+	# would point at bundles that are no longer there.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+	@rest not path /assets/*
+	header @rest Cache-Control "no-cache"
 	try_files {path} /index.html
 	file_server
 }
