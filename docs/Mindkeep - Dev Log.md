@@ -1602,6 +1602,24 @@ something other than HTML is kept as the file it is, named from the address with
 from its type. Against mindkeep.io: one page, 3.9 KB of Markdown, 1.1 s, identical on the
 second fetch. `beautifulsoup4` and `markdownify` join the dependencies (both typed).
 
+### 4.51 Connections managed in the app (2026-08-30)
+
+Ruben: the management UI — add, remove and edit connections, and list the available
+connectors so a connection can be made. A *Connections* card in Settings → Bundle
+(`frontend/src/Connections.tsx`), with the other per-bundle knobs. The list: one row per
+connection with a state dot (pulsing while it syncs, red on an error), the connector's
+title, the last summary and when, the interval, *paused* when it is; *sync now* for anyone
+who can write, *edit* and *remove* for those who manage the bundle. *Add a connection*
+opens a form whose fields come from the server's catalog: a picker of every connector
+installed (one whose sign-in the plumbing cannot do yet is listed but not offered), the
+connector's blurb, a name, then the connector's own fields — secrets as password inputs,
+help as placeholders — and the interval. *Connect* tries the credentials first (the
+server's `check`) and shows what was wrong inline. Editing shows a secret as the marker;
+typing replaces it, leaving it keeps it. Removing asks, naming the folder that goes with
+it. While anything syncs the card polls every three seconds, so the row is what tells you
+it finished. Nothing in the component knows what any connector wants — a plugin installed
+on the server gets its form for free.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

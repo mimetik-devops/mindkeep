@@ -357,6 +357,7 @@ PDF, a feed — is kept as the file it is. Conversion is byte-stable across fetc
 page is folded in again only when it actually changed. `oauth2` is declared in the contract so a plugin can say what it needs,
 but the plumbing does not do the dance yet (redirect route, app credentials, refresh);
 such a kind is listed as unavailable until the first connector that needs it brings it.
+The app manages connections in Settings → Bundle → *Connections* (`Connections.tsx`).
 
 ### Graph and gaps
 
@@ -473,6 +474,7 @@ everything else, mono for paths. The header and the login page are the site's cl
 | `api.ts` | every call to the backend; `setTeam`/`at(bundle)` build the prefixed URLs; `can(team, permission)`; types (`Team`, `Entry`, `Queue`, `Device`, `Lint`…) |
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Re-ingest* (a clean run is skipped by the queue; this is the one way to ask for it), *Edit* on a wiki page or a markdown source |
+| `Connections.tsx` | Settings → Bundle: the bundle's connections — list with state, *sync now*, add (a picker of the server's connectors, the form drawn from each one's `fields`), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
 | `Editor.tsx` | the WYSIWYG editor: Milkdown's Crepe (remark in, remark out — footnotes, tables and fences round-trip), loaded lazily on *Edit*. Frontmatter is kept aside verbatim by `forEditing`; saves carry `If-Match` (sha256 of the text as read) and a 412 keeps the editor open |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
 | `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |

@@ -503,6 +503,58 @@ button:focus-visible {
 .devices li .more {
   margin-left: auto;
 }
+
+/* Connections: one row per connection — who it is, then how its last sync went */
+.connections {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.connections li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+.connections .who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.connections .who b {
+  font-weight: 700;
+}
+.connections .who .more {
+  align-self: center;
+}
+.connections .who .more:first-of-type {
+  margin-left: auto;
+}
+.connections .how {
+  padding-left: 17px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.connections .how.bad {
+  color: var(--red);
+}
+.connection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.connection-form .field input[type="password"] {
+  min-width: 200px;
+  padding: 8px 11px;
+  border: 1.2px solid var(--line);
+  border-radius: 8px;
+  background: var(--cream);
+  font-size: 13px;
+  color: var(--ink);
+}
 .row {
   display: flex;
   gap: 10px;
