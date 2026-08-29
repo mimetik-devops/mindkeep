@@ -1620,6 +1620,15 @@ it. While anything syncs the card polls every three seconds, so the row is what 
 it finished. Nothing in the component knows what any connector wants — a plugin installed
 on the server gets its form for free.
 
+### 4.52 Bundle settings, tidied (2026-08-30)
+
+Ruben: the bundle settings were getting verbose. Rename, move and delete are one card now
+— *This bundle* — three rows instead of three cards. The *Layout* card and its *Reorganise
+the wiki* button are gone: that was a one-time thing, and the nightly lint files misfiled
+pages anyway (the route stays; only the manual trigger goes, and `startReorganise` with
+it). Connections get the right-hand column to themselves — the bundle's own knobs on the
+left, its connections on the right, the columns wrapping under 460px each.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every
