@@ -167,7 +167,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history; the same sweep syncs every connection that is due |
 | `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` built-in |
 | `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; a connection that needs a sign-in references one of the caller's grants |
-| `grants.py` | A person's standing with a provider — a token today, an OAuth sign-in to come — made once, usable by any connection they set up; `unpack` hands a connector its secrets in the clear for one call. User-facing: *Sign-ins* |
+| `grants.py` | A person's standing with a provider — a token today, an OAuth sign-in to come — made once, usable by any connection they set up; `unpack` hands a connector its secrets in the clear for one call. User-facing: a sign-in, under Settings → Account → *Connectors* |
 | `syncing.py` | One sync: pull, diff against `connector_item`, write, commit, queue; mirror semantics; `due()`; `disconnect()` |
 | `vault.py` | Secret fields sealed at rest (Fernet, key from `DEVICE_SECRET`), redacted on the way out, kept when the marker comes back |
 | `devices.py` | Per-machine tokens: create, holder, mine, forget |
@@ -316,7 +316,7 @@ the same for every connector:
   tried by `check_grant` (which names it — an e-mail, a workspace); for an `oauth2` kind,
   the tokens of the provider's sign-in (declared in `oauth`; the dance is not built yet,
   such a kind is listed but not offered). A grant is the person's, not a bundle's: made
-  once in Settings → Account → *Sign-ins*, usable by any connection they set up in any
+  once in Settings → Account → *Connectors*, usable by any connection they set up in any
   team, and passed to `check` and `pull` as a `Grant` with its secrets in the clear for
   that call only. A connection keeps syncing with its maker's grant into a bundle other
   people read — the person put their credential to work for that bundle. Deleting a
@@ -498,7 +498,7 @@ everything else, mono for paths. The header and the login page are the site's cl
 | `api.ts` | every call to the backend; `setTeam`/`at(bundle)` build the prefixed URLs; `can(team, permission)`; types (`Team`, `Entry`, `Queue`, `Device`, `Lint`…) |
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Re-ingest* (a clean run is skipped by the queue; this is the one way to ask for it), *Edit* on a wiki page or a markdown source |
-| `Grants.tsx` | Settings → Account: *Sign-ins* — every connector and what it needs (none, a token, a provider sign-in not yet possible), your sign-ins per connector with how many connections use each, add (the connector's `grant_fields`) and remove |
+| `Grants.tsx` | Settings → Account: *Connectors* — every connector and what it needs (none, a token, a provider sign-in not yet possible), your sign-ins per connector with how many connections use each, add (the connector's `grant_fields`) and remove |
 | `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields`, a `multiline` field as a textarea, a sign-in picked from yours), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
 | `Editor.tsx` | the WYSIWYG editor: Milkdown's Crepe (remark in, remark out — footnotes, tables and fences round-trip), loaded lazily on *Edit*. Frontmatter is kept aside verbatim by `forEditing`; saves carry `If-Match` (sha256 of the text as read) and a 412 keeps the editor open |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |

@@ -1673,7 +1673,8 @@ connector's address is now *Addresses*, and each site's pages land under its hos
 nothing. One connection per purpose, not per target; credentials once per connection now,
 once per grant for providers.
 
-**The UI.** Settings → Account gets *Sign-ins*: every connector with what it needs — *no
+**The UI.** Settings → Account gets *Connectors* (Ruben's name for it; the card first said
+*Sign-ins*): every connector with what it needs — *no
 sign-in needed*, a token (add one: the connector's `grant_fields`, *Sign in* tries it),
 or *signs in through the provider — not yet in Mindkeep* with a disabled button waiting
 for Google — and your sign-ins per connector with how many connections use each; removing
