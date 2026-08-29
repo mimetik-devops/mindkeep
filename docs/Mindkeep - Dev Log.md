@@ -1602,6 +1602,13 @@ something other than HTML is kept as the file it is, named from the address with
 from its type. Against mindkeep.io: one page, 3.9 KB of Markdown, 1.1 s, identical on the
 second fetch. `beautifulsoup4` and `markdownify` join the dependencies (both typed).
 
+After the merge, Ruben: a connection made online synced raw HTML. The `url` built-in was
+still on `main` — #10's deletion was lost to the stacked squash (the file was added and
+deleted within the branches' common history, so the squash carried nothing for it and
+`main` kept #9's copy) — and the catalog offered *A web address* beside *A website*.
+Deleted again, on its own. A `url` connection already made shows as not installed;
+remove it and add the website instead.
+
 ### 4.51 Connections managed in the app (2026-08-30)
 
 Ruben: the management UI — add, remove and edit connections, and list the available
