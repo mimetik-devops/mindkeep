@@ -1764,6 +1764,31 @@ PDF, a new Doc, a file dropped from the list). Not run: a real consent — there
 Google OAuth client yet, and the production variables are Ruben's to set. That first
 real sign-in is the actual test of the dance.
 
+### 4.56 Browse, not type: a folder picker for Drive, and how connectors get screens (2026-08-30)
+
+Ruben: a browse button for the Drive connection — asking people to type a folder path is
+terrible UX. And, before it: can every connector have its own config screen; does the
+plugin provide it? The answer decides how connectors get UI, so it is recorded. Each
+connector already has its own screen in the sense that matters — declared, not coded:
+the plugin describes its form (`fields`, `grant_fields`, rows, choices, secrets) and the
+app draws it. What a plugin cannot do is ship UI code, deliberately: loading plugin
+JavaScript into the app is a security surface (a plugin could read the session) or an
+iframe with all its plumbing, and it would make every plugin author build a frontend. The
+form vocabulary grows instead, and this is the first growth: a `Field` may be `browse`,
+the app shows a *browse* button, and what it offers comes from the connector's
+`browse(field, at, grant)` — one level down from `at`, as `Choice`s (value, label,
+whether it opens onto more) — through `POST …/connectors/{kind}/browse`, with the
+caller's own sign-in, renewed if need be. The app draws a small browser under the cell:
+*top*, *up*, the choices, *Use this folder*. Any connector gets a folder tree, a label
+list, a channel list the same way, with no frontend code.
+
+For Drive: at the top, My Drive's folders and *Shared drives*; inside, subfolders; a pick
+writes the same path a person could have typed — `Clients/Acme`,
+`Shared drives/Marketing/Campaigns` — which is also how paths now reach shared drives
+(`resolve` walks from a shared drive's root when the path starts with `Shared drives/`,
+via the `drives` endpoint). Typing and links still work. Three ambiguous *Acme*s at the
+top are three choices in the browser and a refusal with the count when typed.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

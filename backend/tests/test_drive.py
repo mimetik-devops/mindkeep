@@ -109,8 +109,18 @@ class FakeDrive:
                 "parent": "f-notes",
                 "modifiedTime": "t1",
             },
+            # a shared drive, Marketing, with a folder and a Doc in it
+            "f-mk": {"id": "f-mk", "name": "Campaigns", "mimeType": FOLDER, "parent": "drv-1"},
+            "d9": {
+                "id": "d9",
+                "name": "Launch",
+                "mimeType": DOC,
+                "parent": "f-mk",
+                "modifiedTime": "t1",
+            },
         }
-        self.content = {"d1": b"# Brief\n", "p1": b"%PDF", "s1": b"a,b\n1,2\n"}
+        self.drives = [{"id": "drv-1", "name": "Marketing"}]
+        self.content = {"d1": b"# Brief\n", "p1": b"%PDF", "s1": b"a,b\n1,2\n", "d9": b"# Launch\n"}
         self.downloads: list[str] = []
         self.tokens: list[str] = []
 
@@ -120,6 +130,8 @@ class FakeDrive:
             raise ConnectorError("Invalid Credentials")
         if path == "about":
             return {"user": {"emailAddress": "ada@example.com"}}
+        if path == "drives":
+            return {"drives": self.drives}
         q = (params or {}).get("q", "")
         parent = q.split("'")[1]
         name = q.split("name = '")[1].split("'")[0] if "name = '" in q else None
@@ -320,3 +332,46 @@ def test_state_is_ours_and_expires(client, monkeypatch):
         grants.read_state(old)
     with session() as s:
         assert s.scalars(select(Grant)).all() == []
+
+
+def test_browsing_walks_my_drive_and_the_shared_drives_and_a_pick_is_a_path(
+    client, google, tmp_path
+):
+    calls, drive = google
+    made = signin(client, calls)
+    browse = f"{B}/connectors/drive/browse"
+
+    def look(at: str) -> list[dict]:
+        got = client.post(browse, json={"field": "path", "at": at, "grant": made["id"]})
+        assert got.status_code == 200, got.text
+        return got.json()["choices"]
+
+    # the top: My Drive's folders (three Acmes at the top are still three choices) and
+    # the shared drives; then down, values being paths a person could have typed
+    assert [c["label"] for c in look("")] == ["Acme", "Acme", "Archive", "Clients", "Shared drives"]
+    assert [c["value"] for c in look("Clients")] == ["Clients/Acme"]
+    assert [c["value"] for c in look("Clients/Acme")] == ["Clients/Acme/Notes"]
+    assert [c["value"] for c in look("Shared drives")] == ["Shared drives/Marketing"]
+    assert [c["value"] for c in look("Shared drives/Marketing")] == [
+        "Shared drives/Marketing/Campaigns"
+    ]
+    # the field must be a real one, the sign-in the caller's
+    assert (
+        client.post(browse, json={"field": "path", "at": "Nope", "grant": made["id"]}).status_code
+        == 400
+    )
+    assert client.post(browse, json={"field": "path", "at": "", "grant": None}).status_code == 400
+
+    # a shared-drive path connects like any other
+    home = tmp_path / tenant_id("alice") / "default"
+    folders = {
+        "folders": json.dumps([{"path": "Shared drives/Marketing/Campaigns", "every": "60"}])
+    }
+    made_c = client.post(C, json={"kind": "drive", "config": folders, "grant": made["id"]})
+    assert made_c.status_code == 201, made_c.text
+    assert made_c.json()["name"] == "Campaigns"
+    launch = home / "raw/connectors/drive/Shared drives/Marketing/Campaigns/Launch.md"
+    assert launch.read_bytes() == b"# Launch\n"
+    nope = {"folders": json.dumps([{"path": "Shared drives/Nope", "every": "60"}])}
+    refused = client.put(f"{C}/{made_c.json()['id']}", json={"config": nope})
+    assert refused.status_code == 400 and "no shared drive called Nope" in refused.json()["detail"]

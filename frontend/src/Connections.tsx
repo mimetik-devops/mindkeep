@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   addConnection,
+  browseConnector,
   can,
+  type Choice,
   type Connection,
   type ConnectorField,
   type ConnectorKind,
@@ -89,6 +91,15 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
   const [form, setForm] = useState<Form>(blank(""));
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false); // the picker of connectors
+  // the browser, for one cell of one rows field: where it is, what is there
+  const [browsing, setBrowsing] = useState<{
+    field: string;
+    row: number;
+    col: string;
+    at: string;
+    choices: Choice[];
+    busy: boolean;
+  } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const manages = can(team, "bundles");
@@ -200,18 +211,123 @@ export function Connections({ bundle, team }: { bundle: string; team: Team }) {
 
   const titleOf = (k: string) => kinds.find((x) => x.kind === k)?.title ?? k;
 
+  /** Open the browser on a cell, or move it to `at`: the connector says what is there. */
+  async function look(field: string, row: number, col: string, at: string) {
+    setError("");
+    setBrowsing({ field, row, col, at, choices: [], busy: true });
+    try {
+      const got = await browseConnector(bundle, form.kind, {
+        field: col,
+        at,
+        grant: form.grant || undefined,
+      });
+      setBrowsing({ field, row, col, at: got.at, choices: got.choices, busy: false });
+    } catch (e) {
+      setBrowsing(null);
+      fail(e as Error);
+    }
+  }
+
   const input = (f: ConnectorField) => {
     const value = form.config[f.name] ?? "";
     const change = (v: string) => setForm({ ...form, config: { ...form.config, [f.name]: v } });
     if (f.rows.length) {
       const rows = rowsOf(value, f);
       const set = (next: Row[]) => change(JSON.stringify(next));
+      const setCell = (i: number, name: string, v: string) =>
+        set(rows.map((r, j) => (j === i ? { ...r, [name]: v } : r)));
+      const up = (at: string) => at.split("/").slice(0, -1).join("/");
       return (
         <div className="rows">
           {rows.map((row, i) => (
             <div className="row" key={i}>
               {f.rows.map((col) =>
-                col.options.length ? (
+                col.browse ? (
+                  <span className="browsable" key={col.name}>
+                    <input
+                      aria-label={`${col.label} ${i + 1}`}
+                      title={col.label}
+                      placeholder={col.label + (col.help ? ` — ${col.help}` : "")}
+                      value={row[col.name] ?? ""}
+                      onChange={(e) => setCell(i, col.name, e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="more"
+                      aria-label={`Browse ${i + 1}`}
+                      onClick={() => look(f.name, i, col.name, up(row[col.name] ?? ""))}
+                    >
+                      browse
+                    </button>
+                    {browsing && browsing.field === f.name && browsing.row === i && (
+                      <div className="browser" role="dialog" aria-label={`Browse ${col.label}`}>
+                        <div className="where">
+                          <button
+                            type="button"
+                            className="more"
+                            onClick={() => look(f.name, i, col.name, "")}
+                          >
+                            top
+                          </button>
+                          {browsing.at && (
+                            <>
+                              <span className="soft"> / {browsing.at}</span>
+                              <button
+                                type="button"
+                                className="more"
+                                onClick={() => look(f.name, i, col.name, up(browsing.at))}
+                              >
+                                up
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {browsing.busy ? (
+                          <p className="soft">Looking…</p>
+                        ) : browsing.choices.length === 0 ? (
+                          <p className="soft">Nothing inside.</p>
+                        ) : (
+                          <ul>
+                            {browsing.choices.map((c) => (
+                              <li key={c.value}>
+                                <button
+                                  type="button"
+                                  className="choice"
+                                  onClick={() =>
+                                    c.opens
+                                      ? look(f.name, i, col.name, c.value)
+                                      : (setCell(i, col.name, c.value), setBrowsing(null))
+                                  }
+                                >
+                                  {c.label}
+                                  {c.opens && " ›"}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="where">
+                          {browsing.at && (
+                            <button
+                              type="button"
+                              className="lint"
+                              aria-label={`Use ${browsing.at}`}
+                              onClick={() => {
+                                setCell(i, col.name, browsing.at);
+                                setBrowsing(null);
+                              }}
+                            >
+                              Use this folder
+                            </button>
+                          )}
+                          <button type="button" className="more" onClick={() => setBrowsing(null)}>
+                            close
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </span>
+                ) : col.options.length ? (
                   <select
                     key={col.name}
                     aria-label={`${col.label} ${i + 1}`}

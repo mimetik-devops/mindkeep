@@ -9,6 +9,7 @@ const updated: unknown[] = [];
 const synced: string[] = [];
 let rows: unknown[] = [];
 let grants: unknown[] = [];
+let driveAvailable = false;
 
 const field = (name: string, label: string, extra = {}) => ({
   name,
@@ -19,6 +20,7 @@ const field = (name: string, label: string, extra = {}) => ({
   multiline: false,
   options: [],
   rows: [],
+  browse: false,
   ...extra,
 });
 
@@ -67,15 +69,37 @@ vi.mock("./api", () => ({
       title: "Google Drive",
       blurb: "",
       auth: "oauth2",
-      available: false,
+      available: driveAvailable,
       folder: "raw/connectors/drive",
-      tick: 0,
-      fields: [],
+      tick: 15,
+      fields: [
+        field("folders", "Folders", {
+          rows: [
+            field("path", "Folder", { browse: true }),
+            field("every", "Check for changes", {
+              help: "60",
+              options: [["60", "every hour"]],
+            }),
+          ],
+        }),
+      ],
       grant_fields: [],
     },
   ]),
   listConnections: vi.fn(async () => rows),
   listGrants: vi.fn(async () => grants),
+  browseConnector: vi.fn(async (_b: string, _k: string, body: { at: string }) => ({
+    at: body.at,
+    choices:
+      body.at === ""
+        ? [
+            { value: "Clients", label: "Clients", opens: true },
+            { value: "Shared drives", label: "Shared drives", opens: true },
+          ]
+        : body.at === "Clients"
+          ? [{ value: "Clients/Acme", label: "Acme", opens: true }]
+          : [],
+  })),
   addConnection: vi.fn(async (_b: string, body: unknown) => {
     added.push(body);
     return {};
@@ -276,4 +300,27 @@ test("a viewer sees the list, a revoked sign-in, and none of the buttons", async
   const host = await mount({ ...owner, role: "viewer", permissions: ["read"] });
   expect(host.textContent).toContain("the sign-in this connection used is gone");
   expect(host.querySelectorAll("button")).toHaveLength(0);
+});
+
+test("a browsable cell opens a browser and a pick writes the path", async () => {
+  rows = [];
+  driveAvailable = true;
+  grants = [
+    { id: "g9", kind: "drive", label: "ada@example.com", created_at: "", error: "", uses: 0 },
+  ];
+  const host = await mount();
+  await act(async () => button(host, "Add a connection").click());
+  await act(async () => menuitem(host, "Google Drive").click());
+  expect(control(host, "Sync every")).toBeNull(); // Drive ticks on its own
+  await act(async () => button(host, "browse").click());
+  expect(host.textContent).toContain("Shared drives");
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".choice")][0].click());
+  expect(host.textContent).toContain("/ Clients");
+  await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".choice")][0].click());
+  expect(host.textContent).toContain("Nothing inside");
+  await act(async () =>
+    (host.querySelector('[aria-label="Use Clients/Acme"]') as HTMLButtonElement).click(),
+  );
+  expect((control(host, "Folder 1") as HTMLInputElement).value).toBe("Clients/Acme");
+  expect(host.querySelector(".browser")).toBeNull();
 });

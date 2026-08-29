@@ -47,6 +47,19 @@ class Field:
     multiline: bool = False
     options: tuple[tuple[str, str], ...] = ()  # (value, label)
     rows: tuple["Field", ...] = ()
+    # the app offers a *browse* button: the choices come from the connector's `browse`,
+    # level by level — a folder tree, a list of channels — and the pick is the value
+    browse: bool = False
+
+
+@dataclass(frozen=True)
+class Choice:
+    """One thing to pick while browsing: what to store, what to show, and whether it
+    opens onto more (a folder) or is the end of the road (a channel, a label)."""
+
+    value: str
+    label: str
+    opens: bool = True
 
 
 def rows_of(config: dict[str, str], name: str) -> list[dict[str, Any]]:
@@ -165,6 +178,12 @@ class Connector:
         returned (`access_token` among them). Return what to call it — the e-mail, the
         workspace, the bot's name; raise ConnectorError with a sentence otherwise."""
         return self.title
+
+    def browse(self, field: str, at: str, grant: Grant | None) -> list["Choice"]:
+        """The choices for a browsable field, one level down from `at` ("" is the top):
+        what the app shows when a person presses *browse*. Raise ConnectorError with a
+        sentence when the provider will not say."""
+        return []
 
     def check(self, config: dict[str, str], grant: Grant | None) -> None:
         """Try a connection's scope before it is saved. Raise ConnectorError with a

@@ -83,6 +83,7 @@ def _field(f: Any) -> dict[str, object]:
         "multiline": f.multiline,
         "options": [list(o) for o in f.options],
         "rows": [_field(r) for r in f.rows],
+        "browse": f.browse,
     }
 
 
@@ -155,6 +156,34 @@ def _get(s: Any, home: Path, connection_id: str) -> Connection:
 @router.get("/connectors")
 def list_connectors(_: CurrentUser) -> list[dict[str, object]]:
     return catalog()
+
+
+class BrowseAsk(BaseModel):
+    field: str
+    at: str = ""
+    grant: str | None = None
+
+
+@router.post("/bundles/{name}/connectors/{kind}/browse")
+def browse(
+    home: Bundle, kind: str, user: CurrentUser, _: Manager, ask: BrowseAsk
+) -> dict[str, object]:
+    """What a browsable field offers one level down from `at` — the connector asks the
+    provider with the caller's own sign-in, renewed if need be. A POST, because the
+    sign-in and the place are a body, not an address."""
+    connector = registry().get(kind)
+    if connector is None:
+        raise HTTPException(404, f"no connector of kind {kind}")
+    with session() as s:
+        grant = _grant_for(s, connector, user, ask.grant)
+        try:
+            choices = connector.browse(ask.field, ask.at, grants.fresh(s, grant))
+        except ConnectorError as e:
+            raise HTTPException(400, str(e)) from e
+    return {
+        "at": ask.at,
+        "choices": [{"value": c.value, "label": c.label, "opens": c.opens} for c in choices],
+    }
 
 
 @router.get("/bundles/{name}/connections")

@@ -119,6 +119,7 @@ def test_a_plugin_is_found_through_its_entry_point_and_listed_with_the_built_ins
             "multiline": False,
             "options": [],
             "rows": [],
+            "browse": False,
         }
     ]
 

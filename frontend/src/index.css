@@ -624,6 +624,65 @@ button:focus-visible {
 .connection-form .rows .more {
   align-self: center;
 }
+/* a browsable cell: the input, the browse button, and the browser that opens under it */
+.connection-form .rows .browsable {
+  position: relative;
+  display: flex;
+  flex: 2 1 200px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.connection-form .rows .browsable input {
+  flex: 1 1 120px;
+}
+.connection-form .browser {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: min(420px, 90vw);
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px -12px rgba(25, 20, 16, 0.35);
+}
+.connection-form .browser .where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.connection-form .browser .where + ul,
+.connection-form .browser ul + .where {
+  margin-top: 8px;
+}
+.connection-form .browser ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.connection-form .browser .choice {
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink);
+}
+.connection-form .browser .choice:hover {
+  background: var(--warm);
+}
+.connection-form .browser .lint {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
 .connection-form .field textarea {
   min-width: 200px;
   padding: 8px 11px;

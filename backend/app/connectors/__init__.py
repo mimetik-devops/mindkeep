@@ -18,6 +18,7 @@ from functools import lru_cache
 from importlib.metadata import entry_points
 
 from app.connectors.base import (
+    Choice,
     Connector,
     ConnectorError,
     Field,
@@ -35,6 +36,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "GROUP",
+    "Choice",
     "Connector",
     "ConnectorError",
     "Field",

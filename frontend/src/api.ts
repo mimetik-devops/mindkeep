@@ -384,7 +384,18 @@ export type ConnectorField = {
   options: [string, string][];
   /** a list of rows, each with these sub-fields, sent back as JSON */
   rows: ConnectorField[];
+  /** the app offers a browse button; the choices come from the connector, level by level */
+  browse: boolean;
 };
+/** One thing to pick while browsing: what to store, what to show, whether it opens. */
+export type Choice = { value: string; label: string; opens: boolean };
+/** What a browsable field offers one level down from `at` ("" is the top), asked with
+ * the caller's own sign-in. The `bundles` permission. */
+export const browseConnector = (
+  bundle: string,
+  kind: string,
+  body: { field: string; at: string; grant?: string },
+) => call<{ at: string; choices: Choice[] }>(`${at(bundle)}/connectors/${kind}/browse`, json(body));
 /** A connector the server has: what a person can set up. `auth` says whether it needs a
  * sign-in — `grant_fields` is the form for a token; `available` is false for one whose
  * sign-in the server cannot do yet. `fields` is the scope of one connection. */

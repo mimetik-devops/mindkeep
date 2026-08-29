@@ -330,6 +330,12 @@ the same for every connector:
   keeps its own clock (each site on its own frequency) sets `tick` — minutes — and the
   plumbing lets it look that often, with no interval on the connection; it decides what
   is due, remembers it in its cursor, and returns `complete=False` with only what changed.
+  A field may be `browse`: the app shows a *browse* button, and what it offers comes from
+  the connector's `browse(field, at, grant)` — one level down from `at`, as `Choice`s
+  (value, label, whether it opens onto more) — through `POST …/connectors/{kind}/browse`
+  with the caller's own sign-in. Every connector gets a screen that feels its own — a
+  folder tree, a list of channels — without a line of frontend code: plugins describe,
+  the app draws. Plugin-shipped UI code is deliberately not a thing.
   The connector `name(config)`s the connection — the hosts of a website connection —
   never a person; the name follows the settings.
 - **The provider sign-in (OAuth 2).** A connector declares `OAuth(provider, authorize_url,
@@ -406,8 +412,10 @@ byte-stable across fetches, so a page is folded in again only when it actually c
 `app/connectors/drive.py` is the first provider connector: a Google sign-in
 (`drive.readonly`, nothing more — the grant's name comes from Drive's own `about`), then
 folders as rows, each on its own frequency — named as a person sees them from the top of
-My Drive (`Clients/Acme`; a name matching two folders is refused with the count, never
-guessed) or as the folder's link or id (which reaches a shared drive). Docs, Sheets and
+My Drive (`Clients/Acme`, or `Shared drives/Marketing/…`; a name matching two folders is
+refused with the count, never guessed) or as the folder's link or id — or, the way people
+actually do it, picked with *browse*: My Drive's folders and the shared drives at the top,
+subfolders as you go, *Use this folder* writing the same path. Docs, Sheets and
 Slides are exported as Markdown, CSV and text; other files come as they are up to 20 MB;
 forms, shortcuts and sites are skipped, and so is a file that fails to download (tried
 next time). The cursor holds each file's `modifiedTime` per folder, so a tick fetches
@@ -511,6 +519,7 @@ Under `/teams/{team}`, membership required:
 | GET/POST | `/bundles/{b}/connections` | read / bundles | list · set one up (credentials tried first; first sync started) |
 | PUT/DELETE | `/bundles/{b}/connections/{id}` | bundles | settings, secrets, interval, enabled · remove it and everything it wrote |
 | POST | `/bundles/{b}/connections/{id}/sync` | write | sync now (202; 409 while one runs) |
+| POST | `/bundles/{b}/connectors/{kind}/browse` | bundles | what a browsable field offers one level down from `at`, with the caller's sign-in |
 | GET/POST | `/grants` | signed in | your sign-ins, with how many connections use each · add one (a token, tried first; the connector names it) |
 | GET | `/grants/oauth/{kind}/start` | signed in | the provider's consent-page URL (PKCE, signed state) |
 | GET | `/grants/oauth/{kind}/callback` | the state | where the provider sends the browser; trades the code, keeps the grant, redirects to the app |
@@ -540,7 +549,7 @@ everything else, mono for paths. The header and the login page are the site's cl
 | `App.tsx` | header (wordmark, team & bundle pickers, tabs, account menu) and the pages |
 | `Library.tsx` + `FileTree.tsx` + `dropped.ts` | the tree, drag-and-drop upload, folders, the page view with provenance and trust, verify, delete, *Re-ingest* (a clean run is skipped by the queue; this is the one way to ask for it), *Edit* on a wiki page or a markdown source |
 | `Grants.tsx` | Settings → Account: *Connectors* — every connector and what it needs (none, a token, a provider sign-in not yet possible), your sign-ins per connector with how many connections use each, add (the connector's `grant_fields`) and remove |
-| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields` — no name: the connector names it — a `rows` field as a small table with *add another*, a `multiline` field as a textarea, no interval when the connector ticks, a sign-in picked from yours; a connector already connected is not offered again), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
+| `Connections.tsx` | Settings → Bundle, the right-hand column: the bundle's connections — list with state, *sync now*, add (*Add a connection ▾*, a menu of the server's connectors with what they do or why they cannot be picked — a sign-in missing, or one Mindkeep cannot do yet; then the form drawn from the connector's `fields` — no name: the connector names it — a `rows` field as a small table with *add another*, a `browse` cell with a browser under it (top / up / choices / *Use this folder*), a `multiline` field as a textarea, no interval when the connector ticks, a sign-in picked from yours; a connector already connected is not offered again), edit (secrets as the marker, interval, paused), remove. Nothing here knows what a connector wants |
 | `Editor.tsx` | the WYSIWYG editor: Milkdown's Crepe (remark in, remark out — footnotes, tables and fences round-trip), loaded lazily on *Edit*. Frontmatter is kept aside verbatim by `forEditing`; saves carry `If-Match` (sha256 of the text as read) and a 412 keeps the editor open |
 | `Graph.tsx` | the force-laid-out link graph, areas coloured, *Show gaps* mode |
 | `Todo.tsx` | two panels: Questions (one at a time, with the assistant chat) and Tasks (a checklist) |

@@ -26,7 +26,17 @@ from typing import Any
 
 import httpx
 
-from app.connectors.base import Connector, ConnectorError, Field, Grant, Item, OAuth, Pull, rows_of
+from app.connectors.base import (
+    Choice,
+    Connector,
+    ConnectorError,
+    Field,
+    Grant,
+    Item,
+    OAuth,
+    Pull,
+    rows_of,
+)
 
 API = "https://www.googleapis.com/drive/v3"
 TIMEOUT = 60
@@ -48,6 +58,7 @@ EXPORT = {
     "application/vnd.google-apps.presentation": ("text/plain", ".txt"),
 }
 FOLDER_LINK = re.compile(r"drive\.google\.com/.*folders/([A-Za-z0-9_-]+)")
+SHARED = "Shared drives"  # the top of every shared drive, as Drive itself shows it
 
 
 def call(token: str, path: str, params: dict[str, str] | None = None) -> dict[str, Any]:
@@ -107,32 +118,77 @@ def listing(token: str, query: str) -> list[dict[str, Any]]:
         params = {**params, "pageToken": str(token_next)}
 
 
+def shared_drives(token: str) -> list[dict[str, Any]]:
+    """The shared drives the person can see: id and name."""
+    found: list[dict[str, Any]] = []
+    params = {"pageSize": "100", "fields": "nextPageToken,drives(id,name)"}
+    while True:
+        page = call(token, "drives", params)
+        found.extend(page.get("drives", []))
+        if not page.get("nextPageToken"):
+            return found
+        params = {**params, "pageToken": str(page["nextPageToken"])}
+
+
 def resolve(token: str, given: str) -> tuple[str, str]:
     """A folder as a person names it, to its id and its clean name: a link or a bare id
-    is taken as it is; a path is walked from the top of My Drive, one segment at a time,
-    refusing a segment that matches more than one folder."""
+    is taken as it is; a path is walked one segment at a time — from the top of My
+    Drive, or from a shared drive when it starts with `Shared drives/<drive>` — refusing
+    a segment that matches more than one folder."""
     given = given.strip().strip("/")
     if m := FOLDER_LINK.search(given):
         return m.group(1), given
     if re.fullmatch(r"[A-Za-z0-9_-]{20,}", given):
         return given, given
+    segments = [s.strip() for s in given.split("/") if s.strip()]
     parent = "root"
     walked: list[str] = []
-    for segment in [s for s in given.split("/") if s.strip()]:
-        name = segment.strip().replace("'", "\\'")
+    if segments and segments[0] == SHARED:
+        if len(segments) < 2:
+            raise ConnectorError("a shared drive: Shared drives/<its name>")
+        drives = [d for d in shared_drives(token) if d["name"] == segments[1]]
+        if not drives:
+            raise ConnectorError(f"no shared drive called {segments[1]}")
+        parent, walked, segments = str(drives[0]["id"]), segments[:2], segments[2:]
+    for segment in segments:
+        name = segment.replace("'", "\\'")
         query = f"'{parent}' in parents and mimeType = '{FOLDER}' and name = '{name}'"
         hits = listing(token, f"{query} and trashed = false")
+        where = "/".join(walked) or "My Drive"
         if not hits:
-            raise ConnectorError(f"no folder called {segment} in {'/'.join(walked) or 'My Drive'}")
+            raise ConnectorError(f"no folder called {segment} in {where}")
         if len(hits) > 1:
             raise ConnectorError(
-                f"{len(hits)} folders called {segment} in {'/'.join(walked) or 'My Drive'} — "
-                "give the folder's link instead"
+                f"{len(hits)} folders called {segment} in {where} — give the folder's link instead"
             )
-        parent, walked = str(hits[0]["id"]), [*walked, segment.strip()]
+        parent, walked = str(hits[0]["id"]), [*walked, segment]
     if parent == "root":
         raise ConnectorError("a folder, not all of My Drive")
     return parent, "/".join(walked)
+
+
+def browse(token: str, at: str) -> list[Choice]:
+    """What is under `at`: at the top, My Drive's folders and the shared drives; inside
+    a folder, its folders. Values are paths, the same a person could have typed."""
+    at = at.strip().strip("/")
+    if not at:
+        tops = listing(token, f"'root' in parents and mimeType = '{FOLDER}' and trashed = false")
+        found = [Choice(value=f["name"], label=f["name"]) for f in sorted(tops, key=_name)]
+        return [*found, Choice(value=SHARED, label=SHARED)]
+    if at == SHARED:
+        return [
+            Choice(value=f"{SHARED}/{d['name']}", label=d["name"])
+            for d in sorted(shared_drives(token), key=_name)
+        ]
+    folder_id, _ = resolve(token, at)
+    inside = listing(
+        token, f"'{folder_id}' in parents and mimeType = '{FOLDER}' and trashed = false"
+    )
+    return [Choice(value=f"{at}/{f['name']}", label=f["name"]) for f in sorted(inside, key=_name)]
+
+
+def _name(f: dict[str, Any]) -> str:
+    return str(f.get("name", "")).lower()
 
 
 def walk(token: str, folder_id: str) -> list[tuple[str, dict[str, Any]]]:
@@ -179,11 +235,22 @@ class DriveConnector(Connector):
             "folders",
             "Folders",
             rows=(
-                Field("path", "Folder", help="Clients/Acme from the top of My Drive, or its link"),
+                Field(
+                    "path",
+                    "Folder",
+                    browse=True,
+                    help="Browse, or type: Clients/Acme from the top of My Drive, "
+                    "Shared drives/Marketing/…, or the folder's link",
+                ),
                 Field("every", "Check for changes", options=EVERY, help=EVERY_DEFAULT),
             ),
         ),
     )
+
+    def browse(self, field: str, at: str, grant: Grant | None) -> list[Choice]:
+        if grant is None:
+            raise ConnectorError("a Google sign-in")
+        return browse(grant.token, at)
 
     def _folders(self, config: dict[str, str]) -> list[dict[str, Any]]:
         folders: list[dict[str, Any]] = []
