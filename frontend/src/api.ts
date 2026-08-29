@@ -415,6 +415,9 @@ export const listGrants = () => call<Grant[]>("/grants");
 /** Tried first; the connector names it. A 400 says what was wrong. */
 export const addGrant = (kind: string, secrets: Record<string, string>) =>
   call<Grant>("/grants", json({ kind, secrets }));
+/** The provider's consent page, for the browser to go to; it comes back to the app with
+ * `?connected=<kind>` or `?connect_error=…` in the address. */
+export const startOAuth = (kind: string) => call<{ url: string }>(`/grants/oauth/${kind}/start`);
 /** Connections that used it keep their rows and say so at their next sync. */
 export const removeGrant = (id: string) =>
   call<{ deleted: string; orphaned: number }>(`/grants/${id}`, { method: "DELETE" });

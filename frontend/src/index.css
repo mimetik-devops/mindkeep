@@ -565,6 +565,9 @@ button:focus-visible {
 .connections .how .more {
   margin-left: 6px;
 }
+.card .notice {
+  color: var(--clay-deep);
+}
 /* the connector picker: a title and, under it, what it does or why it cannot be picked */
 .pickermenu.wide {
   min-width: 320px;

@@ -22,6 +22,24 @@ import { Profile } from "./Profile";
 import { Settings } from "./Settings";
 import { Todo } from "./Todo";
 
+/** What a provider's sign-in left in the address, if anything — read once, then cleared,
+ * so a reload does not say it again. */
+function landed(): { notice: string } | null {
+  const params = new URLSearchParams(window.location.search);
+  const connected = params.get("connected");
+  const failed = params.get("connect_error");
+  if (!connected && !failed) return null;
+  params.delete("connected");
+  params.delete("connect_error");
+  const rest = params.toString();
+  window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
+  return {
+    notice: failed
+      ? `The sign-in did not go through: ${failed}`
+      : "Signed in — the connection can use it now.",
+  };
+}
+
 const TABS = ["Library", "Graph", "Todo", "Activity"] as const;
 // Settings is a page but not a tab — the account menu is its only entry point.
 type Tab = (typeof TABS)[number] | "Settings";
@@ -38,6 +56,9 @@ export function App({ user }: { user: User }) {
   const [bundles, setBundles] = useState<string[]>([]);
   const [bundle, setBundle] = useState("default");
   const [tab, setTab] = useState<Tab>("Library");
+  // a provider's sign-in brings the browser back to /?connected=<kind> or
+  // /?connect_error=…: land on Settings → Account, and say what happened
+  const [landing] = useState(landed);
   // from the address, or kept across a sign-in that started from an invite link
   const [invite, setInvite] = useState(pending);
   const [asked, setAsked] = useState(pendingConnect);
@@ -56,6 +77,7 @@ export function App({ user }: { user: User }) {
       .then((all) => {
         setTeams(all);
         if (all.length && !invite) choose(all[0]); // personal first, so a first visit lands home
+        if (landing) setTab("Settings");
       })
       .catch((e) => setError(String(e)));
   }, []);
@@ -183,6 +205,8 @@ export function App({ user }: { user: User }) {
               bundle={bundle}
               team={team}
               teams={teams}
+              initialSection={landing ? "Account" : "Bundle"}
+              notice={landing?.notice ?? ""}
               onTeamChanged={reloadTeams}
               onBundleMoved={(id, moved) => {
                 const next = teams.find((t) => t.id === id);
