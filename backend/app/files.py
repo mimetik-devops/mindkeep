@@ -16,7 +16,6 @@ from app import assist, gaps, graph, history, index, runs, schedule, teams, todo
 from app.auth import CurrentIdentity, CurrentProfile, CurrentUser
 from app.db import LINT_OFF, IngestRun
 from app.ingest import (
-    LINT,
     MAINTENANCE,
     REORGANISE,
     agent_owns,
@@ -849,15 +848,25 @@ def asked(home: Bundle, job: str) -> dict[str, object]:
     return state
 
 
-@router.get("/bundles/{name}/lint")
-def lint_state(home: Bundle) -> dict[str, str | int | bool]:
-    """Whether a lint is running, and how the last one went."""
-    run = runs.last_lint(home)
-    nxt = schedule.next_run(home)  # empty when the nightly pass is switched off
-    hour = schedule.hour_for(home)
+def overnight(kind: str) -> str:
+    """The run-table source of one overnight pass, or a 404 for a kind that is not one."""
+    if kind not in schedule.PASSES:
+        raise HTTPException(404, "not found")
+    return schedule.PASSES[kind][0]
+
+
+@router.get("/bundles/{name}/passes/{kind}")
+def pass_state(home: Bundle, kind: str) -> dict[str, str | int | bool]:
+    """Whether one overnight pass — lint or dream — is running, and how the last went."""
+    source = overnight(kind)
+    run = runs.last_pass(home, source)
+    nxt = schedule.next_run(home, kind)  # empty when the pass is switched off
+    hour = schedule.hour_for(home, kind)
+    count, unit = schedule.every_for(home, kind)
+    every = f"{count}{unit}"
     if run is None:
         return {
-            "linting": False,
+            "running": False,
             "seconds": 0,
             "at": "",
             "error": "",
@@ -865,22 +874,24 @@ def lint_state(home: Bundle) -> dict[str, str | int | bool]:
             "turns": 0,
             "next": nxt,
             "hour": hour,
+            "every": every,
         }
     if run.finished_at is None:
         return {
-            "linting": True,
+            "running": True,
             "seconds": int((datetime.now(UTC) - runs.utc(run.started_at)).total_seconds()),
             "at": "",
             "error": "",
-            # a lint reads for minutes before it writes anything, so the live card needs
+            # a pass reads for minutes before it writes anything, so the live card needs
             # something more specific than a spinner
             "note": run.note,
             "turns": run.turns or 0,
             "next": nxt,
             "hour": hour,
+            "every": every,
         }
     return {
-        "linting": False,
+        "running": False,
         "seconds": run.seconds or 0,
         "at": runs.utc(run.finished_at).strftime("%Y-%m-%d"),
         "error": run.error,
@@ -888,27 +899,44 @@ def lint_state(home: Bundle) -> dict[str, str | int | bool]:
         "turns": run.turns or 0,
         "next": nxt,
         "hour": hour,
+        "every": every,
     }
 
 
-@router.put("/bundles/{name}/lint")
-def set_lint_schedule(
-    home: Bundle, hour: Annotated[int, Body(embed=True)], _: Manager
-) -> dict[str, int]:
-    """Choose the hour (UTC) this bundle is linted, or -1 to stop linting it nightly."""
+@router.put("/bundles/{name}/passes/{kind}")
+def set_pass_schedule(
+    home: Bundle,
+    kind: str,
+    hour: Annotated[int, Body(embed=True)],
+    _: Manager,
+    every: Annotated[str, Body(embed=True)] = "",
+) -> dict[str, int | str]:
+    """Choose when one overnight pass runs: the hour (UTC, -1 for never) and how often —
+    "6h", "2d" or "1w". An empty cadence leaves that side as it was."""
+    overnight(kind)
     if hour != LINT_OFF and not 0 <= hour <= 23:
-        raise HTTPException(400, "hour is 0-23, or -1 to switch the nightly lint off")
-    runs.set_lint_hour(home, hour)
-    return {"hour": hour}
+        raise HTTPException(400, "hour is 0-23, or -1 to switch this pass off")
+    if every:
+        caps = {"h": 23, "d": 90, "w": 52}
+        n, unit = every[:-1], every[-1:]
+        if not (n.isascii() and n.isdigit()) or not 1 <= int(n) <= caps.get(unit, 0):
+            raise HTTPException(
+                400, "the cadence is 1-23 hours, 1-90 days or 1-52 weeks — like 6h, 2d or 1w"
+            )
+        runs.set_pass_every(home, kind, every)
+    runs.set_pass_hour(home, kind, hour)
+    count, unit = schedule.every_for(home, kind)
+    return {"hour": hour, "every": f"{count}{unit}"}
 
 
-@router.post("/bundles/{name}/lint")
-def lint(home: Bundle, _: Writer) -> dict[str, str]:
-    """Run a maintenance pass now. The nightly one does exactly this, on a timer."""
-    if LINT in runs.running_sources(home):
-        raise HTTPException(409, "a lint is already running")
-    enqueue(home, LINT)
-    return {"linting": home.name}
+@router.post("/bundles/{name}/passes/{kind}")
+def run_pass(home: Bundle, kind: str, _: Writer) -> dict[str, str]:
+    """Run one overnight pass now. The nightly one does exactly this, on a timer."""
+    source = overnight(kind)
+    if source in runs.running_sources(home):
+        raise HTTPException(409, f"a {kind} is already running")
+    enqueue(home, source)
+    return {"running": home.name}
 
 
 @router.get("/bundles/{name}/queue")

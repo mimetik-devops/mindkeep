@@ -75,7 +75,7 @@ def pairs(U: nx.Graph[str], areas: list[set[str]]) -> list[Pair]:
 
 
 def find(home: Path) -> list[Gap]:
-    """The lint's list: the thinnest pairs, each side named by its hub pages."""
+    """The dream's list: the thinnest pairs, each side named by its hub pages."""
     # undirected: a link either way says the two areas know about each other
     G = graph.build(home).to_undirected()
     if G.number_of_edges() == 0:
@@ -101,7 +101,7 @@ def find(home: Path) -> list[Gap]:
 
 
 def describe(gaps: list[Gap]) -> str:
-    """The gaps as the lint is told them: each side by its hub pages and their index lines."""
+    """The gaps as the dream is told them: each side by its hub pages and their index lines."""
 
     def side(pages: list[Page]) -> str:
         return "\n".join(f"  - `{p.path}` — {p.title}: {p.description}".rstrip(": ") for p in pages)

@@ -287,7 +287,7 @@ def test_a_viewer_reads_and_a_contributor_writes(client):
     assert refused.status_code == 403 and "viewers read" in refused.json()["detail"]
     assert client.put(f"{B}/files/todo.md", content=b"- [ ] q", headers=viewer).status_code == 403
     assert client.post(f"{B}/folders/papers", headers=viewer).status_code == 403
-    assert client.post(f"{B}/lint", headers=viewer).status_code == 403
+    assert client.post(f"{B}/passes/lint", headers=viewer).status_code == 403
     # a contributor writes, but does not shelve
     assert client.post(f"{B}/raw/note.md", content=b"x", headers=contributor).status_code == 200
     assert (
@@ -296,7 +296,7 @@ def test_a_viewer_reads_and_a_contributor_writes(client):
         ).status_code
         == 403
     )
-    assert client.put(f"{B}/lint", json={"hour": 4}, headers=contributor).status_code == 403
+    assert client.put(f"{B}/passes/lint", json={"hour": 4}, headers=contributor).status_code == 403
     # everyone reads the history; only an admin undoes
     assert client.get(f"{B}/activity", headers=viewer).status_code == 200
     assert client.post(f"{B}/runs/1/undo", headers=contributor).status_code == 403
@@ -305,7 +305,7 @@ def test_a_viewer_reads_and_a_contributor_writes(client):
         client.post(f"/teams/{team}/bundles", json={"name": "more"}, headers=admin).status_code
         == 201
     )
-    assert client.put(f"{B}/lint", json={"hour": 4}, headers=admin).status_code == 200
+    assert client.put(f"{B}/passes/lint", json={"hour": 4}, headers=admin).status_code == 200
 
 
 def test_an_expired_invite_is_not_open(client, monkeypatch):

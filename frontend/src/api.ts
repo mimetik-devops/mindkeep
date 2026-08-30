@@ -198,18 +198,23 @@ export const removeRaw = (bundle: string, path: string) =>
   call<{ deleted: string }>(`${at(bundle)}/raw/${segments(path)}`, { method: "DELETE" });
 
 /** `at` is the day the last lint finished, empty if the bundle has never been linted. */
-export type Lint = {
-  linting: boolean;
+/** One overnight pass — the lint (janitorial) or the dream (the wiki read against
+ * itself) — as `GET …/passes/{kind}` reports it. */
+export type Pass = {
+  running: boolean;
   seconds: number;
   at: string;
   error: string;
   note: string;
   turns: number;
-  /** ISO-8601 UTC of the next automatic lint. Empty when the nightly pass is off. */
+  /** ISO-8601 UTC of the next automatic run. Empty when the pass is off. */
   next: string;
-  /** The hour (UTC) this bundle lints at, or LINT_OFF. */
+  /** The hour (UTC) this bundle runs it at, or LINT_OFF. */
   hour: number;
+  /** How often it runs: "6h", "2d" or "1w". */
+  every: string;
 };
+export type PassKind = "lint" | "dream";
 
 export type Queue = {
   /** The worker is waiting to retry a source after the service failed — no credit, an outage. */
@@ -230,19 +235,19 @@ export const retryIngest = (bundle: string, path = "") =>
 /** The hour value that means "never lint this bundle on a schedule". */
 export const LINT_OFF = -1;
 
-/** Choose the hour (UTC) for this bundle's nightly lint, or LINT_OFF to stop it. */
-export const setLintHour = (bundle: string, hour: number) =>
-  call<{ hour: number }>(`${at(bundle)}/lint`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hour }),
-  });
-
-export const lintState = (bundle: string) => call<Lint>(`${at(bundle)}/lint`);
-
-/** Run the maintenance pass now. The nightly one does exactly this, on a timer. */
-export const startLint = (bundle: string) =>
-  call<{ linting: string }>(`${at(bundle)}/lint`, { method: "POST" });
+/** Choose when one pass runs: its hour (UTC, LINT_OFF for never) and how often —
+ * "6h", "2d" or "1w". */
+export const setPassSchedule = (bundle: string, kind: PassKind, hour: number, every: string) =>
+  call<{ hour: number; every: string }>(
+    `${at(bundle)}/passes/${kind}`,
+    json({ hour, every }, "PUT"),
+  );
+/** `at` is the day the last run finished, empty if this pass has never run. */
+export const passState = (bundle: string, kind: PassKind) =>
+  call<Pass>(`${at(bundle)}/passes/${kind}`);
+/** Run one pass now; 409 while one of its kind is running. */
+export const startPass = (bundle: string, kind: PassKind) =>
+  call<{ running: string }>(`${at(bundle)}/passes/${kind}`, { method: "POST" });
 
 const post = <T>(path: string, body: unknown) =>
   call<T>(path, {

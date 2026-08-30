@@ -252,10 +252,9 @@ def running_sources(home: Path) -> set[str]:
         )
 
 
-def last_lint(home: Path) -> IngestRun | None:
-    """The most recent lint of this bundle, or None. Drives the once-a-day check."""
-    from app.ingest import LINT
-
+def last_pass(home: Path, source: str) -> IngestRun | None:
+    """The most recent run of one overnight pass — `(lint)` or `(dream)` — or None.
+    Drives each pass's own once-a-day check."""
     tenant, bundle = _where(home)
     with session() as s:
         return s.scalars(
@@ -263,7 +262,7 @@ def last_lint(home: Path) -> IngestRun | None:
             .where(
                 IngestRun.tenant == tenant,
                 IngestRun.bundle == bundle,
-                IngestRun.source == LINT,
+                IngestRun.source == source,
             )
             .order_by(IngestRun.started_at.desc())
             .limit(1)
@@ -293,19 +292,24 @@ def sweep_interrupted() -> list[tuple[str, str, str]]:
         return found
 
 
-def lint_hour(home: Path) -> int | None:
-    """The hour this bundle has chosen, or None to follow the server's LINT_HOUR."""
+# which BundleSetting columns hold each pass's hour and cadence
+_HOURS = {"lint": BundleSetting.lint_hour, "dream": BundleSetting.dream_hour}
+_EVERY = {"lint": BundleSetting.lint_every, "dream": BundleSetting.dream_every}
+
+
+def pass_hour(home: Path, kind: str) -> int | None:
+    """The hour this bundle has chosen for one pass, or None to follow the server."""
     tenant, bundle = _where(home)
     with session() as s:
         return s.scalars(
-            select(BundleSetting.lint_hour).where(
+            select(_HOURS[kind]).where(
                 BundleSetting.tenant == tenant, BundleSetting.bundle == bundle
             )
         ).first()
 
 
-def set_lint_hour(home: Path, hour: int) -> None:
-    """Choose when this bundle is linted. `LINT_OFF` switches the nightly pass off."""
+def set_pass_hour(home: Path, kind: str, hour: int) -> None:
+    """Choose when one pass runs on this bundle. `LINT_OFF` switches it off."""
     tenant, bundle = _where(home)
     with session() as s:
         row = s.scalars(
@@ -314,9 +318,37 @@ def set_lint_hour(home: Path, hour: int) -> None:
             )
         ).first()
         if row is None:
-            s.add(BundleSetting(tenant=tenant, bundle=bundle, lint_hour=hour))
-        else:
-            row.lint_hour = hour
+            row = BundleSetting(tenant=tenant, bundle=bundle)
+            s.add(row)
+        setattr(row, _HOURS[kind].key, hour)
+        s.commit()
+
+
+def pass_every(home: Path, kind: str) -> str | None:
+    """The cadence this bundle has chosen for one pass — "6h", "2d", "1w" — or None to
+    follow the default of once a day."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        return s.scalars(
+            select(_EVERY[kind]).where(
+                BundleSetting.tenant == tenant, BundleSetting.bundle == bundle
+            )
+        ).first()
+
+
+def set_pass_every(home: Path, kind: str, every: str) -> None:
+    """Choose how often one pass runs on this bundle."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        row = s.scalars(
+            select(BundleSetting).where(
+                BundleSetting.tenant == tenant, BundleSetting.bundle == bundle
+            )
+        ).first()
+        if row is None:
+            row = BundleSetting(tenant=tenant, bundle=bundle)
+            s.add(row)
+        setattr(row, _EVERY[kind].key, every)
         s.commit()
 
 

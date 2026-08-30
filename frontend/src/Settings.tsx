@@ -9,9 +9,10 @@ import {
   removeDevice,
   LINT_OFF,
   moveBundle,
+  type PassKind,
   renameBundle,
-  setLintHour,
-  startLint,
+  setPassSchedule,
+  startPass,
   type Team,
 } from "./api";
 import { Connections } from "./Connections";
@@ -20,7 +21,7 @@ import { Members } from "./Members";
 import { TeamSettings } from "./TeamSettings";
 import { confirm } from "./dialog";
 import { Copy } from "./icons";
-import { took, useLint, when } from "./useSources";
+import { took, usePass, when } from "./useSources";
 
 /**
  * The 24 UTC hours, labelled in the reader's own time and ordered by it.
@@ -44,6 +45,13 @@ function localHours() {
 }
 
 const HOURS = localHours();
+
+/** The cadence units a pass can run on, and how many of each the select offers. */
+const UNITS = [
+  { unit: "h", label: "hours", max: 23 },
+  { unit: "d", label: "days", max: 30 },
+  { unit: "w", label: "weeks", max: 12 },
+];
 
 // One page, three concerns: the bundle you are looking at, the team it belongs to, you.
 const SECTIONS = ["Bundle", "Team", "Account"] as const;
@@ -77,7 +85,8 @@ export function Settings({
   /** The bundle is gone: the app drops it and opens another. */
   onBundleDeleted: (name: string) => void;
 }) {
-  const { lint, refresh } = useLint(bundle);
+  const lintPass = usePass(bundle, "lint");
+  const dreamPass = usePass(bundle, "dream");
   const [section, setSection] = useState<Section>(initialSection);
   const [error, setError] = useState("");
   const [destination, setDestination] = useState("");
@@ -129,7 +138,102 @@ export function Settings({
 
   const act = (work: Promise<unknown>) => {
     setError("");
-    work.catch((e: Error) => setError(e.message)).finally(refresh);
+    work
+      .catch((e: Error) => setError(e.message))
+      .finally(() => {
+        lintPass.refresh();
+        dreamPass.refresh();
+      });
+  };
+
+  /** One overnight pass in the card: its blurb, its schedule, its button, its last run. */
+  const passBlock = (
+    kind: PassKind,
+    label: string,
+    blurb: string,
+    p: ReturnType<typeof usePass>["state"],
+  ) => {
+    const hour = p?.hour ?? LINT_OFF;
+    const every = p?.every || "1d";
+    const count = parseInt(every, 10) || 1;
+    const unit = every.slice(-1);
+    const max = UNITS.find((u) => u.unit === unit)?.max ?? 30;
+    return (
+      <>
+        <p>
+          <b>{label}.</b> {blurb}
+        </p>
+        <label className="field">
+          <span>Run automatically at</span>
+          <select
+            value={hour}
+            disabled={!p}
+            onChange={(e) => act(setPassSchedule(bundle, kind, Number(e.target.value), every))}
+          >
+            <option value={LINT_OFF}>Never</option>
+            {HOURS.map((h) => (
+              <option key={h.utcHour} value={h.utcHour}>
+                {h.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="field">
+          <span>every</span>
+          <select
+            aria-label={`${label} cadence count`}
+            value={count}
+            disabled={!p || hour === LINT_OFF}
+            onChange={(e) => act(setPassSchedule(bundle, kind, hour, `${e.target.value}${unit}`))}
+          >
+            {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={`${label} cadence unit`}
+            value={unit}
+            disabled={!p || hour === LINT_OFF}
+            onChange={(e) => {
+              const to = UNITS.find((u) => u.unit === e.target.value) ?? UNITS[1];
+              act(setPassSchedule(bundle, kind, hour, `${Math.min(count, to.max)}${to.unit}`));
+            }}
+          >
+            {UNITS.map((u) => (
+              <option key={u.unit} value={u.unit}>
+                {count === 1 ? u.label.slice(0, -1) : u.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <span>
+            {p?.running
+              ? "Running now — watch it in the Console."
+              : p?.next
+                ? `Next ${when(p.next)}`
+                : "Nothing scheduled."}
+          </span>
+          <button
+            className="lint"
+            disabled={!p || p.running}
+            onClick={() => act(startPass(bundle, kind))}
+          >
+            {p?.running ? "Running…" : `${label} now`}
+          </button>
+        </div>
+        {p && !p.running && (
+          <p className="soft">
+            {p.at
+              ? `Last run ${p.at}, took ${took(p.seconds)}.`
+              : `Never ${kind === "lint" ? "linted" : "dreamt"}.`}
+            {p.error && ` It ended badly: ${p.error}`}
+          </p>
+        )}
+      </>
+    );
   };
 
   return (
@@ -171,53 +275,21 @@ export function Settings({
         <div className="columns">
           <div className="column">
             <section className="card">
-              <h2>Nightly lint</h2>
-              <p>
-                The agent re-reads the wiki, reports what has drifted — contradictions, stale
-                drafts, entities with no page — deletes pages whose source you removed, and files
-                every page where its type says it goes.
-              </p>
-
-              <label className="field">
-                <span>Run automatically at</span>
-                <select
-                  value={lint?.hour ?? LINT_OFF}
-                  disabled={!lint}
-                  onChange={(e) => act(setLintHour(bundle, Number(e.target.value)))}
-                >
-                  <option value={LINT_OFF}>Never</option>
-                  {HOURS.map((h) => (
-                    <option key={h.utcHour} value={h.utcHour}>
-                      {h.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="field">
-                <span>
-                  {lint?.linting
-                    ? "Running now — watch it in the Console."
-                    : lint?.next
-                      ? `Next ${when(lint.next)}`
-                      : "Nothing scheduled."}
-                </span>
-                <button
-                  className="lint"
-                  disabled={!lint || lint.linting}
-                  onClick={() => act(startLint(bundle))}
-                >
-                  {lint?.linting ? "Linting…" : "Lint now"}
-                </button>
-              </div>
-
-              {lint && !lint.linting && (
-                <p className="soft">
-                  {lint.at
-                    ? `Last run ${lint.at}, took ${took(lint.seconds)}.`
-                    : "This bundle has never been linted."}
-                  {lint.error && ` It ended badly: ${lint.error}`}
-                </p>
+              <h2>Overnight</h2>
+              {passBlock(
+                "lint",
+                "Lint",
+                "The janitorial pass: broken source links fixed, drift reported — orphans, " +
+                  "stale drafts, uncited sources — and misfiled pages reorganised.",
+                lintPass.state,
+              )}
+              {passBlock(
+                "dream",
+                "Dream",
+                "The wiki read against itself: contradictions, entities with no page, and the " +
+                  "questions that would connect areas that barely touch. It changes nothing — " +
+                  "a dream produces questions, not memories.",
+                dreamPass.state,
               )}
             </section>
 

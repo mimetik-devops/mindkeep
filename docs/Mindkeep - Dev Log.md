@@ -1824,6 +1824,52 @@ a fake `llm`. Not run: a real completion — there is no `OPENROUTER_API_KEY` he
 first real ingest through OpenRouter is the actual test; a *Re-ingest* of a small source
 is the smoke.
 
+### 4.58 The night splits in two: lint, and dreaming (2026-08-31)
+
+Ruben, after asking what the linting pass actually does: would the reflective half
+qualify as dreaming rather than linting? It would — the pass was two activities wearing
+one name, and now they are separate passes. **Lint** keeps the janitorial half: the
+mechanical drift report (orphans, dead links, uncited sources, stale drafts, misfiled
+pages, future dates), the one thing it fixes (broken source links, helped by the
+server's move list), and the reorganise it queues for misfiled pages. **Dream** is the
+consolidation half, named for what it is: the wiki read against itself — contradictions
+and superseded claims, entities that keep appearing with no page, unsourced claims, and
+the gap questions from the server's link-graph measurement, which move from the lint to
+the dream. The discipline that keeps it a knowledge base rather than a diary stays
+stated in the manual: a dream changes no page and no source — *it produces questions,
+not memories* — so the wiki remains derivable from `raw/`, and what a dream surfaces
+becomes real only when a person answers or a source arrives.
+
+Mechanically: a new run kind `(dream)` beside `(lint)` (both `MAINTENANCE`, both in
+Activity, both undoable); each pass has its own clock — `bundle_setting.dream_hour`
+next to a now-nullable `lint_hour`, defaults `LINT_HOUR` (3) and `DREAM_HOUR` (4) UTC —
+queued by the same sweep on the bundle's one worker, so they serialize; each counts its
+own "ran today", so a dream does not excuse a lint. The three lint routes became
+`GET/PUT/POST /bundles/{b}/passes/{kind}`; the Settings card is one *Overnight* card
+with the two passes as blocks; the manual's Lint section split into Lint and Dream, the
+"report, don't silently fix" framing repeated in both so neither agent starts editing.
+The hints follow the split: moved sources stay the lint's, the gaps go to the dream.
+Cost, stated: two agent passes per bundle per night now — the unmodelled ingest-cost
+concern in §5 has a second diner.
+
+### 4.59 Each pass picks its pace: every x hours, days or weeks (2026-08-31)
+
+The overnight passes stop assuming nightly means daily. Each pass now has a cadence
+beside its hour — every x hours, days or weeks — chosen per bundle in the same Settings
+blocks (`bundle_setting.lint_every` / `dream_every`, unset = once a day, so nothing
+changes for anyone who never touches it). Days and weeks run at the chosen hour, judged
+by how long since the last run that actually finished; hours count slots from the
+chosen hour — every 6 hours at 03:00 means 03, 09, 15 and 21 — so the anchor stays
+meaningful for every unit, and a restart still cannot double-run anything because the
+answer keeps coming from the run history. The PUT grew an optional `every` ("6h", "2d",
+"1w"; hours cap at 23 — longer than a day is days' business).
+
+Two consequences said out loud. A failing pass still retries on every one of its slots,
+which on an hourly cadence means all day rather than four times a night — the "add a
+backoff when failures stop being rare" line from §4.58 just moved closer. And an hourly
+dream is up to 24 agent passes a day on one bundle: the §5 ingest-cost concern gets its
+third mention.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

@@ -15,7 +15,7 @@ import {
 } from "./api";
 import { confirm } from "./dialog";
 import { render } from "./okf";
-import { elapsed, took, useLint, useSources, when } from "./useSources";
+import { elapsed, took, usePass, useSources, when } from "./useSources";
 
 /**
  * What happened to this bundle, newest first, from one record: the bundle's git history.
@@ -53,7 +53,8 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState("");
   const { sources, version } = useSources(bundle);
-  const { lint } = useLint(bundle);
+  const { state: lint } = usePass(bundle, "lint");
+  const { state: dream } = usePass(bundle, "dream");
   const mayUndo = can(team, "history");
   const mayWrite = can(team, "write");
   const [queue, setQueue] = useState<Queue | null>(null);
@@ -92,7 +93,7 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
   // reload whenever an ingest or a lint finishes — the history and the page count changed
   useEffect(() => {
     refresh();
-  }, [bundle, version, lint?.linting]);
+  }, [bundle, version, lint?.running, dream?.running]);
 
   const live = sources.filter((s) => s.ingesting);
   const done = sources.filter((s) => s.ingested).length;
@@ -116,8 +117,8 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
   async function undo(e: Entry) {
     if (!e.id) return;
     const what =
-      e.source === "(lint)"
-        ? "Undo this lint? The wiki goes back to how it was before."
+      e.source === "(lint)" || e.source === "(dream)"
+        ? `Undo this ${e.source === "(dream)" ? "dream" : "lint"}? The wiki goes back to how it was before.`
         : `Undo the ingest of ${e.source}? The wiki goes back to how it was before, and so ` +
           "does the source — a file new at this run is removed. Both stay in the history, " +
           "and the undo can be redone.";
@@ -154,7 +155,9 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
   const shownLive = (e: Entry) =>
     e.kind === "run" &&
     !e.finished_at &&
-    ((e.source === "(lint)" && !!lint?.linting) || livePaths.has(e.source ?? ""));
+    ((e.source === "(lint)" && !!lint?.running) ||
+      (e.source === "(dream)" && !!dream?.running) ||
+      livePaths.has(e.source ?? ""));
   const shown = entries.filter(
     (e) =>
       !shownLive(e) &&
@@ -206,14 +209,14 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
             )}
           </div>
         ) : null}
-        {lint?.error && !lint.linting && (
+        {lint?.error && !lint.running && (
           <div className="banner">
             <b>Lint failed.</b> {lint.error}
           </div>
         )}
 
         {/* live work is not in the history yet — the run is committed when it finishes */}
-        {lint?.linting && (
+        {lint?.running && (
           <article className="event running">
             <span className="when">{elapsed(lint.seconds)}</span>
             <div className="what">
@@ -330,7 +333,7 @@ export function Activity({ bundle, team }: { bundle: string; team: Team }) {
           );
         })}
 
-        {!shown.length && !live.length && !lint?.linting && (
+        {!shown.length && !live.length && !lint?.running && (
           <p className="empty">
             {entries.length
               ? "Nothing of that kind yet."

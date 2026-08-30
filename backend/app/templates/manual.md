@@ -222,17 +222,14 @@ them).
 
 ## Lint
 
-When asked to lint, report in the log entry — and put anything a *person* would have to
-answer into `questions.md`, and anything a person would have to *do* into `todo.md`, since
-those are where they will be picked up. Do not silently fix:
+The janitorial pass: what has drifted mechanically since yesterday. Report in the log
+entry — headed `## [date] lint` — and put anything a *person* would have to do into
+`todo.md`. Do not silently fix:
 
-- Contradictions between pages, and claims superseded by a newer source.
 - Pages nothing links to, and links to pages that were never written.
 - Sources in `raw/` that no page cites at all — the owner added them and nothing read
   them. Report these; ingesting them is not a lint's job.
 - `status: draft` pages that have gone stale, and any page past its `stale_after`.
-- Entities mentioned repeatedly that still have no page.
-- Claims with no `sources` entry.
 - Pages outside their type's folder, or named other than by their title (*Where a page
   goes*). Report them; moving them is a reorganise run's job, not a lint's — the server
   queues one after a lint that finds any.
@@ -260,11 +257,28 @@ wiki, and treating it as a deletion is the most expensive.
 - Either way, clean up the links and `index.md` afterwards. A page deleted without
   unlinking it is worse than the orphan you started with.
 
-**Knowledge gaps are the other exception — ask, rather than only report.** Before each
-lint the server measures the wiki's link graph and names the pairs of areas that barely
-connect: several pages about one thing, several about another, and almost no link
-between them. You are handed those pairs with the lint, each side described by its most
-central pages. For each pair, decide whether the two areas genuinely bear on each other.
+## Dream
+
+The other half of the night: consolidation. Read the wiki against itself and surface
+what only reading the whole reveals. A dream produces questions, not memories — the
+sources stay the one road into the wiki, so **report and ask, never fix**: you change no
+page and no source in this pass. Findings go in the log entry, headed
+`## [date] dream`; anything a *person* would have to answer goes to `questions.md`, and
+anything a person would have to *do* goes to `todo.md`, since those are where they will
+be picked up. What to look for:
+
+- Contradictions between pages, and claims superseded by a newer source. Name both
+  sides and the sources they rest on; where only the owner can settle it, that is a
+  question.
+- Entities mentioned repeatedly that still have no page. A concept that keeps appearing
+  has earned a place; say which pages mention it.
+- Claims with no `sources` entry — something asserted that nothing on file supports.
+
+**Knowledge gaps are what a dream asks about.** Before each dream the server measures
+the wiki's link graph and names the pairs of areas that barely connect: several pages
+about one thing, several about another, and almost no link between them. You are handed
+those pairs, each side described by its most central pages. For each pair, decide
+whether the two areas genuinely bear on each other.
 
 - **Where they do**, add one question to `questions.md` whose answer would connect them, and
   name the pages on each side. Make it specific enough that the owner can answer it or

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { type Lint, lintState, type Source, sources } from "./api";
+import { type Pass, type PassKind, passState, type Source, sources } from "./api";
 
 export const elapsed = (s: number) => (s < 90 ? `${s}s` : `${Math.round(s / 60)}m`);
 
@@ -74,37 +74,34 @@ export function useSources(bundle: string) {
 }
 
 /**
- * The bundle's lint state, polled on the same fast/slow rule as sources.
+ * One overnight pass's state, polled on the same fast/slow rule as sources.
  *
- * A lint is not attached to any source, so useSources cannot see one running.
- * `refresh` restarts the poll immediately, for the moment after the button is pressed.
+ * A pass is not attached to any source, so useSources cannot see one running.
  */
-export function useLint(bundle: string) {
-  const [lint, setLint] = useState<Lint | null>(null);
+export function usePass(bundle: string, kind: PassKind) {
+  const [state, setState] = useState<Pass | null>(null);
   const [nudge, setNudge] = useState(0);
 
   useEffect(() => {
-    let timer: number;
-    let stopped = false;
-
+    let timer = 0;
+    let gone = false;
     const tick = async () => {
       try {
-        const next = await lintState(bundle);
-        if (stopped) return;
-        setLint(next);
-        // nothing runs a lint but the nightly job and this button, so idle can be slow
-        timer = window.setTimeout(tick, next.linting ? BUSY : IDLE * 4);
+        const next = await passState(bundle, kind);
+        if (gone) return;
+        setState(next);
+        // nothing runs a pass but the nightly job and its button, so idle can be slow
+        timer = window.setTimeout(tick, next.running ? BUSY : IDLE * 4);
       } catch {
-        if (!stopped) timer = window.setTimeout(tick, IDLE);
+        if (!gone) timer = window.setTimeout(tick, IDLE * 4);
       }
     };
-
     tick();
     return () => {
-      stopped = true;
-      clearTimeout(timer);
+      gone = true;
+      window.clearTimeout(timer);
     };
-  }, [bundle, nudge]);
+  }, [bundle, kind, nudge]);
 
-  return { lint, refresh: () => setNudge((n) => n + 1) };
+  return { state, refresh: () => setNudge((n) => n + 1) };
 }
