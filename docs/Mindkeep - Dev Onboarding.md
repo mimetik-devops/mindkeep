@@ -41,7 +41,7 @@ Three deployable things, one repository:
 
 | Part | Directory | Stack | What it is |
 |---|---|---|---|
-| Backend | `backend/` | Python 3.13, FastAPI, SQLAlchemy 2, Alembic, Postgres 17, Anthropic SDK, git | The API, the ingest agent, the scheduler, the history, the built-in accounts |
+| Backend | `backend/` | Python 3.13, FastAPI, SQLAlchemy 2, Alembic, Postgres 17, OpenRouter (plain httpx, `app/llm.py`), git | The API, the ingest agent, the scheduler, the history, the built-in accounts |
 | Frontend | `frontend/` | TypeScript, React 19, Vite 6, Vitest, react-oidc-context, Milkdown Crepe | The web app |
 | Client | `client/` | Python 3.12+, stdlib (engine + CLI), PySide6 (tray app), Briefcase | The sync engine, the CLI, the desktop tray app |
 
@@ -158,6 +158,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `teams.py` | Teams, memberships, invites, roles → permissions; `needs(permission)` dependencies |
 | `files.py` | Everything under `/teams/{team}/bundles/…`: bundles CRUD, tree, read/write, raw upload/move/delete, sources, activity, undo/redo, todos, assistant, lint schedule, queue/retry, reorganise, folders. Also `safe_path`, `tenant()`, guide refresh, startup re-queue |
 | `ingest.py` | The agent: task texts, the tool set, the per-bundle worker, `ingest_safely`, holds and retries, `busy()` |
+| `llm.py` | The model, through OpenRouter: tool declarations from the agents' own functions (signature + docstring `Args:`), the conversation loop (dispatch tool calls, send results back, survive a malformed call), errors as one sentence with the HTTP status spelled out — what the worker's holds match. `model_for(role)`: `INGEST_MODEL` / `ASSIST_MODEL`, else `LLM_MODEL`, else the default |
 | `runs.py` | The `ingest_run` table and everything derived from it |
 | `history.py` | git inside the bundle: commit, record, reverse (path-scoped), take_back (undo), put_back (redo), diff, log entries, pending changes |
 | `index.py` | `index.md` built from the pages' frontmatter, after every run and undo |
@@ -469,7 +470,7 @@ out. Every query on a tenant table filters on `tenant` (`runs._where`).
 
 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (a Google Cloud OAuth client of type *Web application*, the Drive API enabled, redirect URI `<API_PUBLIC_URL>/grants/oauth/drive/callback`), `API_PUBLIC_URL` (blank: `WEB_URL` + `/api`),
 `DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR`,
-`ANTHROPIC_API_KEY`, `DEVICE_SECRET`, `AUTH_PROVIDER` (`builtin` | `oidc`), builtin only:
+`OPENROUTER_API_KEY`, `DEVICE_SECRET`, `AUTH_PROVIDER` (`builtin` | `oidc`), builtin only:
 `AUTH_SECRET`; oidc only: `AUTH_ISSUER`,
 `AUTH_AUDIENCE`, `AUTH_JWKS_URL`, `AUTH_ROLE_CLAIM`; `WEB_URL` (where the site is, for the connect page), `ALLOWED_ORIGINS`
 (CORS, only for a split-origin deploy), `HOST`/`PORT` (the deploy image's bind).
@@ -657,7 +658,7 @@ behind the site's proxy that is `https://main.mindkeep.io/api`; in development
 Python 3.12+ (for the client and backend tests), git.
 
 ```
-cp backend/.env.example backend/.env      # fill ANTHROPIC_API_KEY, DEVICE_SECRET, AUTH_*
+cp backend/.env.example backend/.env      # fill OPENROUTER_API_KEY, DEVICE_SECRET, AUTH_*
 cp frontend/.env.example frontend/.env    # VITE_AUTH_* for your identity provider
 docker compose up -d --build
 ```

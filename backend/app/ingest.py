@@ -6,10 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import anthropic
-from anthropic import beta_tool
-
-from app import gaps, graph, history, index, runs
+from app import gaps, graph, history, index, llm, runs
 
 log = logging.getLogger(__name__)
 
@@ -50,18 +47,18 @@ def destination(home: Path, rel: str) -> str:
     return f"wiki/{folder_for(str(fm.get('type') or ''))}/{page.name}"
 
 
-# A document that is not markdown rides on the task message as a document block rather
-# than through read_file. A PDF goes whole: the API reads its text and looks at every
-# page, so a scan, a chart, a two-column layout all survive, which no text extractor
-# manages. A .docx goes as its text — the API takes PDF and plain text, not Word — under
-# the same shape, so the agent handles both the same way. 32 MB is the API's ceiling per
-# request; a PDF past it is refused with a sentence.
+# A document that is not markdown rides on the task message as a file part rather than
+# through read_file. A PDF goes whole: the model reads its text and looks at every page,
+# so a scan, a chart, a two-column layout all survive, which no text extractor manages.
+# A .docx goes as its text — models take PDF and plain text, not Word — so the agent
+# handles both the same way. 32 MB was Anthropic's ceiling and stays as ours: a PDF past
+# it is refused with a sentence rather than an opaque provider error.
 PDF_LIMIT = 32 * 1024 * 1024
 
 
 def attachment(home: Path, source: str) -> dict[str, Any] | None:
-    """The source as a document block for the task message: a PDF as itself, a .docx as
-    its text. None for any other file — or a PDF too large to send."""
+    """The source as a part of the task message: a PDF as itself, a .docx as its text.
+    None for any other file — or a PDF too large to send."""
     from app.files import docx_text  # local import: files.py imports this module
 
     target = home / source
@@ -72,17 +69,11 @@ def attachment(home: Path, source: str) -> dict[str, Any] | None:
         if target.stat().st_size > PDF_LIMIT:
             return None
         data = base64.standard_b64encode(target.read_bytes()).decode("ascii")
-        source_block: dict[str, str] = {
-            "type": "base64",
-            "media_type": "application/pdf",
-            "data": data,
-        }
-    else:
-        text = docx_text(target)
-        if text is None:
-            return None
-        source_block = {"type": "text", "media_type": "text/plain", "data": text}
-    return {"type": "document", "source": source_block, "title": target.name}
+        return llm.file_part(target.name, f"data:application/pdf;base64,{data}")
+    text = docx_text(target)
+    if text is None:
+        return None
+    return llm.text_part(f"{target.name} reads:\n\n{text}")
 
 
 ATTACHED = (
@@ -94,8 +85,6 @@ ATTACHED = (
 def lock_for(home: Path) -> threading.Lock:
     return _locks.setdefault(str(home), threading.Lock())
 
-
-MODEL = "claude-sonnet-5"
 
 # lint runs share the ingest_run table; this stands where a source path would
 LINT = "(lint)"
@@ -430,8 +419,7 @@ def ingest(
             source=source, today=today, hints=CHANGED.format(diff=changed) if changed else ""
         )
 
-    content: Any = [attached, {"type": "text", "text": task + ATTACHED}] if attached else task
-    client = anthropic.Anthropic()
+    content: Any = [attached, llm.text_part(task + ATTACHED)] if attached else task
     with lock_for(home):
         # Two texts, two readers. manual.md is this agent's whole instruction and never
         # leaves the server; CLAUDE.md is the guide people and local tools find in a synced
@@ -440,25 +428,25 @@ def ingest(
         if refresh_guide(home):
             log.info("refreshed CLAUDE.md in %s", home)
 
-        runner = client.beta.messages.tool_runner(
-            # Sonnet, not Opus: ingest is read-compare-write, and a smaller model does it
-            # several times faster and cheaper. Thinking stays ON — deciding what a source
-            # actually changes, and spotting a claim that contradicts an existing page, is
-            # the judgement the wiki exists for. If ingests stop catching contradictions
-            # and merely summarise, the tier is too small and this goes back to opus-5.
-            model=MODEL,
+        runner = llm.loop(
+            # Sonnet-class, not Opus-class: ingest is read-compare-write, and a smaller
+            # model does it several times faster and cheaper. Reasoning stays ON —
+            # deciding what a source actually changes, and spotting a claim that
+            # contradicts an existing page, is the judgement the wiki exists for. If
+            # ingests stop catching contradictions and merely summarise, the tier is too
+            # small: raise INGEST_MODEL.
+            model=llm.model_for("ingest"),
             max_tokens=16000,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "medium"},
+            effort="medium",
             system=manual,
             tools=[
-                beta_tool(read_file),
-                beta_tool(write_file),
-                beta_tool(edit_file),
-                beta_tool(move_file),
-                beta_tool(delete_file),
-                beta_tool(list_files),
-                beta_tool(related),
+                read_file,
+                write_file,
+                edit_file,
+                move_file,
+                delete_file,
+                list_files,
+                related,
             ],
             messages=[
                 {
@@ -472,11 +460,11 @@ def ingest(
         turns = 0
         for message in runner:
             turns += 1
-            log.info("%s: turn %d, stop_reason=%s", source, turns, message.stop_reason)
+            log.info("%s: turn %d, finish=%s", source, turns, message["finish"])
             # the turn count alone, so a turn spent only thinking still shows movement
             if run_id is not None:
                 runs.progress(home, run_id, turns=turns)
-            if message.stop_reason == "max_tokens":
+            if message["finish"] == "length":
                 # the reply was cut off mid-batch: none of its tool calls ran, and a run
                 # that ends here has silently done nothing. Say so, as a failure to retry.
                 raise RuntimeError(
@@ -501,6 +489,13 @@ def ingest(
 # again — not to mark it failed and go on to fail the next thirty the same way.
 SERVICE_ERROR = (
     "credit balance",
+    "insufficient credits",  # as OpenRouter words a 402
+    "(http 401)",  # as llm.LLMError spells the status out
+    "(http 402)",
+    "(http 403)",
+    "(http 408)",
+    "(http 429)",
+    "(http 5",
     "rate limit",
     "rate_limit",
     "overloaded",
@@ -672,7 +667,7 @@ def ingest_safely(home: Path, source: str, force: bool = False) -> str:
     # measured now rather than inside the run: this worker is the bundle's only writer,
     # so nothing changes the wiki between here and the lint reading the hint
     thin = gaps.find(home) if source == LINT else []
-    run_id = runs.start(home, source, MODEL)
+    run_id = runs.start(home, source, llm.model_for("ingest"))
     # What people changed since the last run — uploads, answers — is committed on its own
     # first, so undoing this run takes back only what the agent wrote.
     snapshot(home, f"before run {run_id}")
@@ -693,10 +688,8 @@ def ingest_safely(home: Path, source: str, force: bool = False) -> str:
         turns, written = ingest(home, source, run_id, moves, thin, changed)
     except Exception as e:
         log.exception("ingest failed for %s (source is still on disk, retry is safe)", source)
-        # the sentence a person can act on, not the serialised error body around it
-        body = getattr(e, "body", None)
-        message = (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
-        error = (message or str(e) or type(e).__name__)[:300]
+        # llm.LLMError already is the sentence a person can act on
+        error = (str(e) or type(e).__name__)[:300]
     finally:
         # the catalog follows the pages, in the run's own commit
         try:
