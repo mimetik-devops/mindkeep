@@ -165,7 +165,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `graph.py` / `gaps.py` | The link graph built from the files in memory; Louvain areas; structural gaps (thin pairs of areas) |
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
-| `schedule.py` | Nightly lint: a daemon thread, per-bundle hour, decided from run history; the same sweep syncs every connection that is due |
+| `schedule.py` | The overnight passes — lint and dream — a daemon thread, per-bundle hour each, decided from run history; the same sweep syncs every connection that is due |
 | `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `Grant`, `OAuth`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` and `drive` built-ins |
 | `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; a connection that needs a sign-in references one of the caller's grants |
 | `grants.py` | A person's standing with a provider — a pasted token, or a sign-in with the provider: the OAuth dance (`start`, `callback`, PKCE, signed state), `fresh` (refresh before use, revoked marked), `configured` — made once, usable by any connection they set up. User-facing: a sign-in, under Settings → Account → *Connectors* |
@@ -281,151 +281,31 @@ cannot finish; the tools are shaped to keep content on the server. The manual (`
 authoritative description of each; read it end to end once — it is the spec the agent is
 held to, and the tests of ingest behaviour are tests of that text.
 
-### Lint
+### Lint, and Dream
 
-`schedule.py` wakes every fifteen minutes and asks, per bundle, "linted today?" — decided
-from run history, so a restart at 02:59 does not double-lint and a server down all night
-lints when it comes back. Each bundle picks its hour in Settings (`bundle_setting`);
-`LINT_HOUR` is the default; hours are UTC. A lint reports (contradictions, orphans, stale
-drafts, uncited sources, misfiled pages, future-dated log entries), **fixes only broken
-source links** (moved vs. gone), puts what a person must *answer* in `questions.md` and
-what a person must *do* in `todo.md`, and turns knowledge gaps into questions. When
-it finishes cleanly and the server finds pages outside their type's folder
-(`ingest.misfiled`), a reorganise run is queued behind it automatically.
+The nightly pass split in two on 2026-08-31 — one name was hiding two activities.
 
-### Connectors
+**Lint** is janitorial: the agent re-reads the wiki and reports what has drifted
+mechanically — orphans, dead links, uncited sources, stale drafts, misfiled pages,
+future-dated log entries — fixing only broken source links (a moved source is repointed,
+helped by the server's own move list; a gone one retires the claims that rested on it).
+A lint that finds misfiled pages queues a reorganise run itself. Log heading
+`## [date] lint`.
 
-A **connector** is code that reads one kind of third-party source and hands back files
-(`app/connectors/`). A **connection** is a connector set up on one bundle with its own
-settings, secrets and schedule (`app/connections.py`): "the team wiki in Notion", "the
-pricing sheet at this URL". Everything a connector does not have to do is the plumbing's,
-the same for every connector:
+**Dream** is consolidation: the wiki read against itself — contradictions and superseded
+claims, entities that keep appearing with no page, claims with no `sources` entry, and
+the gap questions (the server measures the link graph before each dream and hands over
+the pairs of areas that barely connect). A dream changes no page and no source: it
+produces questions (`questions.md`), tasks (`todo.md`) and a log entry headed
+`## [date] dream` — questions, not memories, so the wiki stays derivable from `raw/`.
 
-- **Where files land.** Under `raw/connectors/<folder>/` — the connector's `folder`, its kind
-  unless it says — through the same road an upload
-  takes — `raw_path` for safe names, a scoped commit (`sync <name>: +a ~c -r`), an ingest
-  queued per changed file. The connection's folder is the connection's (**mirror
-  semantics**): a file in it edited, deleted or moved out of band — the web app, the
-  desktop client, whose `raw/` syncs both ways — is put back at the next sync; the
-  person's version is in the history. A removed source retires its pages, as a delete does.
-- **What changed.** `connector_item` holds one row per file the connection wrote, keyed by
-  the source's own id: unchanged is skipped, renamed is a move, missing is removed. A
-  connector may return the whole set each time (`Pull(complete=True)`, the default) or
-  only what changed plus the ids that went (`complete=False`, `removed=[…]`), with its own
-  opaque `cursor` handed back on the next pull.
-- **Grants — sign-ins.** A connector's `auth` is `none`, `token` or `oauth2`. A *grant* is a
-  person's standing with the provider: for a `token` kind, the secrets of `grant_fields`,
-  tried by `check_grant` (which names it — an e-mail, a workspace); for an `oauth2` kind,
-  the tokens of the provider's sign-in, which `grants.py` runs from the connector's
-  `OAuth` declaration (below). A grant is the person's, not a bundle's: made
-  once in Settings → Account → *Connectors*, usable by any connection they set up in any
-  team, and passed to `check` and `pull` as a `Grant` with its secrets in the clear for
-  that call only. A connection keeps syncing with its maker's grant into a bundle other
-  people read — the person put their credential to work for that bundle. Deleting a
-  grant never cascades: connections that used it keep their rows and files and report
-  *the sign-in this connection used is gone* at their next sync, until given another.
-- **One connection of a kind per bundle; the form holds the plural.** A connection's
-  `fields` are its scope. A field may be `rows` — a list of rows, each with sub-fields
-  (the sites of a website connection: address, depth, frequency), sent as JSON — or
-  `multiline` (a list, one per line), or have `options` (a choice). A connector that
-  keeps its own clock (each site on its own frequency) sets `tick` — minutes — and the
-  plumbing lets it look that often, with no interval on the connection; it decides what
-  is due, remembers it in its cursor, and returns `complete=False` with only what changed.
-  A field may be `browse`: the app shows a *browse* button, and what it offers comes from
-  the connector's `browse(field, at, grant)` — one level down from `at`, as `Choice`s
-  (value, label, whether it opens onto more) — through `POST …/connectors/{kind}/browse`
-  with the caller's own sign-in. Every connector gets a screen that feels its own — a
-  folder tree, a list of channels — without a line of frontend code: plugins describe,
-  the app draws. Plugin-shipped UI code is deliberately not a thing.
-  The connector `name(config)`s the connection — the hosts of a website connection —
-  never a person; the name follows the settings.
-- **The provider sign-in (OAuth 2).** A connector declares `OAuth(provider, authorize_url,
-  token_url, scopes, params)`; the app's own client id and secret are `<PROVIDER>_CLIENT_ID`
-  / `<PROVIDER>_CLIENT_SECRET` in the environment (`GOOGLE_…` for Drive), and a kind whose
-  provider is not configured is listed but not offered. `GET /grants/oauth/{kind}/start`
-  (signed in) answers the consent-page URL: PKCE (S256), and a `state` that is a signed
-  note — HMAC on `DEVICE_SECRET` — of who asked and for what, good for ten minutes. The
-  provider sends the browser to `GET /grants/oauth/{kind}/callback` (no bearer token: the
-  state is the proof), which trades the code for tokens, asks the connector's
-  `check_grant` what to call the grant, keeps the tokens sealed with `expires_at`, and
-  sends the browser back to `WEB_URL/?connected=<kind>` (or `?connect_error=…`); the app
-  lands on Settings → Account → Connectors and says so. The redirect URI is
-  `<API_PUBLIC_URL>/grants/oauth/{kind}/callback`, `API_PUBLIC_URL` defaulting to
-  `WEB_URL` + `/api` (right when Caddy proxies /api). Before every use — a sync, or a
-  `check` — `grants.fresh` renews an access token within 90 s of expiring and reseals
-  the grant; a refresh the provider refuses (`invalid_grant`: revoked) sets the grant's
-  `error` and the connection reports it. Google needs `access_type=offline` and
-  `prompt=consent` to hand over a refresh token — one consent screen per sign-in.
-  Grants are per kind: a Drive grant will not serve a Gmail connector (its scopes and
-  consent differ), by decision, not accident.
-- **Secrets.** Fields the connector marks `secret` are Fernet-encrypted at rest
-  (`app/vault.py`, key derived from `DEVICE_SECRET`), never sent to a browser (a marker
-  says one is set; the marker sent back means "keep it"), tried by the connector's `check`
-  before they are saved.
-- **Schedule.** `schedule.py`'s sweep also runs every enabled connection whose interval
-  (`every`, minutes, 15 min to 7 days) has passed since its last attempt, each in its own
-  thread; a failing source is retried at its own pace. *Sync now* is a route.
-- **Permissions.** Managing connections is `bundles` (owners and admins — they hold
-  credentials and decide what flows in); *sync now* is `write`.
-- **Cost.** Each changed file is one ingest, as an upload is: a first sync of 500 files is
-  500 agent runs in a row. The changed-file list in `syncing.apply` is where a batching
-  window goes when that is decided.
-
-**Writing a connector.** A subclass of `app.connectors.Connector` with a `kind`:
-
-```python
-from app.connectors import Connector, ConnectorError, Field, Item, Pull
-
-class NotionConnector(Connector):
-    kind = "notion"                      # stable, lowercase: it names the rows
-    title = "Notion"
-    blurb = "The pages a Notion integration can see."
-    auth = "token"                       # "none" | "token" | "oauth2" (declared, not yet done)
-    grant_fields = (Field("token", "Integration token", secret=True, help="Settings → Integrations"),)
-    fields = (Field("pages", "Pages", multiline=True, help="Page links, one per line; empty for all", required=False),)
-
-    def check_grant(self, secrets):      # tried before a sign-in is kept; returns its name
-        me = notion(secrets["token"]).users.me()   # raises ConnectorError when refused
-        return me["name"]
-
-    def check(self, config, grant):      # tried before a connection is saved
-        ...
-
-    def pull(self, config, cursor, grant):   # files, and a cursor for next time
-        api = notion(grant.token)
-        return Pull(items=[Item(id=page_id, path=f"{title}.md", content=markdown)])
-```
-
-Built-ins are found in the package; anyone else's is a Python package installed into the
-backend image that names its class under the entry-point group `mindkeep.connectors`
-(`[project.entry-points."mindkeep.connectors"] notion = "mindkeep_notion:NotionConnector"`).
-Both show up in `GET /teams/{t}/connectors` on the next start; a plugin with a built-in's
-kind replaces it. `app/connectors/website.py` is the worked example and the first real
-connector: a list of sites, each the page at an address and the pages it links to on the
-same site — under the address's path when it has one, so `x.com/docs` is that section —
-up to its own `pages` (20 unless said), on its own frequency, each kept as **Markdown**:
-whole-page HTML→Markdown (`markdownify`; scripts, styles, nav and footer dropped; links
-made absolute; `title`, `source` and `description` up top), not readability-style
-extraction, which drops the headings and lists of any page that is not an article. An
-address that is not HTML — a PDF, a feed — is kept as the file it is. Conversion is
-byte-stable across fetches, so a page is folded in again only when it actually changed.
-
-`app/connectors/drive.py` is the first provider connector: a Google sign-in
-(`drive.readonly`, nothing more — the grant's name comes from Drive's own `about`), then
-folders as rows, each on its own frequency — named as a person sees them from the top of
-My Drive (`Clients/Acme`, or `Shared drives/Marketing/…`; a name matching two folders is
-refused with the count, never guessed) or as the folder's link or id — or, the way people
-actually do it, picked with *browse*: My Drive's folders and the shared drives at the top,
-subfolders as you go, *Use this folder* writing the same path. Docs, Sheets and
-Slides are exported as Markdown, CSV and text; other files come as they are up to 20 MB;
-forms, shortcuts and sites are skipped, and so is a file that fails to download (tried
-next time). The cursor holds each file's `modifiedTime` per folder, so a tick fetches
-only what changed; the Drive id is the item's identity, so a rename is a move; a file
-reached through two folders of the list is taken once; bounded at 500 files and 100
-folders per row per tick. REST over httpx, no Google SDK.
-
-The app manages connections in Settings → Bundle, where they have the right-hand column
-(`Connections.tsx`).
+Each pass has its own clock: per bundle in Settings (`bundle_setting.lint_hour` /
+`dream_hour`, nullable = follow the server), defaults `LINT_HOUR` (3) and `DREAM_HOUR`
+(4), UTC; `schedule.py`'s sweep queues whichever is due on the bundle's one worker, so
+they serialize rather than collide, and each counts its own "ran today". Both are runs
+in `ingest_run` — `(lint)`, `(dream)` — shown in Activity and undoable like any run.
+Both burn tokens nightly per bundle; the standing ingest-cost concern (§5 of the Dev
+Log) now has two nightly diners.
 
 ### Graph and gaps
 
@@ -454,7 +334,7 @@ Postgres holds **metadata only** — the wiki is files. Tables (`db.py`):
 | Table | What |
 |---|---|
 | `ingest_run` | every run: tenant, bundle, source, timing, model, error, note, `based_on`, `commit`, `undone_at` |
-| `bundle_setting` | per-bundle lint hour |
+| `bundle_setting` | per-bundle hours for the two overnight passes |
 | `source_move` | moves the server performed, handed to the next lint, settled when it acts |
 | `connection` | a connector on a bundle: kind, name, sealed config, cursor, interval, enabled, last attempt and how it went |
 | `connector_item` | one row per file a connection wrote: the source's id, the path, the digest |
@@ -469,7 +349,7 @@ out. Every query on a tenant table filters on `tenant` (`runs._where`).
 ### Environment (`backend/.env.example`)
 
 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (a Google Cloud OAuth client of type *Web application*, the Drive API enabled, redirect URI `<API_PUBLIC_URL>/grants/oauth/drive/callback`), `API_PUBLIC_URL` (blank: `WEB_URL` + `/api`),
-`DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR`,
+`DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR` / `DREAM_HOUR`,
 `OPENROUTER_API_KEY`, `DEVICE_SECRET`, `AUTH_PROVIDER` (`builtin` | `oidc`), builtin only:
 `AUTH_SECRET`; oidc only: `AUTH_ISSUER`,
 `AUTH_AUDIENCE`, `AUTH_JWKS_URL`, `AUTH_ROLE_CLAIM`; `WEB_URL` (where the site is, for the connect page), `ALLOWED_ORIGINS`
@@ -514,7 +394,7 @@ Under `/teams/{team}`, membership required:
 | GET | `/bundles/{b}/queue` | read | `{held, waiting, failed}` |
 | GET | `/bundles/{b}/activity` · `/runs/{id}` | read | the feed (runs, people's changes, undo/redo, pending) · a run's changed files |
 | POST | `/bundles/{b}/runs/{id}/undo` · `/redo` | history | |
-| GET/PUT/POST | `/bundles/{b}/lint` | read / write | state · set hour · lint now |
+| GET/PUT/POST | `/bundles/{b}/passes/{kind}` | read / bundles / write | one overnight pass — `lint` or `dream`: state · set hour · run now |
 | POST | `/bundles/{b}/reorganise` | write | file every page by its type |
 | GET | `/connectors` | signed in | the catalog: every connector installed, its fields, whether it is available |
 | GET/POST | `/bundles/{b}/connections` | read / bundles | list · set one up (credentials tried first; first sync started) |

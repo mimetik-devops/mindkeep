@@ -311,12 +311,12 @@ def test_rows_keyed_by_a_subject_are_rekeyed_at_startup(client, tmp_path):
     legacy.mkdir(parents=True)
     run = runs.start(legacy, "raw/deck.md", "m")
     runs.finish(legacy, run, turns=1, chars=1)
-    runs.set_lint_hour(legacy, 4)
+    runs.set_pass_hour(legacy, "lint", 4)
 
     assert runs.rekey_legacy_tenants(tenant_id) == 1
     home = tmp_path / tenant_id("alice") / "default"
     assert "raw/deck.md" in runs.ingested_sources(home)
-    assert runs.lint_hour(home) == 4
+    assert runs.pass_hour(home, "lint") == 4
     assert runs.rekey_legacy_tenants(tenant_id) == 0  # once
 
 
@@ -1062,13 +1062,13 @@ def test_lint_runs_and_refuses_to_stack(client, tmp_path, ingested):
     from app import runs
     from app.ingest import LINT
 
-    assert client.post(f"{B}/lint").json() == {"linting": "default"}
+    assert client.post(f"{B}/passes/lint").json() == {"running": "default"}
     assert [c[1] for c in ingested] == [LINT]
 
     # Two agents editing the same wiki at once would clobber each other, so an open
     # lint refuses the next one rather than queueing it.
     runs.start(tmp_path / tenant_id("alice") / "default", LINT, "m")
-    assert client.post(f"{B}/lint").status_code == 409
+    assert client.post(f"{B}/passes/lint").status_code == 409
 
 
 def test_lint_state_reports_the_last_one(client, tmp_path, ingested):
@@ -1077,12 +1077,12 @@ def test_lint_state_reports_the_last_one(client, tmp_path, ingested):
 
     client.get(f"{T}/bundles")  # seed alice/default
     home = tmp_path / tenant_id("alice") / "default"
-    assert client.get(f"{B}/lint").json()["at"] == ""  # never linted
+    assert client.get(f"{B}/passes/lint").json()["at"] == ""  # never linted
 
     run = runs.start(home, LINT, "m")
-    assert client.get(f"{B}/lint").json()["linting"] is True
+    assert client.get(f"{B}/passes/lint").json()["running"] is True
     runs.finish(home, run, 1, 10)
-    assert client.get(f"{B}/lint").json()["linting"] is False
+    assert client.get(f"{B}/passes/lint").json()["running"] is False
 
 
 def test_a_running_agent_reports_what_it_is_doing(client, tmp_path, ingested):
@@ -1095,13 +1095,13 @@ def test_a_running_agent_reports_what_it_is_doing(client, tmp_path, ingested):
     run = runs.start(home, LINT, "m")
 
     runs.progress(home, run, note="3 · reading wiki/people/jane.md", turns=2)
-    live = client.get(f"{B}/lint").json()
+    live = client.get(f"{B}/passes/lint").json()
     assert live["note"] == "3 · reading wiki/people/jane.md"
     assert live["turns"] == 2
 
     # a finished run reports its duration, not a step it is no longer taking
     runs.finish(home, run, 4, 100)
-    assert client.get(f"{B}/lint").json()["note"] == ""
+    assert client.get(f"{B}/passes/lint").json()["note"] == ""
 
 
 def test_the_note_follows_an_ingest_too(client, tmp_path):
@@ -1127,6 +1127,7 @@ def test_the_nightly_lint_runs_once_a_day(client, tmp_path, monkeypatch):
     monkeypatch.setenv("LINT_HOUR", str(datetime.now(UTC).hour))
 
     ran: list = []
+    monkeypatch.setenv("DREAM_HOUR", "off")
     monkeypatch.setattr(schedule, "enqueue", lambda h, src: ran.append(h))
     schedule.sweep()
     assert ran == [home]
@@ -1156,17 +1157,17 @@ def test_the_next_automatic_lint_is_announced(client, tmp_path, monkeypatch):
 
     # the next slot is always within a day, and always on the hour that was configured
     monkeypatch.setenv("LINT_HOUR", str((moment.hour + 2) % 24))
-    soon = datetime.fromisoformat(schedule.next_run(home))
+    soon = datetime.fromisoformat(schedule.next_run(home, "lint"))
     assert moment < soon <= moment + timedelta(days=1)
     assert soon.hour == (moment.hour + 2) % 24
 
     # a bundle linted today waits for a later day, whichever way the slot falls
     runs.finish(home, runs.start(home, LINT, "m"), 1, 10)
-    assert datetime.fromisoformat(schedule.next_run(home)).date() > moment.date()
+    assert datetime.fromisoformat(schedule.next_run(home, "lint")).date() > moment.date()
 
     monkeypatch.setenv("LINT_HOUR", "off")
-    assert schedule.next_run(home) == ""
-    assert client.get(f"{B}/lint").json()["next"] == ""
+    assert schedule.next_run(home, "lint") == ""
+    assert client.get(f"{B}/passes/lint").json()["next"] == ""
 
 
 def test_the_nightly_lint_is_off_outside_its_hour(client, monkeypatch):
@@ -1175,6 +1176,7 @@ def test_the_nightly_lint_is_off_outside_its_hour(client, monkeypatch):
     from app import schedule
 
     ran: list = []
+    monkeypatch.setenv("DREAM_HOUR", "off")
     monkeypatch.setattr(schedule, "enqueue", lambda h, src: ran.append(h))
     monkeypatch.setenv("LINT_HOUR", str((datetime.now(UTC).hour + 5) % 24))
     schedule.sweep()
@@ -1285,20 +1287,21 @@ def test_a_bundle_chooses_its_own_lint_hour(client, tmp_path, monkeypatch):
     client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
     monkeypatch.setenv("LINT_HOUR", "3")
-    assert client.get(f"{B}/lint").json()["hour"] == 3
+    assert client.get(f"{B}/passes/lint").json()["hour"] == 3
 
-    assert client.put(f"{B}/lint", json={"hour": 20}).json() == {"hour": 20}
-    assert client.get(f"{B}/lint").json()["hour"] == 20
-    assert datetime.fromisoformat(client.get(f"{B}/lint").json()["next"]).hour == 20
+    assert client.put(f"{B}/passes/lint", json={"hour": 20}).json() == {"hour": 20}
+    assert client.get(f"{B}/passes/lint").json()["hour"] == 20
+    assert datetime.fromisoformat(client.get(f"{B}/passes/lint").json()["next"]).hour == 20
 
     # a second bundle is unaffected, and still follows the server default
     client.post(f"{T}/bundles", json={"name": "work"})
-    assert client.get(f"{T}/bundles/work/lint").json()["hour"] == 3
+    assert client.get(f"{T}/bundles/work/passes/lint").json()["hour"] == 3
 
     # and the sweep honours the choice rather than the default
     ran: list = []
+    monkeypatch.setenv("DREAM_HOUR", "off")
     monkeypatch.setattr(schedule, "enqueue", lambda h, src: ran.append(h))
-    client.put(f"{B}/lint", json={"hour": datetime.now(UTC).hour})
+    client.put(f"{B}/passes/lint", json={"hour": datetime.now(UTC).hour})
     schedule.sweep()
     assert ran == [home]
 
@@ -1311,21 +1314,22 @@ def test_a_bundle_can_switch_its_nightly_lint_off(client, monkeypatch):
     client.get(f"{T}/bundles")
     monkeypatch.setenv("LINT_HOUR", str(datetime.now(UTC).hour))  # would fire right now
 
-    assert client.put(f"{B}/lint", json={"hour": -1}).json() == {"hour": -1}
-    assert client.get(f"{B}/lint").json()["next"] == ""
+    assert client.put(f"{B}/passes/lint", json={"hour": -1}).json() == {"hour": -1}
+    assert client.get(f"{B}/passes/lint").json()["next"] == ""
 
     ran: list = []
+    monkeypatch.setenv("DREAM_HOUR", "off")
     monkeypatch.setattr(schedule, "enqueue", lambda h, src: ran.append(h))
     schedule.sweep()
     assert ran == []
 
     # the manual button still works — "off" is about the schedule, not the feature
-    assert client.post(f"{B}/lint").status_code == 200
+    assert client.post(f"{B}/passes/lint").status_code == 200
 
 
 @pytest.mark.parametrize("hour", [24, -2, 100])
 def test_an_impossible_lint_hour_is_rejected(client, hour):
-    assert client.put(f"{B}/lint", json={"hour": hour}).status_code == 400
+    assert client.put(f"{B}/passes/lint", json={"hour": hour}).status_code == 400
 
 
 def test_a_tenant_lives_under_a_hash_of_its_subject(client, tmp_path):
@@ -1625,3 +1629,85 @@ def test_a_format_we_cannot_read_says_so(client):
     refused = client.get(f"{B}/text/raw/scan.pdf")
     assert refused.status_code == 415
     assert ".pdf" in refused.json()["detail"]
+
+
+def test_the_dream_is_its_own_pass_with_its_own_clock(client, tmp_path, ingested, monkeypatch):
+    """State, hour, run-now — the same shape as the lint, on its own schedule; an unknown
+    kind is nothing."""
+    from datetime import UTC, datetime
+
+    from app import runs, schedule
+    from app.ingest import DREAM, LINT
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    monkeypatch.setenv("DREAM_HOUR", "4")
+    assert client.get(f"{B}/passes/dream").json()["hour"] == 4
+    assert client.get(f"{B}/passes/nope").status_code == 404
+
+    assert client.put(f"{B}/passes/dream", json={"hour": 21}).json() == {"hour": 21}
+    assert client.get(f"{B}/passes/dream").json()["hour"] == 21
+    # the lint's own hour is untouched — two clocks
+    assert client.get(f"{B}/passes/lint").json()["hour"] != 21
+
+    assert client.post(f"{B}/passes/dream").json() == {"running": "default"}
+    assert [c[1] for c in ingested] == [DREAM]
+    run = runs.start(home, DREAM, "m")
+    assert client.post(f"{B}/passes/dream").status_code == 409  # one at a time
+    runs.finish(home, run, 1, 10)
+    assert client.get(f"{B}/passes/dream").json()["running"] is False
+
+    # a dream today does not count as a lint today, and the other way round
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    assert schedule.due(home, today, "lint")
+    assert not schedule.due(home, today, "dream")
+    runs.finish(home, runs.start(home, LINT, "m"), 1, 10)
+    assert not schedule.due(home, today, "lint")
+
+
+def test_the_sweep_queues_each_pass_at_its_own_hour(client, tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from app import schedule
+    from app.ingest import DREAM, LINT
+
+    client.get(f"{T}/bundles")
+    now = datetime.now(UTC).hour
+    ran: list = []
+    monkeypatch.setattr(schedule, "enqueue", lambda h, src: ran.append(src))
+    monkeypatch.setenv("LINT_HOUR", str(now))
+    monkeypatch.setenv("DREAM_HOUR", str(now))
+    schedule.sweep()
+    assert sorted(ran) == sorted([LINT, DREAM])
+    ran.clear()
+    monkeypatch.setenv("DREAM_HOUR", str((now + 1) % 24))  # not its hour
+    schedule.sweep()
+    assert ran == [LINT]
+
+
+def test_the_dream_gets_the_gaps_and_the_lint_keeps_the_moves(client, tmp_path, monkeypatch):
+    """The hints follow the split: the dream asks about thin areas; the lint repoints
+    moved sources; a dream that finds nothing misfiled queues nothing."""
+    from unittest.mock import patch
+
+    from app import gaps, runs
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    monkeypatch.setattr(gaps, "find", lambda h: [gaps.Gap(a=[], b=[])])
+    monkeypatch.setattr(gaps, "describe", lambda thin: "- side one | side two")
+    runs.record_move(home, "raw/a.md", "raw/b.md")
+
+    seen: dict = {}
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        agent.ingest_safely(home, agent.DREAM)
+    task = seen["messages"][0]["content"]
+    assert "Dream over the wiki" in task and "side one | side two" in task
+    assert "raw/a.md" not in task  # moves are the lint's
+
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        agent.ingest_safely(home, agent.LINT)
+    task = seen["messages"][0]["content"]
+    assert "Lint the wiki" in task and "`raw/a.md` is now `raw/b.md`" in task
+    assert "side one | side two" not in task  # gaps are the dream's

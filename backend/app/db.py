@@ -59,11 +59,12 @@ class IngestRun(Base):
 
 
 class BundleSetting(Base):
-    """Per-bundle knobs. Today that is only when the nightly lint runs.
+    """Per-bundle knobs: when the two overnight passes run — the lint (janitorial) and
+    the dream (the wiki read against itself).
 
-    A row exists only once someone has chosen; until then the bundle follows the
-    server's `LINT_HOUR`. That is why the hour is not defaulted here — "unset" and
-    "set to 3" have to stay distinguishable.
+    An hour is set only once someone has chosen; None follows the server's `LINT_HOUR`
+    or `DREAM_HOUR` — "unset" and "set to 3" have to stay distinguishable. 0-23 in UTC
+    (the server has no idea where anyone is), or LINT_OFF for never.
     """
 
     __tablename__ = "bundle_setting"
@@ -71,8 +72,8 @@ class BundleSetting(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     tenant: Mapped[str] = mapped_column(String(128))
     bundle: Mapped[str] = mapped_column(String(64))
-    # 0-23 in UTC, or LINT_OFF. UTC because the server has no idea where anyone is.
-    lint_hour: Mapped[int] = mapped_column(Integer)
+    lint_hour: Mapped[int | None] = mapped_column(Integer, default=None)
+    dream_hour: Mapped[int | None] = mapped_column(Integer, default=None)
 
     __table_args__ = (UniqueConstraint("tenant", "bundle", name="uq_bundle_setting"),)
 

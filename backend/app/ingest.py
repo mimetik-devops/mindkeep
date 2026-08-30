@@ -86,11 +86,12 @@ def lock_for(home: Path) -> threading.Lock:
     return _locks.setdefault(str(home), threading.Lock())
 
 
-# lint runs share the ingest_run table; this stands where a source path would
+# maintenance runs share the ingest_run table; these stand where a source path would
 LINT = "(lint)"
+DREAM = "(dream)"
 REORGANISE = "(reorganise)"
 # runs over the wiki as a whole rather than over one source
-MAINTENANCE = {LINT, REORGANISE}
+MAINTENANCE = {LINT, DREAM, REORGANISE}
 
 
 def pages_citing(home: Path, source: str) -> int:
@@ -173,6 +174,17 @@ LINT_TASK = (
     "you find in a log.md entry headed `## [{today}] lint`, and fix only what the manual "
     "tells you to fix — broken source links. Everything else is reported, not changed. "
     "If the wiki is in good order, say so in one line rather than inventing work.{hints}"
+)
+
+# The other half of the night: the wiki read against itself. Reporting and asking only —
+# a dream produces questions, not memories; the sources stay the one road into the wiki.
+DREAM_TASK = (
+    "Today is {today}. Dream over the wiki, following the Dream section of the manual: "
+    "read it against itself and report what only reading the whole reveals, in a log.md "
+    "entry headed `## [{today}] dream`. Questions for a person go to questions.md, work "
+    "for a person to todo.md. You change no page and no source: a dream produces "
+    "questions, not memories. If nothing surfaced, say so in one line rather than "
+    "inventing work.{hints}"
 )
 
 # Applies the manual's layout rule to a bundle written before there was one — or after
@@ -403,9 +415,10 @@ def ingest(
         if moves:
             listed = "\n".join(f"- `{old}` is now `{new}`" for _, old, new in moves)
             hints += MOVED.format(list=listed)
-        if thin:
-            hints += GAPS.format(list=gaps.describe(thin))
         task = LINT_TASK.format(today=today, hints=hints)
+    elif source == DREAM:
+        hints = GAPS.format(list=gaps.describe(thin)) if thin else ""
+        task = DREAM_TASK.format(today=today, hints=hints)
     elif source == REORGANISE:
         wrong = misfiled(home)
         lines = "\n".join(f"- `{p}` -> `{destination(home, p)}`" for p in wrong)
@@ -665,8 +678,8 @@ def ingest_safely(home: Path, source: str, force: bool = False) -> str:
     # was given, and one that succeeds must not see them again
     moves = runs.pending_moves(home) if source == LINT else []
     # measured now rather than inside the run: this worker is the bundle's only writer,
-    # so nothing changes the wiki between here and the lint reading the hint
-    thin = gaps.find(home) if source == LINT else []
+    # so nothing changes the wiki between here and the dream reading the hint
+    thin = gaps.find(home) if source == DREAM else []
     run_id = runs.start(home, source, llm.model_for("ingest"))
     # What people changed since the last run — uploads, answers — is committed on its own
     # first, so undoing this run takes back only what the agent wrote.
