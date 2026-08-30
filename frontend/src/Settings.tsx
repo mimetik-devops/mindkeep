@@ -11,7 +11,7 @@ import {
   moveBundle,
   type PassKind,
   renameBundle,
-  setPassHour,
+  setPassSchedule,
   startPass,
   type Team,
 } from "./api";
@@ -45,6 +45,13 @@ function localHours() {
 }
 
 const HOURS = localHours();
+
+/** The cadence units a pass can run on, and how many of each the select offers. */
+const UNITS = [
+  { unit: "h", label: "hours", max: 23 },
+  { unit: "d", label: "days", max: 30 },
+  { unit: "w", label: "weeks", max: 12 },
+];
 
 // One page, three concerns: the bundle you are looking at, the team it belongs to, you.
 const SECTIONS = ["Bundle", "Team", "Account"] as const;
@@ -139,58 +146,95 @@ export function Settings({
       });
   };
 
-  /** One overnight pass in the card: its blurb, its hour, its button, its last run. */
+  /** One overnight pass in the card: its blurb, its schedule, its button, its last run. */
   const passBlock = (
     kind: PassKind,
     label: string,
     blurb: string,
     p: ReturnType<typeof usePass>["state"],
-  ) => (
-    <>
-      <p>
-        <b>{label}.</b> {blurb}
-      </p>
-      <label className="field">
-        <span>Run automatically at</span>
-        <select
-          value={p?.hour ?? LINT_OFF}
-          disabled={!p}
-          onChange={(e) => act(setPassHour(bundle, kind, Number(e.target.value)))}
-        >
-          <option value={LINT_OFF}>Never</option>
-          {HOURS.map((h) => (
-            <option key={h.utcHour} value={h.utcHour}>
-              {h.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="field">
-        <span>
-          {p?.running
-            ? "Running now — watch it in the Console."
-            : p?.next
-              ? `Next ${when(p.next)}`
-              : "Nothing scheduled."}
-        </span>
-        <button
-          className="lint"
-          disabled={!p || p.running}
-          onClick={() => act(startPass(bundle, kind))}
-        >
-          {p?.running ? "Running…" : `${label} now`}
-        </button>
-      </div>
-      {p && !p.running && (
-        <p className="soft">
-          {p.at
-            ? `Last run ${p.at}, took ${took(p.seconds)}.`
-            : `Never ${kind === "lint" ? "linted" : "dreamt"}.`}
-          {p.error && ` It ended badly: ${p.error}`}
+  ) => {
+    const hour = p?.hour ?? LINT_OFF;
+    const every = p?.every || "1d";
+    const count = parseInt(every, 10) || 1;
+    const unit = every.slice(-1);
+    const max = UNITS.find((u) => u.unit === unit)?.max ?? 30;
+    return (
+      <>
+        <p>
+          <b>{label}.</b> {blurb}
         </p>
-      )}
-    </>
-  );
+        <label className="field">
+          <span>Run automatically at</span>
+          <select
+            value={hour}
+            disabled={!p}
+            onChange={(e) => act(setPassSchedule(bundle, kind, Number(e.target.value), every))}
+          >
+            <option value={LINT_OFF}>Never</option>
+            {HOURS.map((h) => (
+              <option key={h.utcHour} value={h.utcHour}>
+                {h.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="field">
+          <span>every</span>
+          <select
+            aria-label={`${label} cadence count`}
+            value={count}
+            disabled={!p || hour === LINT_OFF}
+            onChange={(e) => act(setPassSchedule(bundle, kind, hour, `${e.target.value}${unit}`))}
+          >
+            {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={`${label} cadence unit`}
+            value={unit}
+            disabled={!p || hour === LINT_OFF}
+            onChange={(e) => {
+              const to = UNITS.find((u) => u.unit === e.target.value) ?? UNITS[1];
+              act(setPassSchedule(bundle, kind, hour, `${Math.min(count, to.max)}${to.unit}`));
+            }}
+          >
+            {UNITS.map((u) => (
+              <option key={u.unit} value={u.unit}>
+                {count === 1 ? u.label.slice(0, -1) : u.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <span>
+            {p?.running
+              ? "Running now — watch it in the Console."
+              : p?.next
+                ? `Next ${when(p.next)}`
+                : "Nothing scheduled."}
+          </span>
+          <button
+            className="lint"
+            disabled={!p || p.running}
+            onClick={() => act(startPass(bundle, kind))}
+          >
+            {p?.running ? "Running…" : `${label} now`}
+          </button>
+        </div>
+        {p && !p.running && (
+          <p className="soft">
+            {p.at
+              ? `Last run ${p.at}, took ${took(p.seconds)}.`
+              : `Never ${kind === "lint" ? "linted" : "dreamt"}.`}
+            {p.error && ` It ended badly: ${p.error}`}
+          </p>
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="settings">

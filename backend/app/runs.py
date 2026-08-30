@@ -292,8 +292,9 @@ def sweep_interrupted() -> list[tuple[str, str, str]]:
         return found
 
 
-# which BundleSetting column holds each pass's hour
+# which BundleSetting columns hold each pass's hour and cadence
 _HOURS = {"lint": BundleSetting.lint_hour, "dream": BundleSetting.dream_hour}
+_EVERY = {"lint": BundleSetting.lint_every, "dream": BundleSetting.dream_every}
 
 
 def pass_hour(home: Path, kind: str) -> int | None:
@@ -320,6 +321,34 @@ def set_pass_hour(home: Path, kind: str, hour: int) -> None:
             row = BundleSetting(tenant=tenant, bundle=bundle)
             s.add(row)
         setattr(row, _HOURS[kind].key, hour)
+        s.commit()
+
+
+def pass_every(home: Path, kind: str) -> str | None:
+    """The cadence this bundle has chosen for one pass — "6h", "2d", "1w" — or None to
+    follow the default of once a day."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        return s.scalars(
+            select(_EVERY[kind]).where(
+                BundleSetting.tenant == tenant, BundleSetting.bundle == bundle
+            )
+        ).first()
+
+
+def set_pass_every(home: Path, kind: str, every: str) -> None:
+    """Choose how often one pass runs on this bundle."""
+    tenant, bundle = _where(home)
+    with session() as s:
+        row = s.scalars(
+            select(BundleSetting).where(
+                BundleSetting.tenant == tenant, BundleSetting.bundle == bundle
+            )
+        ).first()
+        if row is None:
+            row = BundleSetting(tenant=tenant, bundle=bundle)
+            s.add(row)
+        setattr(row, _EVERY[kind].key, every)
         s.commit()
 
 

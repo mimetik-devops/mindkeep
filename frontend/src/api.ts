@@ -211,6 +211,8 @@ export type Pass = {
   next: string;
   /** The hour (UTC) this bundle runs it at, or LINT_OFF. */
   hour: number;
+  /** How often it runs: "6h", "2d" or "1w". */
+  every: string;
 };
 export type PassKind = "lint" | "dream";
 
@@ -233,9 +235,13 @@ export const retryIngest = (bundle: string, path = "") =>
 /** The hour value that means "never lint this bundle on a schedule". */
 export const LINT_OFF = -1;
 
-/** Choose the hour (UTC) for one overnight pass, or LINT_OFF to switch it off. */
-export const setPassHour = (bundle: string, kind: PassKind, hour: number) =>
-  call<{ hour: number }>(`${at(bundle)}/passes/${kind}`, json({ hour }, "PUT"));
+/** Choose when one pass runs: its hour (UTC, LINT_OFF for never) and how often —
+ * "6h", "2d" or "1w". */
+export const setPassSchedule = (bundle: string, kind: PassKind, hour: number, every: string) =>
+  call<{ hour: number; every: string }>(
+    `${at(bundle)}/passes/${kind}`,
+    json({ hour, every }, "PUT"),
+  );
 /** `at` is the day the last run finished, empty if this pass has never run. */
 export const passState = (bundle: string, kind: PassKind) =>
   call<Pass>(`${at(bundle)}/passes/${kind}`);

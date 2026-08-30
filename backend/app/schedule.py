@@ -10,9 +10,10 @@ Two passes, two clocks. The **lint** is janitorial: broken source links fixed, d
 reported. The **dream** is the wiki read against itself: contradictions, entities with
 no page, the questions that would connect thin areas. Each bundle picks an hour for
 each (Settings); `LINT_HOUR` and `DREAM_HOUR` are the defaults for bundles whose owner
-has never chosen. Hours are UTC — the server has no idea where anyone is, and the UI
-converts for the reader. The two share the bundle's one worker, so a pass queued while
-the other runs simply waits its turn.
+has never chosen, and a cadence — every x hours, days or weeks, once a day unless
+chosen; an hourly cadence counts its slots from the chosen hour. Hours are UTC — the
+server has no idea where anyone is, and the UI converts for the reader. The two share
+the bundle's one worker, so a pass queued while the other runs simply waits its turn.
 """
 
 import logging
@@ -52,6 +53,16 @@ def hour_for(home: Path, kind: str) -> int:
     return default_hour(kind) if chosen is None else chosen
 
 
+def every_for(home: Path, kind: str) -> tuple[int, str]:
+    """This bundle's cadence for one pass: (count, unit), the unit "h", "d" or "w".
+    Unset — or unreadable — means once a day."""
+    raw = runs.pass_every(home, kind) or "1d"
+    count, unit = raw[:-1], raw[-1:]
+    if not count.isdigit() or unit not in "hdw" or int(count) < 1:
+        return 1, "d"
+    return int(count), unit
+
+
 def bundles() -> list[Path]:
     root = Path(os.environ.get("WIKI_ROOT", "/data"))
     if not root.is_dir():
@@ -60,23 +71,40 @@ def bundles() -> list[Path]:
     return [b for t in tenants for b in t.iterdir() if b.is_dir()]
 
 
-def due(home: Path, today: str, kind: str) -> bool:
-    """Once per calendar day per pass, judged by the last one that actually finished.
+def slot(home: Path, now: datetime, kind: str) -> bool:
+    """Is this an hour the pass runs at? A daily or weekly cadence runs at the chosen
+    hour; an hourly one counts its slots from it — every 6 hours at 03:00 means 03, 09,
+    15 and 21."""
+    hour = hour_for(home, kind)
+    if not 0 <= hour <= 23:
+        return False
+    count, unit = every_for(home, kind)
+    if unit == "h":
+        return (now.hour - hour) % 24 % count == 0
+    return now.hour == hour
 
-    A run that failed or was interrupted did not do the work, so it does not count as
-    today's pass — otherwise one killed by a deploy at 02:59 would skip the night.
 
-    ponytail: a pass that keeps failing therefore retries on each tick of its hour, so
-    four times a night at worst. That is the right trade while failures are rare; add a
-    backoff if they ever stop being.
+def due(home: Path, now: datetime, kind: str) -> bool:
+    """Has the pass's period gone by since the last one that actually finished?
+
+    A run that failed or was interrupted did not do the work, so it does not count —
+    otherwise one killed by a deploy at 02:59 would skip the night.
+
+    ponytail: a pass that keeps failing therefore retries on every one of its slots —
+    four times a night at worst on a daily cadence, but all day long on an hourly one.
+    Still the right trade while failures are rare; add a backoff if they ever stop
+    being.
     """
-    source, _, _ = PASSES[kind]
-    last = runs.last_pass(home, source)
+    last = runs.last_pass(home, PASSES[kind][0])
     if last is None or last.error:
         return True
+    count, unit = every_for(home, kind)
     # runs.utc, not astimezone: a naive value is already UTC, and astimezone would read it
     # as local time — which shifts the date, and so the answer, for anyone not on UTC
-    return runs.utc(last.started_at).strftime("%Y-%m-%d") != today
+    started = runs.utc(last.started_at)
+    if unit == "h":
+        return started < now.replace(minute=0, second=0, microsecond=0)
+    return (now.date() - started.date()).days >= count * (7 if unit == "w" else 1)
 
 
 def next_run(home: Path, kind: str) -> str:
@@ -86,21 +114,33 @@ def next_run(home: Path, kind: str) -> str:
     if not 0 <= hour <= 23:
         return ""
     moment = datetime.now(UTC)
+    count, unit = every_for(home, kind)
+    if unit == "h":
+        # the first slot hour strictly ahead — there is always one within 24
+        top = moment.replace(minute=0, second=0, microsecond=0)
+        ahead = next(k for k in range(1, 25) if ((top.hour + k) - hour) % 24 % count == 0)
+        return (top + timedelta(hours=ahead)).isoformat(timespec="minutes")
     when = moment.replace(hour=hour, minute=0, second=0, microsecond=0)
-    # today's slot is no good if it has passed, or if this pass already ran today
-    if when <= moment or not due(home, when.strftime("%Y-%m-%d"), kind):
-        when += timedelta(days=1)
-    return when.isoformat(timespec="minutes")
+    if due(home, moment, kind):
+        # at the coming slot — today's if it has not passed yet
+        if when <= moment:
+            when += timedelta(days=1)
+        return when.isoformat(timespec="minutes")
+    last = runs.last_pass(home, PASSES[kind][0])
+    if last is None:  # unreachable: a pass with nothing to count from is always due
+        return when.isoformat(timespec="minutes")
+    target = runs.utc(last.started_at).replace(hour=hour, minute=0, second=0, microsecond=0)
+    days = count * (7 if unit == "w" else 1)
+    return (target + timedelta(days=days)).isoformat(timespec="minutes")
 
 
 def sweep() -> None:
     now = datetime.now(UTC)
-    today = now.strftime("%Y-%m-%d")
     for home in bundles():
         if not (home / "CLAUDE.md").is_file():
             continue
         for kind, (source, _, _) in PASSES.items():
-            if hour_for(home, kind) != now.hour or not due(home, today, kind):
+            if not slot(home, now, kind) or not due(home, now, kind):
                 continue
             log.info("nightly %s: %s/%s", kind, home.parent.name, home.name)
             # the bundle's worker runs it after whatever is already queued

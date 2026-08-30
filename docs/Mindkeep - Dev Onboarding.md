@@ -301,8 +301,10 @@ produces questions (`questions.md`), tasks (`todo.md`) and a log entry headed
 
 Each pass has its own clock: per bundle in Settings (`bundle_setting.lint_hour` /
 `dream_hour`, nullable = follow the server), defaults `LINT_HOUR` (3) and `DREAM_HOUR`
-(4), UTC; `schedule.py`'s sweep queues whichever is due on the bundle's one worker, so
-they serialize rather than collide, and each counts its own "ran today". Both are runs
+(4), UTC — and its own cadence: every x hours, days or weeks (`lint_every` /
+`dream_every`, unset means once a day; an hourly cadence counts its slots from the
+chosen hour). `schedule.py`'s sweep queues whichever is due on the bundle's one worker, so
+they serialize rather than collide, and each counts its own "ran this period". Both are runs
 in `ingest_run` — `(lint)`, `(dream)` — shown in Activity and undoable like any run.
 Both burn tokens nightly per bundle; the standing ingest-cost concern (§5 of the Dev
 Log) now has two nightly diners.
@@ -334,7 +336,7 @@ Postgres holds **metadata only** — the wiki is files. Tables (`db.py`):
 | Table | What |
 |---|---|
 | `ingest_run` | every run: tenant, bundle, source, timing, model, error, note, `based_on`, `commit`, `undone_at` |
-| `bundle_setting` | per-bundle hours for the two overnight passes |
+| `bundle_setting` | per-bundle hours and cadences for the two overnight passes |
 | `source_move` | moves the server performed, handed to the next lint, settled when it acts |
 | `connection` | a connector on a bundle: kind, name, sealed config, cursor, interval, enabled, last attempt and how it went |
 | `connector_item` | one row per file a connection wrote: the source's id, the path, the digest |
@@ -394,7 +396,7 @@ Under `/teams/{team}`, membership required:
 | GET | `/bundles/{b}/queue` | read | `{held, waiting, failed}` |
 | GET | `/bundles/{b}/activity` · `/runs/{id}` | read | the feed (runs, people's changes, undo/redo, pending) · a run's changed files |
 | POST | `/bundles/{b}/runs/{id}/undo` · `/redo` | history | |
-| GET/PUT/POST | `/bundles/{b}/passes/{kind}` | read / bundles / write | one overnight pass — `lint` or `dream`: state · set hour · run now |
+| GET/PUT/POST | `/bundles/{b}/passes/{kind}` | read / bundles / write | one overnight pass — `lint` or `dream`: state · set hour and cadence · run now |
 | POST | `/bundles/{b}/reorganise` | write | file every page by its type |
 | GET | `/connectors` | signed in | the catalog: every connector installed, its fields, whether it is available |
 | GET/POST | `/bundles/{b}/connections` | read / bundles | list · set one up (credentials tried first; first sync started) |

@@ -1852,6 +1852,24 @@ The hints follow the split: moved sources stay the lint's, the gaps go to the dr
 Cost, stated: two agent passes per bundle per night now — the unmodelled ingest-cost
 concern in §5 has a second diner.
 
+### 4.59 Each pass picks its pace: every x hours, days or weeks (2026-08-31)
+
+The overnight passes stop assuming nightly means daily. Each pass now has a cadence
+beside its hour — every x hours, days or weeks — chosen per bundle in the same Settings
+blocks (`bundle_setting.lint_every` / `dream_every`, unset = once a day, so nothing
+changes for anyone who never touches it). Days and weeks run at the chosen hour, judged
+by how long since the last run that actually finished; hours count slots from the
+chosen hour — every 6 hours at 03:00 means 03, 09, 15 and 21 — so the anchor stays
+meaningful for every unit, and a restart still cannot double-run anything because the
+answer keeps coming from the run history. The PUT grew an optional `every` ("6h", "2d",
+"1w"; hours cap at 23 — longer than a day is days' business).
+
+Two consequences said out loud. A failing pass still retries on every one of its slots,
+which on an hourly cadence means all day rather than four times a night — the "add a
+backoff when failures stop being rare" line from §4.58 just moved closer. And an hourly
+dream is up to 24 agent passes a day on one bundle: the §5 ingest-cost concern gets its
+third mention.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

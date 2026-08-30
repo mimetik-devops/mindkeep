@@ -74,6 +74,9 @@ class BundleSetting(Base):
     bundle: Mapped[str] = mapped_column(String(64))
     lint_hour: Mapped[int | None] = mapped_column(Integer, default=None)
     dream_hour: Mapped[int | None] = mapped_column(Integer, default=None)
+    # how often each pass runs — "6h", "2d", "1w" — None for the default of once a day
+    lint_every: Mapped[str | None] = mapped_column(String(8), default=None)
+    dream_every: Mapped[str | None] = mapped_column(String(8), default=None)
 
     __table_args__ = (UniqueConstraint("tenant", "bundle", name="uq_bundle_setting"),)
 

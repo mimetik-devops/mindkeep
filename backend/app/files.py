@@ -862,6 +862,8 @@ def pass_state(home: Bundle, kind: str) -> dict[str, str | int | bool]:
     run = runs.last_pass(home, source)
     nxt = schedule.next_run(home, kind)  # empty when the pass is switched off
     hour = schedule.hour_for(home, kind)
+    count, unit = schedule.every_for(home, kind)
+    every = f"{count}{unit}"
     if run is None:
         return {
             "running": False,
@@ -872,6 +874,7 @@ def pass_state(home: Bundle, kind: str) -> dict[str, str | int | bool]:
             "turns": 0,
             "next": nxt,
             "hour": hour,
+            "every": every,
         }
     if run.finished_at is None:
         return {
@@ -885,6 +888,7 @@ def pass_state(home: Bundle, kind: str) -> dict[str, str | int | bool]:
             "turns": run.turns or 0,
             "next": nxt,
             "hour": hour,
+            "every": every,
         }
     return {
         "running": False,
@@ -895,19 +899,34 @@ def pass_state(home: Bundle, kind: str) -> dict[str, str | int | bool]:
         "turns": run.turns or 0,
         "next": nxt,
         "hour": hour,
+        "every": every,
     }
 
 
 @router.put("/bundles/{name}/passes/{kind}")
 def set_pass_schedule(
-    home: Bundle, kind: str, hour: Annotated[int, Body(embed=True)], _: Manager
-) -> dict[str, int]:
-    """Choose the hour (UTC) for one overnight pass, or -1 to switch it off."""
+    home: Bundle,
+    kind: str,
+    hour: Annotated[int, Body(embed=True)],
+    _: Manager,
+    every: Annotated[str, Body(embed=True)] = "",
+) -> dict[str, int | str]:
+    """Choose when one overnight pass runs: the hour (UTC, -1 for never) and how often —
+    "6h", "2d" or "1w". An empty cadence leaves that side as it was."""
     overnight(kind)
     if hour != LINT_OFF and not 0 <= hour <= 23:
         raise HTTPException(400, "hour is 0-23, or -1 to switch this pass off")
+    if every:
+        caps = {"h": 23, "d": 90, "w": 52}
+        n, unit = every[:-1], every[-1:]
+        if not (n.isascii() and n.isdigit()) or not 1 <= int(n) <= caps.get(unit, 0):
+            raise HTTPException(
+                400, "the cadence is 1-23 hours, 1-90 days or 1-52 weeks — like 6h, 2d or 1w"
+            )
+        runs.set_pass_every(home, kind, every)
     runs.set_pass_hour(home, kind, hour)
-    return {"hour": hour}
+    count, unit = schedule.every_for(home, kind)
+    return {"hour": hour, "every": f"{count}{unit}"}
 
 
 @router.post("/bundles/{name}/passes/{kind}")

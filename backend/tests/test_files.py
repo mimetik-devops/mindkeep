@@ -1289,7 +1289,7 @@ def test_a_bundle_chooses_its_own_lint_hour(client, tmp_path, monkeypatch):
     monkeypatch.setenv("LINT_HOUR", "3")
     assert client.get(f"{B}/passes/lint").json()["hour"] == 3
 
-    assert client.put(f"{B}/passes/lint", json={"hour": 20}).json() == {"hour": 20}
+    assert client.put(f"{B}/passes/lint", json={"hour": 20}).json() == {"hour": 20, "every": "1d"}
     assert client.get(f"{B}/passes/lint").json()["hour"] == 20
     assert datetime.fromisoformat(client.get(f"{B}/passes/lint").json()["next"]).hour == 20
 
@@ -1314,7 +1314,7 @@ def test_a_bundle_can_switch_its_nightly_lint_off(client, monkeypatch):
     client.get(f"{T}/bundles")
     monkeypatch.setenv("LINT_HOUR", str(datetime.now(UTC).hour))  # would fire right now
 
-    assert client.put(f"{B}/passes/lint", json={"hour": -1}).json() == {"hour": -1}
+    assert client.put(f"{B}/passes/lint", json={"hour": -1}).json() == {"hour": -1, "every": "1d"}
     assert client.get(f"{B}/passes/lint").json()["next"] == ""
 
     ran: list = []
@@ -1645,7 +1645,10 @@ def test_the_dream_is_its_own_pass_with_its_own_clock(client, tmp_path, ingested
     assert client.get(f"{B}/passes/dream").json()["hour"] == 4
     assert client.get(f"{B}/passes/nope").status_code == 404
 
-    assert client.put(f"{B}/passes/dream", json={"hour": 21}).json() == {"hour": 21}
+    assert client.put(f"{B}/passes/dream", json={"hour": 21}).json() == {
+        "hour": 21,
+        "every": "1d",
+    }
     assert client.get(f"{B}/passes/dream").json()["hour"] == 21
     # the lint's own hour is untouched — two clocks
     assert client.get(f"{B}/passes/lint").json()["hour"] != 21
@@ -1658,11 +1661,11 @@ def test_the_dream_is_its_own_pass_with_its_own_clock(client, tmp_path, ingested
     assert client.get(f"{B}/passes/dream").json()["running"] is False
 
     # a dream today does not count as a lint today, and the other way round
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    assert schedule.due(home, today, "lint")
-    assert not schedule.due(home, today, "dream")
+    now = datetime.now(UTC)
+    assert schedule.due(home, now, "lint")
+    assert not schedule.due(home, now, "dream")
     runs.finish(home, runs.start(home, LINT, "m"), 1, 10)
-    assert not schedule.due(home, today, "lint")
+    assert not schedule.due(home, now, "lint")
 
 
 def test_the_sweep_queues_each_pass_at_its_own_hour(client, tmp_path, monkeypatch):
@@ -1711,3 +1714,54 @@ def test_the_dream_gets_the_gaps_and_the_lint_keeps_the_moves(client, tmp_path, 
     task = seen["messages"][0]["content"]
     assert "Lint the wiki" in task and "`raw/a.md` is now `raw/b.md`" in task
     assert "side one | side two" not in task  # gaps are the dream's
+
+
+def test_a_pass_picks_its_pace_hours_days_or_weeks(client, tmp_path, monkeypatch):
+    """Every x hours, days or weeks: day counts judged from the last healthy run, hour
+    slots counted from the chosen hour; a cadence that is not one is a 400."""
+    from datetime import UTC, datetime, timedelta
+
+    from app import runs, schedule
+    from app.ingest import DREAM, LINT
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    now = datetime.now(UTC)
+
+    # every second day: a lint today puts the next one two days out, at the same hour
+    assert client.put(f"{B}/passes/lint", json={"hour": 3, "every": "2d"}).json() == {
+        "hour": 3,
+        "every": "2d",
+    }
+    assert client.get(f"{B}/passes/lint").json()["every"] == "2d"
+    runs.finish(home, runs.start(home, LINT, "m"), 1, 10)
+    assert not schedule.due(home, now, "lint")
+    nxt = datetime.fromisoformat(schedule.next_run(home, "lint"))
+    assert nxt.date() == now.date() + timedelta(days=2) and nxt.hour == 3
+
+    # weeks are days, seven at a time
+    client.put(f"{B}/passes/lint", json={"hour": 3, "every": "1w"})
+    nxt = datetime.fromisoformat(schedule.next_run(home, "lint"))
+    assert nxt.date() == now.date() + timedelta(days=7)
+
+    # every six hours: slots counted from the chosen hour, and the sweep runs the slot
+    client.put(f"{B}/passes/lint", json={"hour": -1})
+    ran: list = []
+    monkeypatch.setattr(schedule, "enqueue", lambda h, src: ran.append(src))
+    anchor = datetime.now(UTC).hour
+    client.put(f"{B}/passes/dream", json={"hour": anchor, "every": "6h"})
+    schedule.sweep()
+    assert ran == [DREAM]
+    runs.finish(home, runs.start(home, DREAM, "m"), 1, 10)
+    assert not schedule.due(home, datetime.now(UTC), "dream")  # this slot is served
+    nxt = datetime.fromisoformat(schedule.next_run(home, "dream"))
+    left = nxt - datetime.now(UTC)
+    assert (nxt.hour - anchor) % 24 % 6 == 0 and timedelta() < left <= timedelta(hours=6)
+    # an hour off the grid is nobody's slot
+    client.put(f"{B}/passes/dream", json={"hour": (anchor + 1) % 24, "every": "6h"})
+    assert not schedule.slot(home, datetime.now(UTC), "dream")
+
+    # a cadence that is not one
+    for bad in ("0d", "24h", "5x", "d", "h6", "999w"):
+        put = client.put(f"{B}/passes/lint", json={"hour": 3, "every": bad})
+        assert put.status_code == 400, bad
