@@ -10,7 +10,6 @@ dependencies = [
     "alembic",
     "pyjwt[crypto]",
     "httpx",
-    "anthropic",
     "pyyaml",
     "networkx",
     "cryptography",

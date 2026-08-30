@@ -1789,6 +1789,41 @@ writes the same path a person could have typed — `Clients/Acme`,
 via the `drives` endpoint). Typing and links still work. Three ambiguous *Acme*s at the
 top are three choices in the browser and a refusal with the count when typed.
 
+### 4.57 The agents run through OpenRouter (2026-08-30)
+
+Ruben: replace Anthropic with OpenRouter, and expose the model per agent and the key as
+environment variables. The point is agnosticism through a gateway: OpenRouter speaks the
+OpenAI chat-completions shape and routes to whichever model a slug names — Anthropic's
+included — so the model becomes configuration, not an SDK. `OPENROUTER_API_KEY`;
+`LLM_MODEL` for both agents, `INGEST_MODEL` and `ASSIST_MODEL` to differ per agent
+(read at run time, so a redeploy with a new variable is the whole change); the default
+stays Claude: `anthropic/claude-sonnet-5`, which OpenRouter lists with tool calling,
+file input and reasoning.
+
+**What replaced the SDK** (`app/llm.py`, the only file that knows OpenRouter exists):
+tool declarations generated from the agents' own functions — the signature gives the
+schema, the docstring's `Args:` block the descriptions, a defaulted argument is optional,
+a no-argument tool still gets an empty object (some providers refuse a missing
+`parameters`); and the loop the Anthropic runner used to be — send, dispatch the tool
+calls, send the results back with their `tool_call_id`, echo the assistant message with
+its `tool_calls` verbatim (the classic hand-rolled-loop bug is dropping them), until the
+model stops asking. A malformed call — unparseable arguments, a wrong name, a tool that
+raises — comes back to the model as a sentence and the run goes on; a reply cut off
+(`finish_reason: length`) is still refused loudly, as before. Reasoning maps to
+OpenRouter's `reasoning: {effort}` (adaptive thinking on Claude). A PDF rides as a
+`file` part (data URL; 32 MB stays as our ceiling, no longer the API's), a .docx as its
+text. Errors are one sentence with the status spelled out — `Insufficient credits
+(HTTP 402)` — and the worker's holds now match on that spelling as well as the old
+Anthropic wordings, so the retry-with-backoff behaviour is unchanged. The `anthropic`
+dependency is gone; the rollback is one revert plus the old variable.
+
+**Verified, and what is not.** OpenRouter is never called in the tests: `test_llm.py`
+pins the generated schemas for every shape the agents use and walks the loop — dispatch,
+echo, malformed calls, the length cut-off, the 402 sentence; the agent tests run against
+a fake `llm`. Not run: a real completion — there is no `OPENROUTER_API_KEY` here. The
+first real ingest through OpenRouter is the actual test; a *Re-ingest* of a small source
+is the smoke.
+
 ## 5. Open questions and known gaps
 
 - **The M2M application is not authorised for the Management API**, so every

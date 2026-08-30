@@ -209,7 +209,7 @@ def test_a_changed_source_is_reingested_with_its_diff(client, tmp_path, monkeypa
     client.post(f"{B}/raw/deck.md", content=b"Alice is CTO\nBob is CFO\n")
 
     seen: dict = {}
-    monkeypatch.setattr(agent, "anthropic", _FakeAnthropic(seen))
+    monkeypatch.setattr(agent, "llm", _FakeLLM(seen))
     agent.ingest_safely(home, "raw/deck.md")
     assert "changed since" not in seen["messages"][0]["content"]  # a first read
 
@@ -381,18 +381,18 @@ def test_a_source_the_last_run_already_read_is_skipped(client, tmp_path, ingeste
     before = len(runs.recent(home))
 
     seen: dict = {}
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest_safely(home, "raw/deck.md")
     assert not seen and len(runs.recent(home)) == before  # nothing to teach the wiki
 
     # asked for by a person — Ingest again, retry — it runs, unchanged or not
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest_safely(home, "raw/deck.md", force=True)
     assert seen and len(runs.recent(home)) == before + 1
     seen.clear()
 
     client.put(f"{B}/files/raw/deck.md", content=b"v2")
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest_safely(home, "raw/deck.md")
     assert seen and len(runs.recent(home)) == before + 2  # changed since: it runs
 
@@ -486,7 +486,7 @@ def test_a_lint_that_finds_misfiled_pages_queues_the_reorganise_itself(
 
     queued: list[str] = []
     monkeypatch.setattr(agent, "enqueue", lambda h, s: queued.append(s))
-    with patch.object(agent, "anthropic", _FakeAnthropic({})):
+    with patch.object(agent, "llm", _FakeLLM({})):
         agent.ingest_safely(home, agent.LINT)
     assert queued == [agent.REORGANISE]
 
@@ -495,7 +495,7 @@ def test_a_lint_that_finds_misfiled_pages_queues_the_reorganise_itself(
     (home / "wiki" / "companies").mkdir()
     (home / "wiki" / "kinde.md").rename(home / "wiki" / "companies" / "kinde.md")
     queued.clear()
-    with patch.object(agent, "anthropic", _FakeAnthropic({})):
+    with patch.object(agent, "llm", _FakeLLM({})):
         agent.ingest_safely(home, agent.LINT)
     assert queued == []  # in order: nothing to follow up
 
@@ -511,18 +511,15 @@ def test_move_file_moves_a_page_without_passing_it_through_the_model(client, tmp
     page("wiki/old/futuros.md", "---\ntype: Project\ntitle: Futuros\n---\nbody\n")
     page("wiki/projects/taken.md", "---\ntype: Project\n---\n")
     seen: dict = {}
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest(home, agent.REORGANISE)
     task = seen["messages"][0]["content"]
     assert "`wiki/old/futuros.md` -> `wiki/projects/futuros.md`" in task  # told where it goes
-    tool = next(t for t in seen["tools"] if t.name == "move_file")
-    call = tool.call if hasattr(tool, "call") else tool.func
+    call = next(t for t in seen["tools"] if t.__name__ == "move_file")
 
-    assert "Refused" in call({"path": "raw/x.md", "to": "wiki/x.md"})
-    assert "already exists" in call({"path": "wiki/old/futuros.md", "to": "wiki/projects/taken.md"})
-    assert call({"path": "wiki/old/futuros.md", "to": "wiki/projects/futuros.md"}).startswith(
-        "Moved"
-    )
+    assert "Refused" in call(path="raw/x.md", to="wiki/x.md")
+    assert "already exists" in call(path="wiki/old/futuros.md", to="wiki/projects/taken.md")
+    assert call(path="wiki/old/futuros.md", to="wiki/projects/futuros.md").startswith("Moved")
     assert (
         (home / "wiki" / "projects" / "futuros.md").read_text(encoding="utf-8").endswith("body\n")
     )
@@ -530,7 +527,6 @@ def test_move_file_moves_a_page_without_passing_it_through_the_model(client, tmp
 
 
 def test_a_reply_cut_off_at_max_tokens_is_a_failed_run_not_a_silent_one(client, tmp_path):
-    from types import SimpleNamespace
     from unittest.mock import patch
 
     from app import ingest as agent
@@ -538,11 +534,11 @@ def test_a_reply_cut_off_at_max_tokens_is_a_failed_run_not_a_silent_one(client, 
     client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
 
-    class Cut(_FakeAnthropic):
-        def tool_runner(self, **kwargs):
-            return iter([SimpleNamespace(stop_reason="max_tokens")])
+    class Cut(_FakeLLM):
+        def loop(self, **kwargs):
+            return iter([{"finish": "length", "text": ""}])
 
-    with patch.object(agent, "anthropic", Cut({})), pytest.raises(RuntimeError, match="max_tokens"):
+    with patch.object(agent, "llm", Cut({})), pytest.raises(RuntimeError, match="max_tokens"):
         agent.ingest(home, agent.REORGANISE)
 
 
@@ -608,22 +604,23 @@ def test_a_pdf_source_is_handed_to_the_model_as_a_document(client, tmp_path, mon
     home = tmp_path / tenant_id("alice") / "default"
     client.post(f"{B}/raw/guide.pdf", content=MINIMAL_PDF)
     seen: dict = {}
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest(home, "raw/guide.pdf")
     content = seen["messages"][0]["content"]
-    assert content[0]["type"] == "document" and content[0]["title"] == "guide.pdf"
-    assert content[0]["source"]["media_type"] == "application/pdf"
-    assert base64.b64decode(content[0]["source"]["data"]) == MINIMAL_PDF
+    assert content[0]["type"] == "file" and content[0]["file"]["filename"] == "guide.pdf"
+    prefix = "data:application/pdf;base64,"
+    assert content[0]["file"]["file_data"].startswith(prefix)
+    assert base64.b64decode(content[0]["file"]["file_data"][len(prefix) :]) == MINIMAL_PDF
     assert "attached to this message" in content[1]["text"]
-    read = next(t for t in seen["tools"] if t.name == "read_file")
-    assert "attached to your task" in read.call({"path": "raw/guide.pdf"})
+    read = next(t for t in seen["tools"] if t.__name__ == "read_file")
+    assert "attached to your task" in read(path="raw/guide.pdf")
 
     monkeypatch.setattr(agent, "PDF_LIMIT", 10)  # this one is now too large
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest(home, "raw/guide.pdf")
     assert isinstance(seen["messages"][0]["content"], str)  # nothing attached
-    read = next(t for t in seen["tools"] if t.name == "read_file")
-    assert "too large" in read.call({"path": "raw/guide.pdf"})
+    read = next(t for t in seen["tools"] if t.__name__ == "read_file")
+    assert "too large" in read(path="raw/guide.pdf")
 
     # a .docx is attached the same way, as its text: the API takes PDF and plain text
     import io
@@ -633,21 +630,16 @@ def test_a_pdf_source_is_handed_to_the_model_as_a_document(client, tmp_path, mon
     with zipfile.ZipFile(packed, "w") as z:
         z.writestr("word/document.xml", "<w:document><w:p><w:t>Hello docx</w:t></w:p></w:document>")
     client.post(f"{B}/raw/memo.docx", content=packed.getvalue())
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest(home, "raw/memo.docx")
     content = seen["messages"][0]["content"]
-    assert content[0]["source"] == {
-        "type": "text",
-        "media_type": "text/plain",
-        "data": "Hello docx",
-    }
-    assert content[0]["title"] == "memo.docx"
-    read = next(t for t in seen["tools"] if t.name == "read_file")
-    assert "attached to your task" in read.call({"path": "raw/memo.docx"})
+    assert content[0] == {"type": "text", "text": "memo.docx reads:\n\nHello docx"}
+    read = next(t for t in seen["tools"] if t.__name__ == "read_file")
+    assert "attached to your task" in read(path="raw/memo.docx")
 
     # a markdown source is handed over as before: text through read_file
     client.post(f"{B}/raw/note.md", content=b"plain")
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest(home, "raw/note.md")
     assert isinstance(seen["messages"][0]["content"], str)
 
@@ -722,7 +714,7 @@ def test_a_reorganise_is_a_run_over_the_whole_wiki(client, tmp_path, ingested):
     assert [c[1] for c in ingested] == [agent.REORGANISE]
 
     seen: dict = {}
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest(home, agent.REORGANISE)
     task = seen["messages"][0]["content"]
     assert "Reorganise the wiki" in task and "reorganise`" in task and "Change no content" in task
@@ -756,7 +748,7 @@ def test_deleting_a_cited_source_retires_its_pages_now(client, tmp_path, ingeste
     (home / "raw").mkdir(exist_ok=True)
     from unittest.mock import patch
 
-    with patch.object(agent, "anthropic", _FakeAnthropic(seen)):
+    with patch.object(agent, "llm", _FakeLLM(seen)):
         agent.ingest(home, "raw/deck.md")
     task = seen["messages"][0]["content"]
     assert "has been deleted" in task and "retire | raw/deck.md" in task
@@ -1221,7 +1213,7 @@ def test_the_agent_runs_on_the_manual_and_the_bundle_carries_the_guide(
     (home / "CLAUDE.md").write_text("stale guide", encoding="utf-8")
 
     seen: dict = {}
-    monkeypatch.setattr(agent, "anthropic", _FakeAnthropic(seen))
+    monkeypatch.setattr(agent, "llm", _FakeLLM(seen))
     agent.ingest(home, "raw/notes.txt")
 
     manual = (TEMPLATES / "manual.md").read_text(encoding="utf-8")
@@ -1236,24 +1228,23 @@ def test_the_agent_runs_on_the_manual_and_the_bundle_carries_the_guide(
     assert not (home / "manual.md").exists()
 
 
-class _FakeAnthropic:
-    """Just enough of the SDK to see what the runner was given, and to end immediately."""
+class _FakeLLM:
+    """Just enough of app.llm to see what the loop was given, and to end immediately."""
+
+    LLMError = RuntimeError
+    model_for = staticmethod(lambda role: "test/model")
+    text_part = staticmethod(lambda text: {"type": "text", "text": text})
+    file_part = staticmethod(
+        lambda filename, data_url: {
+            "type": "file",
+            "file": {"filename": filename, "file_data": data_url},
+        }
+    )
 
     def __init__(self, seen: dict) -> None:
         self.seen = seen
 
-    def Anthropic(self):  # noqa: N802 - matching the SDK's name
-        return self
-
-    @property
-    def beta(self):
-        return self
-
-    @property
-    def messages(self):
-        return self
-
-    def tool_runner(self, **kwargs):
+    def loop(self, **kwargs):
         self.seen.update(kwargs)
         return iter(())
 
@@ -1477,7 +1468,7 @@ def test_the_lint_is_told_what_moved_and_forgets_only_when_it_worked(client, tmp
     client.post(f"{B}/move", json={"source": "raw/note.md", "target": "raw/papers/note.md"})
 
     seen: dict = {}
-    monkeypatch.setattr(agent, "anthropic", _FakeAnthropic(seen))
+    monkeypatch.setattr(agent, "llm", _FakeLLM(seen))
 
     def die(*_a, **_k):
         raise RuntimeError("killed by a deploy")
@@ -1487,7 +1478,7 @@ def test_the_lint_is_told_what_moved_and_forgets_only_when_it_worked(client, tmp
     assert len(runs.pending_moves(home)) == 1  # the run failed, so the hint survives
 
     monkeypatch.undo()
-    monkeypatch.setattr(agent, "anthropic", _FakeAnthropic(seen))
+    monkeypatch.setattr(agent, "llm", _FakeLLM(seen))
     agent.ingest_safely(home, agent.LINT)
     assert "`raw/note.md` is now `raw/papers/note.md`" in seen["messages"][0]["content"]
     assert runs.pending_moves(home) == []  # dealt with

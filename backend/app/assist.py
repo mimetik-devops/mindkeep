@@ -23,14 +23,9 @@ import secrets
 import threading
 import time
 from pathlib import Path
-from typing import cast
 
-import anthropic
-from anthropic import beta_tool
-from anthropic.types.beta import BetaMessageParam
-
-from app import graph
-from app.ingest import MODEL, enqueue, lock_for
+from app import graph, llm
+from app.ingest import enqueue, lock_for
 from app.todos import QUESTIONS, TODO
 
 log = logging.getLogger(__name__)
@@ -200,30 +195,18 @@ def reply(home: Path, question: str, messages: list[dict[str, str]]) -> dict[str
         if rel.startswith("raw/") and rel not in touched:
             touched.append(rel)
 
-    client = anthropic.Anthropic()
     # The same per-bundle lock the wiki agent takes. The assistant only writes raw/, but
     # a source rewritten while an ingest is reading it is exactly the race that lock is for.
     with lock_for(home):
-        runner = client.beta.messages.tool_runner(
-            model=MODEL,
+        runner = llm.loop(
+            model=llm.model_for("assist"),
             max_tokens=8000,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "medium"},
+            effort="medium",
             system=f"{ROLE}\n\nThe question you are working on is:\n{question}",
-            tools=[
-                beta_tool(read_file),
-                beta_tool(list_files),
-                beta_tool(related),
-                beta_tool(edit_raw),
-                beta_tool(write_raw),
-                beta_tool(resolve),
-                beta_tool(task),
-            ],
-            messages=[cast(BetaMessageParam, m) for m in messages],
+            tools=[read_file, list_files, related, edit_raw, write_raw, resolve, task],
+            messages=[dict(m) for m in messages],
         )
-        said: list[str] = []
-        for message in runner:
-            said.extend(b.text for b in message.content if b.type == "text")
+        said = [message["text"] for message in runner if message["text"]]
 
     # after the lock, so the ingest queue is not started from underneath it
     for rel in touched:
@@ -255,11 +238,8 @@ def start(home: Path, question: str, messages: list[dict[str, str]]) -> str:
             outcome: dict[str, object] = {"done": True, **result}
         except Exception as e:  # noqa: BLE001 - the person sees the sentence, whatever it was
             log.exception("assistant turn failed in %s", home)
-            body = getattr(e, "body", None)
-            message = (
-                (body or {}).get("error", {}).get("message", "") if isinstance(body, dict) else ""
-            )
-            outcome = {"done": True, "error": (message or str(e) or type(e).__name__)[:300]}
+            # llm.LLMError already is the sentence a person can act on
+            outcome = {"done": True, "error": (str(e) or type(e).__name__)[:300]}
         with _jobs_lock:
             _jobs[job].update(outcome)
 
