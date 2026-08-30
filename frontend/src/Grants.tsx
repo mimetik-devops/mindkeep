@@ -131,7 +131,7 @@ export function Grants({ notice = "" }: { notice?: string }) {
                 )}
               </div>
               {own.map((g) => (
-                <div className="signin" key={g.id}>
+                <div className="grant" key={g.id}>
                   <span className={`dot ${g.error ? "failed" : "done"}`} />
                   <span className="label">{g.label}</span>
                   <span className={g.error ? "bad" : "soft"}>

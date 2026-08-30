@@ -565,22 +565,22 @@ button:focus-visible {
 .connections .how .more {
   margin-left: 6px;
 }
-/* a sign-in under its connector: dot, account, a short state, remove at the end */
-.connections .signin {
+/* a sign-in (a grant) under its connector — not .signin, which is the login form: dot, account, a short state, remove at the end */
+.connections .grant {
   display: flex;
   align-items: center;
   gap: 8px;
   padding-left: 17px;
   font-size: 13px;
 }
-.connections .signin .label {
+.connections .grant .label {
   font-weight: 500;
   color: var(--ink);
 }
-.connections .signin .more {
+.connections .grant .more {
   margin-left: auto;
 }
-.connections .signin .bad {
+.connections .grant .bad {
   color: var(--red);
 }
 .card .notice {
