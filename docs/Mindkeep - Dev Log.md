@@ -1964,3 +1964,60 @@ third mention.
 `. Both unit
   tests had passed — they used LF fixtures and markdown. Exercising the real thing
   found both in minutes.
+
+### 4.60 Notion, and an OAuth that departs from the textbook (2026-09-10)
+
+Notion is the third grant-based connector — `app/connectors/notion.py`, a built-in like
+Drive. The connector entries' *Next* had it pencilled in as an internal-integration
+*token* kind, "the plumbing as it is"; the call today was the sign-in instead, for the
+person's sake: *Connect Notion*, Notion's own page picker, done — against pasting a secret
+and then sharing every page with the integration by hand in Notion's UI. The price is that
+Notion's OAuth is not the textbook one, checked against its documentation rather than
+remembered: the token call wants the app's credentials as HTTP Basic auth, a JSON body and
+a `Notion-Version` header; there are no scopes (`owner=user` instead); PKCE is absent from
+the documentation. So `OAuth` grew four knobs, all off by default and Google untouched —
+`basic_auth`, `json_body`, `headers`, `pkce` — and `grants.py` honours them in `exchange`
+and in the two dance steps, leaving `scope` out of the authorize URL when there are no
+scopes. That, and a public Notion integration with `NOTION_CLIENT_ID` /
+`NOTION_CLIENT_SECRET` on the server, is the whole cost. Branched from `main`, not from
+`dream`.
+
+- **What a connection is.** The scope is set in Notion's picker at sign-in — the pages
+  handed over and everything under them — so the connection's only field is an optional
+  *Pages* list (links or ids), narrowing to those and their descendants: one sign-in can
+  feed a work bundle and a personal one with different corners of a workspace.
+  `tick = 0`: the connection keeps its own interval.
+- **Pages under the pages above them.** `/v1/search` lists every page the sign-in can
+  see, children included, each with its `parent` and `last_edited_time`; a page files as
+  `Clients/Acme/Brief.md` from the titles of its shared ancestors. The cursor remembers
+  each page's `last_edited_time` *and* its path, so a retitled parent moves its children
+  (a move — the page id is the identity), an edited page is re-read, a page gone or
+  trashed has its source removed, and nothing else is touched. Two pages at one path each
+  take a short id. A page whose blocks fail to read keeps its old cursor entry and is
+  retried next time, rather than being removed and re-added — Drive drops the file in that
+  case; noted, not changed.
+- **Blocks to Markdown**, a pure function: headings, lists, to-dos, toggles, quotes,
+  callouts, code, tables, media and bookmarks as links, subpages as a listed title (a
+  subpage is a page of its own and arrives as one), columns and synced blocks flattened;
+  rich-text marks hug the words so `** text**` never happens. What has no Markdown keeps
+  its text if it has any. Bounded: 500 pages per connection, 2,000 blocks per page; a 429
+  is waited out once on `Retry-After`.
+- **Tokens.** Notion's token response has no `expires_in`, and a `refresh_token` only
+  when the integration's token rotation is on — off, it is `null`. With it, the grant is
+  renewed hourly through the now-Basic-auth `exchange`: wasteful, correct. Without it,
+  `tokens_of` now books no `expires_at` at all (neither a lifetime nor a refresh token
+  means a token that does not expire), so `fresh` leaves the grant be instead of posting
+  an empty refresh an hour in and killing every connection on it. Google always sends
+  `expires_in`; Drive is untouched. The real consent ran the same evening: a grant named
+  after the workspace, so the whole dance — Basic auth, JSON body, no PKCE — holds
+  against Notion itself, not only the stand-in.
+- **Tests** (`tests/test_notion.py`, on Drive's pattern): the dance as Notion runs it (no
+  `scope`, no `code_challenge`, `owner=user`, no `code_verifier`); the real `exchange`
+  against a stood-in `httpx.post`, Notion's dialect and Google's unchanged side by side;
+  the tree, the exact re-read set, moves and removals; the subtree filter; id parsing
+  from ids, uuids and links; the converter. Stand-ins, not a real consent.
+- **Found on the way:** the plumbing's summary counts a move as `~1 -1`, the old path
+  under removed — a retitled page with two children reads `~3 -3`. Fine, and now written
+  down. And the connector's `safe()` is Drive's — non-ASCII in a title becomes `-`, so
+  *Estrategia y visión* files as `Estrategia y visi-n`; consistent with Drive, worth a
+  shared answer some day.
