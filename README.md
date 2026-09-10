@@ -1,7 +1,8 @@
 # Mindkeep
 
-**A team knowledge base that an AI agent writes and keeps current, from the documents you
-already have.**
+![Mindkeep — Give your AI a second brain.](docs/assets/readme-banner.svg)
+
+**A portable, collaborative knowledge base for your AI agents — for individuals and small teams.**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](LICENSE)
 [![Desktop client](https://github.com/mimetik-devops/mindkeep/actions/workflows/app.yml/badge.svg)](https://github.com/mimetik-devops/mindkeep/actions/workflows/app.yml)
@@ -12,13 +13,15 @@ short, linked, cited pages — one per person, company, project, concept, meetin
 syncs back down to every teammate's machine as plain markdown that any local tool can
 open: Claude Code, Obsidian, an editor, `grep`.
 
-The whole design follows from one rule:
+![How Mindkeep works: source documents become linked, cited wiki pages that your agents read as synced markdown.](docs/assets/knowledge-flow.svg)
 
-> **The agent is the only writer of `wiki/`. People write only `raw/`.**
+The agent builds the wiki from your sources. Correct a source and the pages follow;
+delete a source and claims that depended on it are withdrawn.
 
-Nobody hand-edits a page, because a page is not a document — it is a view of the sources,
-rewritten whenever they change. Correct the source and the page follows. Delete a source
-and every claim that rested on it is withdrawn.
+You can also edit an existing wiki page in the web app. That edit is committed to the
+bundle's history, but a later ingest may revise it again. For a lasting factual correction,
+update the source. Synced local copies of `wiki/` remain mirrors: contribute through
+`raw/` rather than editing those files in place.
 
 ---
 
@@ -44,13 +47,13 @@ and every claim that rested on it is withdrawn.
 
 ## Quick start
 
-Requires Docker and an [Anthropic API key](https://console.anthropic.com/).
+Requires Docker and an OpenRouter API key with credits available.
 
 ```bash
 git clone https://github.com/mimetik-devops/mindkeep.git
 cd mindkeep
 
-cp backend/.env.example backend/.env      # set ANTHROPIC_API_KEY, DEVICE_SECRET, AUTH_SECRET
+cp backend/.env.example backend/.env      # set OPENROUTER_API_KEY, DEVICE_SECRET, AUTH_SECRET
 cp frontend/.env.example frontend/.env    # defaults are fine
 
 docker compose up -d --build
@@ -60,8 +63,9 @@ Open <http://localhost:5163>, register an account, and drag a document onto the 
 tab. The first page appears when the run finishes.
 
 Nothing else is required: with `AUTH_PROVIDER=builtin` (what `.env.example` ships) Mindkeep
-runs on this server alone — no identity provider, no third-party account. The only outbound
-calls are to the Anthropic API.
+uses local accounts and needs no external identity provider. Both the ingest agent and
+the assistant send model requests through OpenRouter. Enabled connectors also contact
+their source services; OIDC contacts your identity provider if configured.
 
 | Service | Where | Notes |
 |---|---|---|
@@ -79,13 +83,42 @@ every key. The ones that matter:
 
 | Variable | What |
 |---|---|
-| `ANTHROPIC_API_KEY` | the agent's credential — your API bill, no intermediary |
+| `OPENROUTER_API_KEY` | credential for model requests through OpenRouter; usage is billed by OpenRouter |
+| `LLM_MODEL` | OpenRouter model slug shared by both agents; see the example environment for the configured default |
+| `INGEST_MODEL` | optional model override for ingestion and maintenance passes |
+| `ASSIST_MODEL` | optional model override for the conversational assistant |
 | `WIKI_ROOT` | where bundles live on disk (`/data`, a volume in production) |
-| `DATABASE_URL` | Postgres; holds run metadata only, never wiki content |
+| `DATABASE_URL` | Postgres; accounts, teams, runs and connection metadata; wiki content stays in files |
 | `AUTH_PROVIDER` | `builtin` for Mindkeep's own accounts, `oidc` for a provider |
 | `AUTH_SECRET` | builtin only: signs session tokens. Rotating it signs everyone out |
 | `DEVICE_SECRET` | signs desktop-client tokens. Rotating it revokes every device |
-| `LINT_HOUR` | UTC hour for the nightly maintenance pass; out of range disables it |
+| `LINT_HOUR` | default UTC hour for lint (3); outside 0–23 disables the default schedule |
+| `DREAM_HOUR` | default UTC hour for dreaming (4); outside 0–23 disables the default schedule |
+
+### Models and document input
+
+The backend uses [its OpenRouter adapter](backend/app/llm.py), not the Anthropic SDK.
+Set `LLM_MODEL` to an OpenRouter model slug, or use `INGEST_MODEL` and `ASSIST_MODEL`
+to choose a different model for each agent. The checked-in default is
+`anthropic/claude-sonnet-5`: that is a model identifier routed through OpenRouter,
+not a requirement for a separate Anthropic API key.
+
+Choose a model that supports tool calls. PDF ingestion also needs native file input;
+Mindkeep sends PDFs as file parts and does not enable OpenRouter's file-parser plugin.
+Word (`.docx`) files are converted to text before being sent to the model.
+
+### Connections and scheduled passes
+
+Website and Google Drive connectors bring external material into a bundle. Configure
+Google OAuth credentials to offer Drive sign-in; the callback and public-URL settings
+are documented in [backend/.env.example](backend/.env.example). Additional connector
+packages can register through the `mindkeep.connectors` entry-point group.
+
+Lint and dream are separate passes. Lint checks mechanical drift and repairs broken
+source links. Dream reads the wiki for contradictions and missing connections, then
+raises questions rather than rewriting pages. Each bundle can choose a schedule in
+Settings: every specified number of hours, days or weeks, or disabled. Both passes
+use the ingest model and consume model usage when they run.
 
 ### Connectors
 
@@ -170,8 +203,8 @@ things:
 - **Contribute findings back as notes**, never by writing into `wiki/`.
 
 Without that last rule an agent does the natural thing — writes its conclusion into the
-wiki as a page — and the next ingest deletes it. The wiki has exactly one writer, and the
-guide exists to tell every other agent how to get knowledge *in* anyway.
+wiki as a page — and the next sync can remove it. Local wiki files are mirrors, and the
+guide tells other agents how to contribute through sources instead.
 
 ### The way back in: notes
 
@@ -209,17 +242,17 @@ your agent's own memory, not the team's.
 ## How it works
 
 1. **A source arrives** — dropped in the web app, written into a synced folder, or produced
-   by the assistant from a conversation. PDFs and `.docx` files go to the model as
-   documents, so scans, charts and multi-column layouts survive.
+   by the assistant from a conversation. PDFs go as file input to a compatible model;
+   `.docx` files are extracted as text.
 2. **A run opens.** One worker thread per bundle, so a wiki has exactly one writer at a
    time. The agent reads `index.md` first, then rewrites only the pages the source bears on.
 3. **Two commits are made** — what people changed since the last run, then what the agent
    wrote. `index.md` is rebuilt by the server from the pages' own frontmatter.
 4. **Anything unresolved is written down** in `questions.md` (for someone who knows) or
    `todo.md` (for someone who can do it).
-5. **Overnight, a lint** re-reads the whole bundle, fixes broken source links, and files
-   what it cannot fix as questions. A link graph shows which areas are suspiciously
-   disconnected from each other.
+5. **Scheduled lint and dream passes** check the bundle. Lint repairs broken source links
+   and reports drift; dream raises questions about contradictions and missing connections.
+   A link graph helps reveal disconnected areas.
 
 The agent's instructions are not a prompt buried in code — they are
 [`backend/app/templates/manual.md`](backend/app/templates/manual.md), a versioned,

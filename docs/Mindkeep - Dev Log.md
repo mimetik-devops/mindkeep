@@ -2008,9 +2008,9 @@ scopes. That, and a public Notion integration with `NOTION_CLIENT_ID` /
   `tokens_of` now books no `expires_at` at all (neither a lifetime nor a refresh token
   means a token that does not expire), so `fresh` leaves the grant be instead of posting
   an empty refresh an hour in and killing every connection on it. Google always sends
-  `expires_in`; Drive is untouched. The real consent ran the same evening: a grant named
-  after the workspace, so the whole dance — Basic auth, JSON body, no PKCE — holds
-  against Notion itself, not only the stand-in.
+  `expires_in`; Drive is untouched. Still owed a real consent, as Drive is: if a real
+  sign-in ever fails at the token step, the PKCE fields Notion never documented are the
+  first suspect, and they are not sent.
 - **Tests** (`tests/test_notion.py`, on Drive's pattern): the dance as Notion runs it (no
   `scope`, no `code_challenge`, `owner=user`, no `code_verifier`); the real `exchange`
   against a stood-in `httpx.post`, Notion's dialect and Google's unchanged side by side;
