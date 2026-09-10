@@ -38,6 +38,8 @@ update the source. Synced local copies of `wiki/` remain mirrors: contribute thr
   pages, explicit links and a citation under every claim, instead of a pile of PDFs — and a
   way to write back what it learns. See
   [Working with a coding agent](#working-with-a-coding-agent).
+- **Your Notion pages and Drive folders, as sources.** Sign in once, choose what to share,
+  and a sync keeps Markdown copies in the bundle. See [Connectors](#connectors).
 - **Multi-tenant from the first line.** Teams, bundles, roles, invite links, and per-device
   revocable tokens. A team you are not a member of is a 404, never a 403.
 - **Sign-in that needs nothing else.** Built-in e-mail and password accounts by default, or
@@ -117,6 +119,33 @@ source links. Dream reads the wiki for contradictions and missing connections, t
 raises questions rather than rewriting pages. Each bundle can choose a schedule in
 Settings: every specified number of hours, days or weeks, or disabled. Both passes
 use the ingest model and consume model usage when they run.
+
+### Connectors
+
+A connector pulls sources from somewhere else into a bundle's `raw/connectors/` on a
+schedule — Google Drive folders, Notion pages, a website. Drive and Notion sign in through
+the provider's own consent screen (OAuth); the user picks what to share, and that choice
+is the whole of what Mindkeep can see. In Notion the consent screen asks for pages: pick
+a few, a top-level page (its children come along), or everything. Sharing later works
+too — `•••` → *Connections* on any page adds it and what is under it, and removing the
+connection takes it away again; the next sync follows either way. A connection can
+narrow further to one subtree by its link, so two bundles can use the same sign-in.
+
+For the consent screen to exist, the deployment has to be registered with the provider
+as an app, once, by whoever runs it. That is what the client ID and secret are: the ID
+names the app on the consent screen ("Mindkeep wants access to…") and the secret proves,
+server to server, that it really is this deployment exchanging the sign-in code. They are
+per deployment, not per user — everyone signs in through the same registered app — which
+is why they are server configuration and never in the repository or the frontend.
+
+| Variable | Register at |
+|---|---|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Cloud: an OAuth client of type *Web application*, the Drive API enabled |
+| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | notion.so/my-integrations: a *public* integration |
+
+Both need the redirect URI `<API_PUBLIC_URL>/grants/oauth/<drive|notion>/callback` —
+`https://your-host/api/grants/oauth/notion/callback` when Caddy proxies `/api`. Left
+blank, the connector is listed but greyed out; nothing else breaks.
 
 ## The desktop client
 
