@@ -14,13 +14,13 @@ const base = (size: number, color: string) => ({
   strokeLinejoin: "round" as const,
 });
 
-/** The site's logo (assets/logo*.svg), 397×363: `reverse` is the cream one for clay. Imported,
+/** The growing-memory logo (assets/logo*.svg), square: `reverse` is the white one for orange. Imported,
  * not served from public/, so its URL carries a hash and a new logo is never the cached old one. */
 export const Mark = ({ size = 22, reverse = false }: Props & { reverse?: boolean }) => (
   <img
     src={reverse ? logoReverse : logo}
     alt=""
-    width={Math.round((size * 397) / 363)}
+    width={size}
     height={size}
     style={{ display: "block" }}
   />

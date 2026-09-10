@@ -1,4 +1,4 @@
-"""The app's one icon: a rounded clay square with the wordmark's tray glyph.
+"""The app's one icon: the growing-memory mark on a rounded orange square.
 
 Drawn in code so the tray, every window's title bar, the taskbar and the installer
 icon (`icons/make.py` calls `paint` too) are the same picture at every size — a
@@ -8,8 +8,8 @@ shipped PNG would drift from the tray the first time somebody redrew one of them
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap
 
-CLAY = QColor("#c0603d")
-CREAM = QColor("#f6f1e9")
+ORANGE = QColor("#bd450c")
+WHITE = QColor("#ffffff")
 SIZES = (16, 32, 48, 64, 128, 256)
 
 
@@ -21,20 +21,22 @@ def paint(size: int) -> QImage:
     s = float(size)
     tile = QPainterPath()
     tile.addRoundedRect(QRectF(0, 0, s, s), s * 0.22, s * 0.22)
-    p.fillPath(tile, CLAY)
-    # the mark: an open tray with a thing dropping into it
-    pen = QPen(CREAM, max(1.0, s * 0.085), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    p.fillPath(tile, ORANGE)
+    # One stem becomes two connected leaves: knowledge growing from a shared root.
+    pen = QPen(WHITE, max(1.0, s * 0.085), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     p.setPen(pen)
-    tray = QPainterPath()
-    tray.moveTo(s * 0.24, s * 0.52)
-    tray.lineTo(s * 0.24, s * 0.74)
-    tray.lineTo(s * 0.76, s * 0.74)
-    tray.lineTo(s * 0.76, s * 0.52)
-    p.drawPath(tray)
-    p.drawLine(QPointF(s * 0.5, s * 0.24), QPointF(s * 0.5, s * 0.58))
-    p.drawLine(QPointF(s * 0.38, s * 0.47), QPointF(s * 0.5, s * 0.59))
-    p.drawLine(QPointF(s * 0.62, s * 0.47), QPointF(s * 0.5, s * 0.59))
+    mark = QPainterPath()
+    mark.moveTo(s * 0.5, s * 0.79)
+    mark.lineTo(s * 0.5, s * 0.48)
+    mark.cubicTo(s * 0.5, s * 0.30, s * 0.34, s * 0.20, s * 0.21, s * 0.23)
+    mark.cubicTo(s * 0.18, s * 0.39, s * 0.31, s * 0.51, s * 0.5, s * 0.48)
+    mark.cubicTo(s * 0.5, s * 0.30, s * 0.66, s * 0.20, s * 0.79, s * 0.23)
+    mark.cubicTo(s * 0.82, s * 0.39, s * 0.69, s * 0.51, s * 0.5, s * 0.48)
+    p.drawPath(mark)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(WHITE)
+    p.drawEllipse(QPointF(s * 0.5, s * 0.79), s * 0.07, s * 0.07)
     p.end()
     return image
 

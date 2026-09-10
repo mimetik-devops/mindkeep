@@ -31,7 +31,7 @@ type Node = {
 const slug = (v: Node) => (v.id.split("/").pop() ?? v.id).replace(/\.md$/, "");
 
 const AREAS = [
-  "#b0512c",
+  "#bd450c",
   "#3d6f8c",
   "#5b7a5e",
   "#8a6d3b",

@@ -139,7 +139,7 @@ export function App({ user }: { user: User }) {
     <div className="app">
       <header className="header">
         <div className="wordmark">
-          <Mark size={28} reverse />
+          <Mark size={32} />
           <span className="lockup">
             <span className="name">Mindkeep</span>
             <span className="by">by mimetik</span>
