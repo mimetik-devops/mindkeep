@@ -166,7 +166,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `assist.py` | The assistant: a second agent with the mirror-image permissions (writes `raw/` and `todo.md`, never `wiki/`) |
 | `todos.py` | the two lists — `questions.md`, `todo.md` — as checkbox lines: parse, tick, append; `ensure` seeds both and migrates a pre-split `todo.md` |
 | `schedule.py` | The overnight passes — lint and dream — a daemon thread, per-bundle hour each, decided from run history; the same sweep syncs every connection that is due |
-| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `Grant`, `OAuth`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website` and `drive` built-ins |
+| `connectors/` | The plugin contract (`base.py`: `Connector`, `Field`, `Item`, `Pull`, `Grant`, `OAuth`, `ConnectorError`), the registry (built-ins + the `mindkeep.connectors` entry-point group), the `website`, `drive` and `notion` built-ins |
 | `connections.py` | A connector configured on a bundle: catalog, CRUD, sync now; a connection that needs a sign-in references one of the caller's grants |
 | `grants.py` | A person's standing with a provider — a pasted token, or a sign-in with the provider: the OAuth dance (`start`, `callback`, PKCE, signed state), `fresh` (refresh before use, revoked marked), `configured` — made once, usable by any connection they set up. User-facing: a sign-in, under Settings → Account → *Connectors* |
 | `syncing.py` | One sync: pull, diff against `connector_item`, write, commit, queue; mirror semantics; `due()`; `disconnect()` |
@@ -350,7 +350,7 @@ out. Every query on a tenant table filters on `tenant` (`runs._where`).
 
 ### Environment (`backend/.env.example`)
 
-`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (a Google Cloud OAuth client of type *Web application*, the Drive API enabled, redirect URI `<API_PUBLIC_URL>/grants/oauth/drive/callback`), `API_PUBLIC_URL` (blank: `WEB_URL` + `/api`),
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (a Google Cloud OAuth client of type *Web application*, the Drive API enabled, redirect URI `<API_PUBLIC_URL>/grants/oauth/drive/callback`), `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` (a public Notion integration, redirect URI `<API_PUBLIC_URL>/grants/oauth/notion/callback`), `API_PUBLIC_URL` (blank: `WEB_URL` + `/api`),
 `DATABASE_URL` (`postgresql+psycopg://…`), `WIKI_ROOT` (`/data`), `LINT_HOUR` / `DREAM_HOUR`,
 `OPENROUTER_API_KEY`, `DEVICE_SECRET`, `AUTH_PROVIDER` (`builtin` | `oidc`), builtin only:
 `AUTH_SECRET`; oidc only: `AUTH_ISSUER`,
