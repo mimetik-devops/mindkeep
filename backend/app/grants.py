@@ -10,7 +10,8 @@ credential is theirs to revoke); connections that used it keep their rows and re
 bundle's files because one person left.
 
 **The sign-in.** For an `oauth2` kind the connector declares the provider's endpoints
-(`OAuth`); this module runs the dance, the same for every provider: `start` builds the
+(`OAuth`); this module runs the dance, the same for every provider — an `OAuth` turns a
+knob or two for one that departs from the textbook, as Notion does: `start` builds the
 authorize URL (PKCE, and a state that is a signed note of who asked and for what, good
 for ten minutes); the provider sends the browser to `callback`, which trades the code for
 tokens, asks the connector what to call the grant, keeps the tokens sealed, and sends the
@@ -138,11 +139,18 @@ def redirect_uri(kind: str) -> str:
 def exchange(oauth: OAuth, data: dict[str, str]) -> dict[str, Any]:
     """One call to the provider's token endpoint — a code for tokens, or a refresh."""
     client_id, client_secret = client(oauth)
+    payload = (
+        data
+        if oauth.basic_auth
+        else {**data, "client_id": client_id, "client_secret": client_secret}
+    )
     try:
         got = httpx.post(
             oauth.token_url,
-            data={**data, "client_id": client_id, "client_secret": client_secret},
-            headers={"Accept": "application/json"},
+            data=None if oauth.json_body else payload,
+            json=payload if oauth.json_body else None,
+            auth=(client_id, client_secret) if oauth.basic_auth else None,
+            headers={"Accept": "application/json", **dict(oauth.headers)},
             timeout=30,
         )
     except httpx.HTTPError as e:
@@ -156,13 +164,17 @@ def exchange(oauth: OAuth, data: dict[str, str]) -> dict[str, Any]:
 
 
 def tokens_of(body: dict[str, Any], keep_refresh: str = "") -> dict[str, str]:
-    """The secrets a token response gives, in the shape a grant holds."""
-    lifetime = int(body.get("expires_in", 3600))
-    return {
+    """The secrets a token response gives, in the shape a grant holds. One with neither
+    a lifetime nor a refresh token (Notion, token rotation off) does not expire: no
+    `expires_at`, and `fresh` leaves it be."""
+    secrets = {
         "access_token": str(body["access_token"]),
         "refresh_token": str(body.get("refresh_token") or keep_refresh),
-        "expires_at": (datetime.now(UTC) + timedelta(seconds=lifetime)).isoformat(),
     }
+    if "expires_in" in body or secrets["refresh_token"]:
+        lifetime = int(body.get("expires_in", 3600))
+        secrets["expires_at"] = (datetime.now(UTC) + timedelta(seconds=lifetime)).isoformat()
+    return secrets
 
 
 # --- state: a signed note of who asked, for what --------------------------------------------
@@ -227,7 +239,8 @@ def fresh(s: Any, row: Grant | None) -> GrantOf | None:
         s.commit()
         raise ConnectorError(row.error) from e
     renewed = tokens_of(body, keep_refresh=secrets.get("refresh_token", ""))
-    row.expires_at = datetime.fromisoformat(renewed.pop("expires_at"))
+    until = renewed.pop("expires_at", "")
+    row.expires_at = datetime.fromisoformat(until) if until else None
     row.secret = vault.seal_all({**secrets, **renewed})
     row.error = ""
     s.commit()
@@ -296,12 +309,14 @@ def start_oauth(user: CurrentUser, kind: str) -> dict[str, str]:
         "client_id": client(oauth)[0],
         "redirect_uri": redirect_uri(kind),
         "response_type": "code",
-        "scope": " ".join(oauth.scopes),
         "state": state,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
         **dict(oauth.params),
     }
+    if oauth.scopes:
+        query["scope"] = " ".join(oauth.scopes)
+    if oauth.pkce:
+        query["code_challenge"] = challenge
+        query["code_challenge_method"] = "S256"
     return {"url": f"{oauth.authorize_url}?{urlencode(query)}"}
 
 
@@ -326,15 +341,14 @@ def finish_oauth(kind: str, state: str = "", code: str = "", error: str = "") ->
     if asked.get("kind") != kind:
         return back(connect_error="the sign-in did not start here")
     try:
-        body = exchange(
-            connector.oauth,
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri(kind),
-                "code_verifier": asked["verifier"],
-            },
-        )
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri(kind),
+        }
+        if connector.oauth.pkce:
+            data["code_verifier"] = asked["verifier"]
+        body = exchange(connector.oauth, data)
         secrets = tokens_of(body)
         label = connector.check_grant(secrets)
     except ConnectorError as e:
