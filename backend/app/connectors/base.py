@@ -82,13 +82,23 @@ class OAuth:
     the connector; the app's own client id and secret come from the server's environment
     as `<PROVIDER>_CLIENT_ID` and `<PROVIDER>_CLIENT_SECRET` — `provider` is that prefix,
     lowercase, shared by connectors of one provider. `params` are extra query parameters
-    for the authorize step — Google's `access_type=offline`, say."""
+    for the authorize step — Google's `access_type=offline`, say.
+
+    The rest are for a provider that departs from the textbook, off by default: `basic_auth`
+    sends the app's credentials as HTTP Basic auth on the token call instead of in its
+    body; `json_body` makes that call's body JSON instead of a form; `headers` go on it
+    (Notion's `Notion-Version`); `pkce=False` leaves the code challenge out, for a provider
+    that does not know it."""
 
     provider: str
     authorize_url: str
     token_url: str
     scopes: tuple[str, ...]
     params: tuple[tuple[str, str], ...] = ()
+    basic_auth: bool = False
+    json_body: bool = False
+    headers: tuple[tuple[str, str], ...] = ()
+    pkce: bool = True
 
 
 @dataclass
