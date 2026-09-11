@@ -435,11 +435,11 @@ def ingest(
     content: Any = [attached, llm.text_part(task + ATTACHED)] if attached else task
     with lock_for(home):
         # Two texts, two readers. manual.md is this agent's whole instruction and never
-        # leaves the server; CLAUDE.md is the guide people and local tools find in a synced
+        # leaves the server; AGENTS.md is the guide people and local tools find in a synced
         # copy. Startup pushes the guide everywhere; this catches a bundle made since.
         manual = (TEMPLATES / "manual.md").read_text(encoding="utf-8")
         if refresh_guide(home):
-            log.info("refreshed CLAUDE.md in %s", home)
+            log.info("refreshed the guide in %s", home)
 
         runner = llm.loop(
             # Sonnet-class, not Opus-class: ingest is read-compare-write, and a smaller

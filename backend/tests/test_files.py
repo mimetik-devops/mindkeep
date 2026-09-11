@@ -82,6 +82,7 @@ def page(client, tmp_path):
 def test_new_tenant_gets_one_seeded_bundle(client):
     assert client.get(f"{T}/bundles").json() == ["default"]
     assert set(client.get(f"{B}/tree").json()) == {
+        "AGENTS.md",
         "CLAUDE.md",
         "index.md",
         "log.md",
@@ -167,7 +168,7 @@ def test_the_user_owns_raw_and_may_edit_a_page(client, page, ingested, tmp_path)
     # files at the root
     assert client.put(f"{B}/files/wiki/new.md", content=b"x").status_code == 409
     assert client.put(f"{B}/files/wiki/jane.png", content=b"x").status_code == 409
-    for root_file in ("index.md", "log.md", "questions.md", "todo.md", "CLAUDE.md"):
+    for root_file in ("index.md", "log.md", "questions.md", "todo.md", "AGENTS.md", "CLAUDE.md"):
         assert client.put(f"{B}/files/{root_file}", content=b"x").status_code == 409
 
 
@@ -1192,12 +1193,12 @@ def test_a_deploy_pushes_the_guide_to_every_bundle(client, tmp_path):
     client.get(f"{T}/bundles")
     client.post(f"{T}/bundles", json={"name": "work"})
     client.get(f"{team_of('bob')}/bundles", headers={"x-test-user": "bob"})
-    stale = tmp_path / tenant_id("alice") / "work" / "CLAUDE.md"
+    stale = tmp_path / tenant_id("alice") / "work" / "AGENTS.md"
     stale.write_text("last month's guide", encoding="utf-8")
     (tmp_path / ".hidden").mkdir()  # a staging leftover, not a tenant
 
     assert refresh_guides(tmp_path) == 1  # only the stale one is rewritten
-    assert stale.read_text(encoding="utf-8") == (TEMPLATES / "CLAUDE.md").read_text("utf-8")
+    assert stale.read_text(encoding="utf-8") == (TEMPLATES / "AGENTS.md").read_text("utf-8")
     assert refresh_guides(tmp_path) == 0
     assert refresh_guides(tmp_path / "nowhere") == 0
 
@@ -1212,21 +1213,24 @@ def test_the_agent_runs_on_the_manual_and_the_bundle_carries_the_guide(
 
     client.get(f"{T}/bundles")
     home = tmp_path / tenant_id("alice") / "default"
-    (home / "CLAUDE.md").write_text("stale guide", encoding="utf-8")
+    (home / "AGENTS.md").write_text("stale guide", encoding="utf-8")
+    (home / "CLAUDE.md").unlink()  # a bundle from before Claude Code had its pointer
 
     seen: dict = {}
     monkeypatch.setattr(agent, "llm", _FakeLLM(seen))
     agent.ingest(home, "raw/notes.txt")
 
     manual = (TEMPLATES / "manual.md").read_text(encoding="utf-8")
-    guide = (TEMPLATES / "CLAUDE.md").read_text(encoding="utf-8")
+    guide = (TEMPLATES / "AGENTS.md").read_text(encoding="utf-8")
     assert seen["system"] == manual
     assert "edit_file" in manual and "Do not edit it in place" in guide
     assert "edit_file" not in guide  # the guide names no tool the local reader lacks
     # a local agent's findings come in as notes, and the agent treats them as inferred
     assert "raw/notes/" in guide and "supersedes:" in guide
     assert "raw/notes/" in manual and "status: draft" in manual
-    assert (home / "CLAUDE.md").read_text(encoding="utf-8") == guide
+    assert (home / "AGENTS.md").read_text(encoding="utf-8") == guide
+    # Claude Code reads only its own name: one line there imports the guide
+    assert "@AGENTS.md" in (home / "CLAUDE.md").read_text(encoding="utf-8")
     assert not (home / "manual.md").exists()
 
 

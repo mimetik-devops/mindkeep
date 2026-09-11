@@ -230,7 +230,7 @@ def sync(cfg: dict) -> None:
         moved = True
 
     # A folder that has moved, or a drive that did not mount, looks exactly like someone
-    # deleting every source. The two are told apart by the rest of the mirror: CLAUDE.md,
+    # deleting every source. The two are told apart by the rest of the mirror: AGENTS.md,
     # index.md and wiki/ belong to the agent and nobody empties those by hand, so if they
     # are still on disk the folder is plainly there and an empty raw/ was deliberate.
     #

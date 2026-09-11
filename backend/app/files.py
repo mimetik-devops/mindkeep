@@ -159,12 +159,18 @@ def put_text(target: Path, text: str) -> None:
     target.write_text(text, encoding="utf-8", newline="\n")
 
 
+# The reader's guide is AGENTS.md, the file most coding agents read; CLAUDE.md beside it
+# is one line that imports it, for Claude Code, which reads only its own name.
+GUIDES = ("AGENTS.md", "CLAUDE.md")
+
+
 def seed(home: Path) -> None:
     """A new bundle gets the OKF skeleton plus the reader's guide. The agent's manual
     stays on the server (templates/manual.md); it is a prompt, not content."""
     (home / "raw").mkdir(parents=True, exist_ok=True)
     (home / "wiki").mkdir(exist_ok=True)
-    put_text(home / "CLAUDE.md", (TEMPLATES / "CLAUDE.md").read_text("utf-8"))
+    for name in GUIDES:
+        put_text(home / name, (TEMPLATES / name).read_text("utf-8"))
     put_text(home / "log.md", "# Log\n")
     index.write(home)
     for name in todos.LISTS:
@@ -177,15 +183,18 @@ def seed(home: Path) -> None:
 
 
 def refresh_guide(home: Path) -> bool:
-    """Bring one bundle's CLAUDE.md up to the guide that ships with the app. True if it
-    changed. The guide is shipped code, not content: a bundle seeded last month would
-    otherwise carry last month's, and so would every synced copy of it."""
-    guide = (TEMPLATES / "CLAUDE.md").read_text(encoding="utf-8")
-    target = home / "CLAUDE.md"
-    if target.is_file() and target.read_text(encoding="utf-8") == guide:
-        return False
-    put_text(target, guide)
-    return True
+    """Bring one bundle's guide files up to what ships with the app. True if any changed.
+    The guide is shipped code, not content: a bundle seeded last month would otherwise
+    carry last month's, and so would every synced copy of it."""
+    changed = False
+    for name in GUIDES:
+        guide = (TEMPLATES / name).read_text(encoding="utf-8")
+        target = home / name
+        if target.is_file() and target.read_text(encoding="utf-8") == guide:
+            continue
+        put_text(target, guide)
+        changed = True
+    return changed
 
 
 def bundles_under(root: Path) -> list[Path]:
@@ -206,7 +215,7 @@ def refresh_guides(root: Path) -> int:
     quiet bundles included. Sync clients see the new hash on their next pass."""
     changed = sum(1 for home in bundles_under(root) if refresh_guide(home))
     if changed:
-        log.info("refreshed CLAUDE.md in %d bundle(s)", changed)
+        log.info("refreshed the guide in %d bundle(s)", changed)
     return changed
 
 

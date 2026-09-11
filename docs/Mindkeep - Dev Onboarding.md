@@ -75,8 +75,9 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 
 ```
 {team}/{bundle}/
-  CLAUDE.md       the reader's guide — pushed from the app at every startup; tells a
+  AGENTS.md       the reader's guide — pushed from the app at every startup; tells a
                   local agent this is a mirror, and where changes go
+  CLAUDE.md       one line importing AGENTS.md, for Claude Code, which reads only its own name
   index.md        the catalog: one line per page, rebuilt by the server from the pages'
                   frontmatter after every run. Agents read this first, nobody writes it.
   log.md          append-only history, one entry per run: "## [date] ingest | title"
@@ -101,7 +102,7 @@ bundle-absolute links, `index.md`/`log.md` reserved. The layout:
 | `index.md` | the server (`index.py`), after every run and undo | built from the pages' frontmatter; the agent's tools refuse it |
 | `questions.md` | the agent (questions), the assistant (ticks, new questions) | answered through the assistant or a note in `raw/`; never edited by hand |
 | `todo.md` | the agent and the assistant (tasks) | ticked by a person in the app; never edited by hand |
-| `CLAUDE.md` | the app | overwritten from the template on every backend start |
+| `AGENTS.md`, `CLAUDE.md` | the app | overwritten from the templates on every backend start |
 
 **Where a page goes** (*manual.md → Where a page goes*): `wiki/<type-plural>/<title-slug>.md`.
 The folder is the page's `type`, lowercase, plural; the slug is the title. The rule is
@@ -174,7 +175,7 @@ design: **one worker thread per bundle**, so only one run ever writes a wiki at 
 | `devices.py` | Per-machine tokens: create, holder, mine, forget |
 | `db.py` | SQLAlchemy models and session; `now()` |
 | `templates/manual.md` | The agent's system prompt. Never leaves the server |
-| `templates/CLAUDE.md` | The reader's guide seeded into every bundle |
+| `templates/AGENTS.md`, `templates/CLAUDE.md` | The reader's guide seeded into every bundle, and the one-line Claude Code pointer to it |
 
 ### Authentication
 
@@ -489,7 +490,7 @@ One Python package, `mindkeep/`, three faces:
    `If-Match` of the last-seen hash. If it also changed *there*, yours is kept under
    `.conflicts/<path>` and theirs lands in place. Nothing outside `raw/` goes up.
 6. **Down** — everything else (`wiki/`, `index.md`, `log.md`, `questions.md`, `todo.md`,
-   `CLAUDE.md`) is overwritten from the server, and files the server no longer has are swept (dot paths excepted).
+   `AGENTS.md`, `CLAUDE.md`) is overwritten from the server, and files the server no longer has are swept (dot paths excepted).
 
 Hooks `sync.say(*parts)` and `sync.notify(cfg, kind, text)` are module attributes the tray
 app replaces; the CLI prints. Every request carries `User-Agent: Mindkeep/<version>` —
@@ -638,7 +639,7 @@ Three services in one project: `db` (Postgres), `backend`, `frontend`. The env f
 | mirror | a synced copy of a bundle on someone's machine |
 | conflict copy | your version of a file both sides changed, under `.conflicts/` |
 | the manual | `templates/manual.md`, the agent's system prompt |
-| the guide | `templates/CLAUDE.md`, seeded into every bundle for local readers |
+| the guide | `templates/AGENTS.md`, seeded into every bundle for local readers; `CLAUDE.md` beside it imports it |
 
 ---
 

@@ -137,7 +137,7 @@ def next_run(home: Path, kind: str) -> str:
 def sweep() -> None:
     now = datetime.now(UTC)
     for home in bundles():
-        if not (home / "CLAUDE.md").is_file():
+        if not (home / "AGENTS.md").is_file():
             continue
         for kind, (source, _, _) in PASSES.items():
             if not slot(home, now, kind) or not due(home, now, kind):
@@ -160,7 +160,7 @@ def sync_due(now: datetime) -> None:
         rows = s.scalars(select(Connection).where(Connection.enabled)).all()
         wanted = [(r.id, r.name, root / r.tenant / r.bundle) for r in rows if syncing.due(r, now)]
     for connection_id, name, home in wanted:
-        if not (home / "CLAUDE.md").is_file() or syncing.active(connection_id):
+        if not (home / "AGENTS.md").is_file() or syncing.active(connection_id):
             continue
         log.info("sync: %s in %s/%s", name, home.parent.name, home.name)
         threading.Thread(
