@@ -299,6 +299,13 @@ the gap questions (the server measures the link graph before each dream and hand
 the pairs of areas that barely connect). A dream changes no page and no source: it
 produces questions (`questions.md`), tasks (`todo.md`) and a log entry headed
 `## [date] dream` — questions, not memories, so the wiki stays derivable from `raw/`.
+A dream is **diff-driven**: `ingest_safely` diffs `wiki/` between the
+last clean dream's `based_on` and HEAD (`history.changed_since`) and hands the agent the
+pages added or rewritten, dated, to read against their `related` neighbourhoods; the
+whole wiki is read only by the first dream, by a forced one (*Dream now* — `run_pass`
+enqueues with `force=True`) and when more than `DREAM_PAGES_MAX` (30) pages changed. A
+night with no change under `wiki/` opens and closes the run row, appends one line to
+`log.md`, measures no gaps and calls no model.
 
 Each pass has its own clock: per bundle in Settings (`bundle_setting.lint_hour` /
 `dream_hour`, nullable = follow the server), defaults `LINT_HOUR` (3) and `DREAM_HOUR`

@@ -944,7 +944,8 @@ def run_pass(home: Bundle, kind: str, _: Writer) -> dict[str, str]:
     source = overnight(kind)
     if source in runs.running_sources(home):
         raise HTTPException(409, f"a {kind} is already running")
-    enqueue(home, source)
+    # forced: a person asking for a dream gets the whole wiki read, not the night's diff
+    enqueue(home, source, force=True)
     return {"running": home.name}
 
 

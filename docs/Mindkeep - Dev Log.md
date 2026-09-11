@@ -2045,3 +2045,40 @@ the agent to leave both alone.
 
 Not done, on purpose: a `GEMINI.md`. Three copies of one text is where drift starts, and
 Gemini has a one-line setting for it.
+
+
+### 4.62 The dream reads what changed (2026-09-11)
+
+Ruben asked whether a dream looks at every page or only what changed since the last one.
+Every page, every night — the task said "read it against itself and report what only
+reading the whole reveals", and the only hint the server gave was the gap list. So a
+dream on a bundle nobody touched cost what a dream after a busy day cost, and a
+contradiction introduced yesterday was found only if the model happened to open both
+pages tonight. The lint, by contrast, already got a diff-shaped hint (`MOVED`).
+
+Now `ingest_safely` diffs `wiki/` between the last clean dream's `based_on` and HEAD
+(`history.changed_since`: additions and rewrites, a renamed-and-edited page by its new
+name; deletions and pure renames are left out — a page that is gone or merely moved by a
+reorganise contradicts nothing)
+and the dream is handed those pages, with the date the rest was last dreamt over, and
+told to call `related` on each and read it against its neighbourhood. The three checks
+(contradictions, unsourced claims, names that have earned a page) apply to those
+neighbourhoods. The whole wiki is read in three cases: the first dream, a person's
+*Dream now* (`run_pass` now enqueues with `force=True`, which was a no-op for a
+maintenance pass and is free to mean "the whole"), and more than `DREAM_PAGES_MAX` (30)
+changed pages — past that the neighbourhoods are the wiki. A night with nothing changed
+under `wiki/` is the feature: the run row opens and closes so the clock counts it, one
+line goes to `log.md` and the Activity note, no gaps are measured (an unchanged wiki is
+an unchanged graph) and no model is called. Cost is now proportional to change.
+
+The one case a diff cannot see is two untouched pages that disagree. Argued and left:
+if neither changed, the disagreement was there at the last whole read too, and it comes
+back into view the day either page is rewritten. No weekly whole-read clock — a knob
+nobody asked for; *Dream now* is the whole read when someone wants one.
+
+Considered and dropped: a server-side count of recurring capitalised terms with no page,
+handed over like the gaps. A sample of the Mimetik wiki put `The`, `Summary`, `Projects`,
+`MVP`, `Sept`, `AI`, `API` at the top; after stopwords and title exclusion the list would
+still be half acronyms the model spends tokens rejecting. The diff dream covers the case
+that matters — the fifth mention lands in a changed page, `related` shows the others.
+If it is ever built it needs calibrating against a real wiki, not a unit test.
