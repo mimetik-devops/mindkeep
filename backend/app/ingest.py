@@ -180,12 +180,23 @@ LINT_TASK = (
 # a dream produces questions, not memories; the sources stay the one road into the wiki.
 DREAM_TASK = (
     "Today is {today}. Dream over the wiki, following the Dream section of the manual: "
-    "read it against itself and report what only reading the whole reveals, in a log.md "
-    "entry headed `## [{today}] dream`. Questions for a person go to questions.md, work "
-    "for a person to todo.md. You change no page and no source: a dream produces "
-    "questions, not memories. If nothing surfaced, say so in one line rather than "
-    "inventing work.{hints}"
+    "{scope} Report in a log.md entry headed `## [{today}] dream`. Questions for a person "
+    "go to questions.md, work for a person to todo.md. You change no page and no source: "
+    "a dream produces questions, not memories. If nothing surfaced, say so in one line "
+    "rather than inventing work.{hints}"
 )
+# The first dream, one a person asked for, and one after a day that rewrote much of the
+# wiki read the whole; every other dream reads what changed against its neighbours.
+DREAM_WHOLE = "read it against itself and report what only reading the whole reveals."
+DREAM_SINCE = (
+    "the rest of the wiki has been dreamt over already, most recently on {since}, and "
+    "need not be read again; these pages were written or rewritten since then. Read "
+    "each, call `related` on it, and "
+    "read it against its neighbours — that is where a contradiction, an unsourced claim "
+    "or a name that has earned a page will be:\n{list}"
+)
+DREAM_PAGES_MAX = 30  # more changed than this and the neighbourhoods are the wiki
+QUIET_DREAM = "Nothing changed in the wiki since the dream of {since}; nothing to read."
 
 # Applies the manual's layout rule to a bundle written before there was one — or after
 # the rule changed. Content is not touched; only where it is filed.
@@ -227,12 +238,15 @@ def ingest(
     moves: list[tuple[int, str, str]] | None = None,
     thin: list[gaps.Gap] | None = None,
     changed: str = "",
+    pages: list[str] | None = None,
+    since: str = "",
 ) -> tuple[int, int]:
     """Have Claude fold a new source into the wiki, or lint it. One writer, serialized.
 
     `source` is a path under raw/, or LINT for a maintenance pass — the tools and the
     manual are the same either way, only the instruction differs. `moves` and `thin` are
-    what the server already knows a lint should look at.
+    what the server already knows a lint should look at; `pages` the wiki pages changed
+    since the dream of `since`, or None for a dream that reads the whole.
 
     Returns (turns, characters written) so the run history can record the shape of the work.
     """
@@ -418,7 +432,13 @@ def ingest(
         task = LINT_TASK.format(today=today, hints=hints)
     elif source == DREAM:
         hints = GAPS.format(list=gaps.describe(thin)) if thin else ""
-        task = DREAM_TASK.format(today=today, hints=hints)
+        if pages is None:
+            scope = DREAM_WHOLE
+        else:
+            G = graph.build(home)
+            lines = "\n".join(graph.line(G, p) if p in G else f"  - `{p}`" for p in pages)
+            scope = DREAM_SINCE.format(since=since, list=lines)
+        task = DREAM_TASK.format(today=today, scope=scope, hints=hints)
     elif source == REORGANISE:
         wrong = misfiled(home)
         lines = "\n".join(f"- `{p}` -> `{destination(home, p)}`" for p in wrong)
@@ -677,9 +697,6 @@ def ingest_safely(home: Path, source: str, force: bool = False) -> str:
     # read before the run, settled after it: a lint that dies must not lose the hints it
     # was given, and one that succeeds must not see them again
     moves = runs.pending_moves(home) if source == LINT else []
-    # measured now rather than inside the run: this worker is the bundle's only writer,
-    # so nothing changes the wiki between here and the dream reading the hint
-    thin = gaps.find(home) if source == DREAM else []
     run_id = runs.start(home, source, llm.model_for("ingest"))
     # What people changed since the last run — uploads, answers — is committed on its own
     # first, so undoing this run takes back only what the agent wrote.
@@ -695,10 +712,34 @@ def ingest_safely(home: Path, source: str, force: bool = False) -> str:
         and last.based_on
     ):
         changed = history.diff(home, last.based_on, source)
+    # A dream reads what changed since the last one, against its neighbours — the whole
+    # wiki only the first time, when a person asks (`force`), or when a day rewrote so
+    # much that the neighbourhoods are the wiki. A night nothing changed is a line in the
+    # log and no model at all: that is what keeps the cost proportional to the change.
+    pages: list[str] | None = None
+    since = ""
+    if source == DREAM and not force and base and (last := runs.last_read(home, source)):
+        if last.based_on:
+            found = history.changed_since(home, last.based_on, "wiki/")
+            if found is not None and len(found) <= DREAM_PAGES_MAX:
+                pages = found
+                since = runs.utc(last.started_at).strftime("%Y-%m-%d")
+    # measured now rather than inside the run: this worker is the bundle's only writer,
+    # so nothing changes the wiki between here and the dream reading the hint. An
+    # unchanged wiki is an unchanged graph, so a quiet night measures nothing.
+    thin = gaps.find(home) if source == DREAM and pages != [] else []
     turns = written = 0
     error = ""
     try:
-        turns, written = ingest(home, source, run_id, moves, thin, changed)
+        if pages == []:
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+            entry = f"\n## [{today}] dream\n{QUIET_DREAM.format(since=since)}\n"
+            with (home / "log.md").open("a", encoding="utf-8", newline="\n") as f:
+                f.write(entry)
+            written = len(entry)
+            runs.progress(home, run_id, QUIET_DREAM.format(since=since))
+        else:
+            turns, written = ingest(home, source, run_id, moves, thin, changed, pages, since)
     except Exception as e:
         log.exception("ingest failed for %s (source is still on disk, retry is safe)", source)
         # llm.LLMError already is the sentence a person can act on

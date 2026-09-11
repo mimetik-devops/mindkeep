@@ -286,9 +286,10 @@ export function Settings({
               {passBlock(
                 "dream",
                 "Dream",
-                "The wiki read against itself: contradictions, entities with no page, and the " +
-                  "questions that would connect areas that barely touch. It changes nothing — " +
-                  "a dream produces questions, not memories.",
+                "What changed since the last dream, read against its neighbours: contradictions, " +
+                  "entities with no page, and the questions that would connect areas that barely " +
+                  "touch. A night nothing changed costs nothing. It changes no page — a dream " +
+                  "produces questions, not memories. Dream now reads the whole wiki.",
                 dreamPass.state,
               )}
             </section>

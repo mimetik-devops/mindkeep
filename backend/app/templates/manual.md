@@ -265,7 +265,14 @@ sources stay the one road into the wiki, so **report and ask, never fix**: you c
 page and no source in this pass. Findings go in the log entry, headed
 `## [date] dream`; anything a *person* would have to answer goes to `questions.md`, and
 anything a person would have to *do* goes to `todo.md`, since those are where they will
-be picked up. What to look for:
+be picked up.
+
+**Most nights you are handed the pages that changed since the last dream**, and the rest
+of the wiki was read then. Read each listed page, call `related` on it, and read it
+against its neighbours — what it links to, what links to it, what shares a source with
+it. Everything below applies to those pages and their neighbourhoods, not to the whole.
+The first dream, one a person asks for, and one after a day that rewrote much of the
+wiki have no list: those read the whole. What to look for:
 
 - Contradictions between pages, and claims superseded by a newer source. Name both
   sides and the sources they rest on; where only the owner can settle it, that is a

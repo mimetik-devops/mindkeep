@@ -253,8 +253,9 @@ your agent's own memory, not the team's.
 4. **Anything unresolved is written down** in `questions.md` (for someone who knows) or
    `todo.md` (for someone who can do it).
 5. **Scheduled lint and dream passes** check the bundle. Lint repairs broken source links
-   and reports drift; dream raises questions about contradictions and missing connections.
-   A link graph helps reveal disconnected areas.
+   and reports drift; dream reads the pages that changed since the last dream against
+   their neighbours and raises questions about contradictions and missing connections —
+   a night nothing changed costs no model call. A link graph helps reveal disconnected areas.
 
 The agent's instructions are not a prompt buried in code — they are
 [`backend/app/templates/manual.md`](backend/app/templates/manual.md), a versioned,

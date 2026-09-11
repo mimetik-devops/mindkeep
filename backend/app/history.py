@@ -261,6 +261,25 @@ def pending(home: Path) -> list[dict[str, str]]:
     return rows
 
 
+def changed_since(home: Path, since: str, prefix: str) -> list[str] | None:
+    """The paths under `prefix` that were added or changed between a commit and HEAD,
+    a renamed-and-edited file by its new name — what a dream is handed. Deletions are
+    left out, and so are pure renames (R100, what a reorganise does): a page that is
+    gone or merely moved contradicts nothing. None when git cannot tell (an unknown
+    commit), which must read as "everything", never as "nothing"."""
+    out = _git(home, "diff", "--name-status", "-M", since, "HEAD", "--", prefix)
+    if out.returncode:
+        return None
+    found = []
+    for line in out.stdout.splitlines():
+        if not line.strip():
+            continue
+        status, *paths = line.split("	")
+        if status[0] != "D" and status != "R100":
+            found.append(paths[-1])
+    return found
+
+
 def changed(home: Path, sha: str) -> list[dict[str, str]]:
     """What a commit touched: A added, M modified, D deleted, R renamed (the new path)."""
     out = _git(home, "show", "--name-status", "--format=", sha)

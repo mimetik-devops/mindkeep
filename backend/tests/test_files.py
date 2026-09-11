@@ -1769,3 +1769,97 @@ def test_a_pass_picks_its_pace_hours_days_or_weeks(client, tmp_path, monkeypatch
     for bad in ("0d", "24h", "5x", "d", "h6", "999w"):
         put = client.put(f"{B}/passes/lint", json={"hour": 3, "every": bad})
         assert put.status_code == 400, bad
+
+
+def test_a_dream_reads_what_changed_since_the_last_one_and_sleeps_through_a_quiet_night(
+    client, tmp_path, monkeypatch
+):
+    """The first dream reads the whole. The next is handed the pages rewritten since,
+    dated, and told the rest was read then. A night nothing changed is one line in the
+    log and no model call — and still counts as the night's dream."""
+    from datetime import UTC, datetime
+    from unittest.mock import patch
+
+    from app import history, runs, schedule
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    for name in ("jane", "acme"):
+        page = home / "wiki" / f"{name}.md"
+        page.write_text(f"---\ntitle: {name.title()}\ndescription: about {name}\n---\n")
+        history.record(home, f"edit wiki/{name}.md", f"wiki/{name}.md")
+
+    seen: dict = {}
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        assert agent.ingest_safely(home, agent.DREAM) == ""
+    task = seen["messages"][0]["content"]
+    assert "reading the whole reveals" in task and "need not be read again" not in task
+
+    # one page rewritten, one not: only the one is listed, with the date it was last dreamt
+    (home / "wiki" / "acme.md").write_text("---\ntitle: Acme\ndescription: about acme\n---\nnew\n")
+    history.record(home, "edit wiki/acme.md", "wiki/acme.md")
+    seen.clear()
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        assert agent.ingest_safely(home, agent.DREAM) == ""
+    task = seen["messages"][0]["content"]
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    assert f"most recently on {today}" in task and "reading the whole reveals" not in task
+    assert "`wiki/acme.md` — Acme: about acme" in task and "wiki/jane.md" not in task
+
+    # a page merely moved (a reorganise) is not a changed page; one moved and edited is
+    (home / "wiki" / "people").mkdir()
+    (home / "wiki" / "jane.md").rename(home / "wiki" / "people" / "jane.md")
+    history.record(home, "move jane", "wiki/jane.md", "wiki/people/jane.md")
+    seen.clear()
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        assert agent.ingest_safely(home, agent.DREAM) == ""
+    assert seen == {} and "Nothing changed" in (home / "log.md").read_text(encoding="utf-8")
+
+    # nothing changed since: no model, one log line, a finished run the clock counts
+    seen.clear()
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        assert agent.ingest_safely(home, agent.DREAM) == ""
+    assert seen == {}
+    assert f"## [{today}] dream\nNothing changed in the wiki since the dream of {today}" in (
+        home / "log.md"
+    ).read_text(encoding="utf-8")
+    last = runs.last_pass(home, agent.DREAM)
+    assert last is not None and last.finished_at and not last.error
+    assert "Nothing changed" in last.note
+    assert not schedule.due(home, datetime.now(UTC), "dream")
+
+
+def test_a_dream_reads_the_whole_when_asked_for_or_when_much_changed(client, tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    from app import files, history
+    from app import ingest as agent
+
+    client.get(f"{T}/bundles")
+    home = tmp_path / tenant_id("alice") / "default"
+    (home / "wiki" / "a.md").write_text("---\ntitle: A\n---\n")
+    history.record(home, "edit wiki/a.md", "wiki/a.md")
+    seen: dict = {}
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        agent.ingest_safely(home, agent.DREAM)
+
+    # a person's "Dream now" is forced, and forced reads the whole
+    asked: list = []
+    monkeypatch.setattr(files, "enqueue", lambda h, s, **kw: asked.append((s, kw)))
+    assert client.post(f"{B}/passes/dream").status_code == 200
+    assert asked == [(agent.DREAM, {"force": True})]
+    seen.clear()
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        agent.ingest_safely(home, agent.DREAM, force=True)
+    assert "reading the whole reveals" in seen["messages"][0]["content"]
+
+    # a day that rewrote more pages than the cap: the neighbourhoods are the wiki
+    for n in range(agent.DREAM_PAGES_MAX + 1):
+        (home / "wiki" / f"p{n}.md").write_text(f"---\ntitle: P{n}\n---\n")
+    history.record(home, "edit many", *[f"wiki/p{n}.md" for n in range(agent.DREAM_PAGES_MAX + 1)])
+    seen.clear()
+    with patch.object(agent, "llm", _FakeLLM(seen)):
+        agent.ingest_safely(home, agent.DREAM)
+    task = seen["messages"][0]["content"]
+    assert "reading the whole reveals" in task and "wiki/p0.md" not in task
