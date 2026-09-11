@@ -2021,3 +2021,27 @@ scopes. That, and a public Notion integration with `NOTION_CLIENT_ID` /
   down. And the connector's `safe()` is Drive's — non-ASCII in a title becomes `-`, so
   *Estrategia y visión* files as `Estrategia y visi-n`; consistent with Drive, worth a
   shared answer some day.
+
+
+### 4.61 The guide is AGENTS.md; CLAUDE.md points at it (2026-09-11)
+
+The bundle's reader's guide shipped as `CLAUDE.md` because Claude Code was the reader in
+mind. It is not the only one, and the others have settled on a name: Codex, Cursor,
+Copilot, pi, Aider, Zed, Warp, Jules, OpenCode and most of the rest read `AGENTS.md`, now
+stewarded under the Linux Foundation. Claude Code and Gemini CLI are the holdouts with
+their own names. So a synced bundle opened in pi or Codex got none of the four rules —
+mirror, `index.md` first, re-read before quoting, write back as notes — and the README's
+"for other tools, point them at the file" was asking the user to do the plumbing.
+
+Now `templates/AGENTS.md` is the guide, and `templates/CLAUDE.md` is two lines: `Read
+@AGENTS.md first …`, which Claude Code's `@` import expands, so Claude reads the same text
+with nothing duplicated to drift. `files.GUIDES` names both; `seed` writes both and
+`refresh_guide` refreshes both, so every bundle gets its `AGENTS.md` at the next deploy's
+startup push and every mirror on the next sync. The scheduler's "is this a bundle" check
+moved from `CLAUDE.md` to `AGENTS.md`, which is safe only because the startup refresh runs
+before the first sweep. Gemini CLI users set `context.fileName` to `AGENTS.md` once; the
+README says so. The guide's own layout list now names both files, and the manual tells
+the agent to leave both alone.
+
+Not done, on purpose: a `GEMINI.md`. Three copies of one text is where drift starts, and
+Gemini has a one-line setting for it.

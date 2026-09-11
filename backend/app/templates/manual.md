@@ -31,9 +31,9 @@ The tree has two halves and one owner each.
   assistant ticks questions once their answers are in the sources; people tick tasks in
   the app. Never delete or reword a line that is already in either.
 - **This manual is Mindkeep's**, not yours and not the owner's. It ships with the app,
-  is the whole of your instructions, and is not in the bundle: the `CLAUDE.md` you will
-  see there is a guide for people and local tools reading a synced copy, and it tells them
-  the copy is read-only. Leave it alone.
+  is the whole of your instructions, and is not in the bundle: the `AGENTS.md` you will
+  see there (and the `CLAUDE.md` that points at it) is a guide for people and local tools
+  reading a synced copy, and it tells them the copy is read-only. Leave both alone.
 
 ## Layout
 

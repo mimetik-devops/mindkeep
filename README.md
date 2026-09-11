@@ -185,11 +185,13 @@ instead of guessing which of forty PDFs is relevant.
 
 ### The bundle tells the agent how to behave
 
-Every bundle contains a `CLAUDE.md`, written by Mindkeep and refreshed from
-[the template](backend/app/templates/CLAUDE.md) whenever the server starts. Claude Code
-picks it up automatically; for other tools, point them at the file. It is not documentation
-for humans — it is the operating instructions for whatever is reading, and it says four
-things:
+Every bundle contains an `AGENTS.md`, written by Mindkeep and refreshed from
+[the template](backend/app/templates/AGENTS.md) whenever the server starts. That is the
+file Codex, Cursor, Copilot, pi, Aider, Zed and most other agents read on their own. Claude
+Code reads only `CLAUDE.md`, so the bundle carries one of those too: a single line that
+imports `AGENTS.md`. (Gemini CLI wants `GEMINI.md`; set its `context.fileName` to
+`AGENTS.md` once.) The guide is not documentation for humans — it is the operating
+instructions for whatever is reading, and it says four things:
 
 - **This copy is a mirror — do not edit it in place.** `wiki/` is regenerated from the
   sources, so an edited page is overwritten the next time its source is read, and the sync
@@ -296,7 +298,7 @@ CI runs all three on every pull request.
 | [Developer onboarding](docs/Mindkeep%20-%20Dev%20Onboarding.md) | the system end to end: concepts, backend, frontend, client, deployment |
 | [Dev log](docs/Mindkeep%20-%20Dev%20Log.md) | every architecture decision, why it was made, and what it replaced |
 | [The agent's manual](backend/app/templates/manual.md) | how the agent decides what a page is, where it goes, and what it may claim |
-| [The bundle guide](backend/app/templates/CLAUDE.md) | the `CLAUDE.md` shipped into every bundle: how a local agent should read a mirror and write back to it |
+| [The bundle guide](backend/app/templates/AGENTS.md) | the `AGENTS.md` shipped into every bundle (with a `CLAUDE.md` that imports it): how a local agent should read a mirror and write back to it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how to propose a change, and the DCO sign-off |
 | [SECURITY.md](SECURITY.md) | how to report a vulnerability |
 
