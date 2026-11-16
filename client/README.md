@@ -49,6 +49,11 @@ Or take an installer from the releases page. They are **unsigned**: Windows will
 Right-click the icon for *Sync now*, the folders, *Settings…* (server, sign in, root
 folder, which bundles to keep) and *Start at login*.
 
+The app also keeps a skill named `mindkeep` in the folders where coding agents look for
+skills, so pi, Codex, Gemini CLI and Claude Code find your bundles from any folder. It
+lists the bundles synced here, is rewritten when that list changes, and goes away when it
+is empty. The CLI does not write it.
+
 ## Where things live
 
 | What | Where |
@@ -57,6 +62,7 @@ folder, which bundles to keep) and *Start at login*.
 | Tray app config | `~/.mindkeep/app.json` |
 | Sync state — what the server had at the last sync, per folder | `~/.mindkeep-state.json` |
 | Your copy of a file that conflicted | `<bundle folder>/.conflicts/…` |
+| The agent skill (tray app only) | `~/.agents/skills/mindkeep/SKILL.md` and `~/.claude/skills/mindkeep/SKILL.md` |
 
 The state file is what tells "new here" from "deleted over there"; delete it and the next
 sync is conservative, not destructive.

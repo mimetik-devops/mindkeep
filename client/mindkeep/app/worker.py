@@ -11,6 +11,7 @@ import urllib.error
 
 from PySide6.QtCore import QThread, Signal
 
+from mindkeep import skill
 from mindkeep import sync as engine
 from mindkeep.app import config
 from mindkeep.app.alerts import Alerts
@@ -50,6 +51,7 @@ class Worker(QThread):
 
     def round(self) -> None:
         cfg = config.load()
+        self.keep_skill(cfg)
         if not cfg["token"] or not cfg["watch"]:
             self.status.emit("Not set up yet — open Settings")
             return
@@ -86,3 +88,12 @@ class Worker(QThread):
         self.status.emit(
             f"Watching {len(cfg['watch'])} bundle{'s' if len(cfg['watch']) != 1 else ''}"
         )
+
+    def keep_skill(self, cfg: dict) -> None:
+        # every round, before anything can return early: unticking the last bundle has
+        # to take the skill away, and a folder that appeared since has to be added
+        try:
+            for line in skill.keep(cfg["watch"]):
+                self.said.emit(f"Agent skill: {line}")
+        except (OSError, UnicodeError) as e:
+            self.said.emit(f"Agent skill: {e}")  # never worth stopping the sync for
