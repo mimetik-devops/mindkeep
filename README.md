@@ -183,6 +183,17 @@ organised — `index.md` says what exists in one line per page, pages are short 
 and every claim carries a footnote to the source it came from. The agent reads a catalog
 instead of guessing which of forty PDFs is relevant.
 
+### From any folder: the skill
+
+You don't have to start the agent in the bundle. The tray app installs a skill named
+`mindkeep` in the [Agent Skills](https://agentskills.io) format, at
+`~/.agents/skills/mindkeep/` (pi, Codex, Gemini CLI) and at `~/.claude/skills/mindkeep/`
+(Claude Code). An agent keeps the skill's one-line description in view in every
+conversation and opens the rest when a question touches the team's work. The rest lists
+the bundles on this machine and where they are, and sends the agent to each bundle's own
+`AGENTS.md` for the rules. The app rewrites the skill when you tick or untick a bundle,
+and removes it when none is left. A `mindkeep` skill the app didn't write is left alone.
+
 ### The bundle tells the agent how to behave
 
 Every bundle contains an `AGENTS.md`, written by Mindkeep and refreshed from

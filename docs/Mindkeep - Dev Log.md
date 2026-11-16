@@ -2082,3 +2082,53 @@ handed over like the gaps. A sample of the Mimetik wiki put `The`, `Summary`, `P
 still be half acronyms the model spends tokens rejecting. The diff dream covers the case
 that matters — the fifth mention lands in a changed page, `related` shows the others.
 If it is ever built it needs calibrating against a real wiki, not a unit test.
+
+
+### 4.63 The bundles reach the agent: a skill the app keeps (2026-11-16)
+
+Ruben had to hand the bundle folder to every conversation (`/add-dir`, from 2026-08-27 on)
+before an agent could read the team's wiki. A `CLAUDE.md` import, a plugin or a startup
+hook would each have fixed that for Claude Code alone, and the requirement is that it work
+for any agent: pi, Codex, ChatGPT and the rest. Two standards between them cover the
+field. The **Agent Skills** format (agentskills.io) is read by pi, Codex, Gemini CLI and
+Claude Code, all of which run on the machine and can read the mirror. **MCP** is what
+ChatGPT and claude.ai can use, since neither can read a local folder. The skill came
+first because it is small and ends the per-conversation step this week.
+
+Now the tray app writes `mindkeep/SKILL.md` into `~/.agents/skills` (pi, Codex, Gemini CLI)
+and `~/.claude/skills` (Claude Code; its docs do not list `~/.agents`, and on this
+machine it shows the skill once). `client/mindkeep/skill.py` renders it from the watch list: a description
+naming the teams, which every agent keeps in context, and a body listing each bundle
+folder that exists on disk. The worker calls `skill.keep` at the top of every round,
+before the "not set up" return, so ticking a bundle adds it within a round, unticking the
+last one removes the skill, and a changed template reaches the file after an app update.
+It writes only when the text differs, logs only when it did something, and a failure to
+write is a log line, not a stopped sync.
+
+Decisions in it:
+- **Where, not how.** The skill sends the agent to the bundle's own `AGENTS.md` for the
+  rules and to `index.md` for the catalog, rather than carrying a copy of them. The server
+  refreshes `AGENTS.md`, so the rules have one home and cannot drift.
+- **Files, not commands.** The option as first described had `mindkeep search / read /
+  note` commands for the skill to call. Dropped: the installed app puts no `mindkeep`
+  command on PATH, and every one of these agents can already read files and write a note
+  into `raw/notes/`, which the watcher uploads.
+- **Only what it owns.** The frontmatter carries `metadata: generated-by: mindkeep-app`;
+  a `mindkeep` skill without that mark is someone's own and is never rewritten or removed.
+- **Names are untrusted.** Team and bundle names come from the server and land in every
+  agent's prompt, so they are forced onto one line, capped at 80 characters, and the
+  description is JSON-quoted so a colon or a `---` cannot break the frontmatter. The
+  description stays under the standard's 1024 characters however many teams there are.
+
+Checked for real, in Claude Code only (pi, Codex and Gemini CLI are not installed here).
+With the skill installed from the live `app.json`, a fresh subagent with no folder added
+and no hint found the wiki through the skill, read `AGENTS.md` and `index.md`, cited the
+right page and named the right `raw/notes/` path. The worker's own hook, run against the
+real homes, then removed the skill for an empty watch list, wrote it back for the real
+one, and stayed silent on a third call with nothing changed. Not checked: whether Claude Code in its default mode asks permission
+before reading a folder outside the session's, since the check ran in a mode that never
+asks.
+
+Not done: the CLI does not write the skill (one config is one bundle, and the app is the
+part that knows them all); Cursor's skill folder; a setting to turn it off; and MCP for
+ChatGPT and claude.ai, still the next step for clients that cannot read a folder.

@@ -1,6 +1,6 @@
 # Mindkeep — Developer Onboarding
 
-*Written 2026-08-28 against commit `153648c` on `main`. Everything here is checkable in
+*Written 2026-08-28; last updated 2026-11-16 against commit `46d119e` on `main`. Everything here is checkable in
 the repository; where this document and the code disagree, the code is right and this
 document is stale.*
 
@@ -48,7 +48,7 @@ Three deployable things, one repository:
 `docker-compose.yml` at the root runs all three plus Postgres for development.
 
 **Sizes, for orientation:** ~9,400 lines of source across the three parts; 151 backend
-tests, 28 frontend tests, 32 client tests.
+tests, 28 frontend tests, 35 client tests.
 
 ---
 
@@ -475,6 +475,7 @@ One Python package, `mindkeep/`, three faces:
 | `sync.py` | the engine, **stdlib only**: `sync(cfg)` for one bundle in one folder |
 | `cli.py` | `mindkeep login \| sync \| watch [--config PATH]` — one config = one bundle |
 | `connect.py` | the loopback browser sign-in (`about`, `sign_in`), shared by CLI and app |
+| `skill.py` | the agent skill, **stdlib only**: `keep(watch)` writes `mindkeep/SKILL.md` (Agent Skills format) into `~/.agents/skills` and `~/.claude/skills` listing the bundle folders on disk, rewrites it when they change, removes it when none is left, and never touches one without its `generated-by: mindkeep-app` mark |
 | `app/` | the PySide6 tray app |
 | `__init__.py` | `__version__` (0.0.0 in git, stamped from the tag) and `USER_AGENT` |
 
@@ -509,7 +510,7 @@ Cloudflare's browser check, in front of `mindkeep.io`, drops Python's default ag
 |---|---|
 | `main.py` | `QApplication`, single instance via `QLocalServer` (`io.mindkeep.app`), AppUserModelID on Windows, wires tray ↔ worker ↔ window |
 | `config.py` | `~/.mindkeep/app.json`: `{server, token, root, watch:[{team, name, bundle, folder}]}`; a folder is fixed when a bundle is added (`<root>/<team>/<bundle>`, suffixed on a name clash) and never re-derived |
-| `worker.py` | **one** `QThread` looping over the watched bundles sequentially (the state file is read-modify-write; parallel syncs would drop each other's state), then `GET …/sources` for failures |
+| `worker.py` | **one** `QThread` looping over the watched bundles sequentially (the state file is read-modify-write; parallel syncs would drop each other's state), then `GET …/sources` for failures. Each round starts with `skill.keep`, before any early return, so unticking the last bundle removes the skill |
 | `alerts.py` | pure dedupe: a failing ingest once until it stops failing; unreachable once after three misses; dead token once per sign-out |
 | `tray.py` | `QSystemTrayIcon`, menu: status · Sync now · Pause · Open folder ▸ · Settings… · Log… · Start at login · Quit |
 | `settings.py` | the window: Settings tab (API address, sign in via browser or paste a token, root folder, a tree of teams with a checkbox per bundle) and Log tab |
