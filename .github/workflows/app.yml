@@ -68,11 +68,13 @@ jobs:
       - run: python changelog.py
       - run: briefcase create ${{ matrix.platform }} ${{ matrix.format }}
       - run: briefcase build ${{ matrix.platform }} ${{ matrix.format }}
-      # ad-hoc on macOS: the app runs, unsigned, after the right-click dance above.
-      # Everywhere else there is nothing to sign with, and Briefcase does not ask.
-      - if: matrix.platform == 'macOS'
-        run: briefcase package macOS app --adhoc-sign
-      - if: matrix.platform != 'macOS'
+      # --adhoc-sign says "no real signature" without a prompt: on macOS the app runs,
+      # unsigned, after the right-click dance above; on Linux the .deb carries no GPG
+      # signature (Briefcase 0.4.7 started asking which GPG key to use, and a prompt in CI
+      # aborts the job). Windows has nothing to sign with and does not ask.
+      - if: matrix.platform != 'windows'
+        run: briefcase package ${{ matrix.platform }} ${{ matrix.format }} --adhoc-sign
+      - if: matrix.platform == 'windows'
         run: briefcase package ${{ matrix.platform }} ${{ matrix.format }}
       - uses: actions/upload-artifact@v4
         with:
