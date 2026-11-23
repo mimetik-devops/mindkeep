@@ -2132,3 +2132,18 @@ asks.
 Not done: the CLI does not write the skill (one config is one bundle, and the app is the
 part that knows them all); Cursor's skill folder; a setting to turn it off; and MCP for
 ChatGPT and claude.ai, still the next step for clients that cannot read a folder.
+
+### 4.64 The app icon is the site's favicon, number for number (2026-11-16)
+
+Ruben: make the desktop app's icon match the website's logo. It already showed the
+growing-memory mark, since the new visual identity reached it in #25, but drawn by eye: the
+SVG's 96-unit coordinates were read as hundredths, so the stem stopped at 0.79 instead of
+79/96, the leaves joined at 0.48 instead of 0.5, and the stroke was 0.085 instead of 9/96
+— a mark about 4% small, sitting high and a little thin. `mark.paint()` now scales the
+painter to a 96×96 viewBox and copies the site's `assets/favicon.svg` (the `logo.svg`
+path on an rx-20 `#bd450c` tile) segment by segment; at 256 px it matches the SVG
+rendered by QtSvg pixel for pixel, and it stays legible at 16–24 px on light and dark
+taskbars. `client/icons/` regenerated from it. The web app's own favicon
+(`frontend/src/assets/favicon.svg`) is an older, slimmer variant (stroke 8, rx 22) and
+was left alone. v0.1.5 shipped #25's drawing; the faithful one comes with the next
+release.

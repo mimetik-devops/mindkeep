@@ -3,6 +3,10 @@
 Drawn in code so the tray, every window's title bar, the taskbar and the installer
 icon (`icons/make.py` calls `paint` too) are the same picture at every size — a
 shipped PNG would drift from the tray the first time somebody redrew one of them.
+
+The geometry is the website's favicon (mindkeep-home `assets/favicon.svg`: the
+`logo.svg` path on a 96×96 tile with rx 20), copied in its own 96-unit coordinates —
+change it there first, then here, number for number.
 """
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -18,25 +22,26 @@ def paint(size: int) -> QImage:
     image.fill(Qt.GlobalColor.transparent)
     p = QPainter(image)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    s = float(size)
+    p.scale(size / 96, size / 96)  # from here on, the SVG's viewBox
     tile = QPainterPath()
-    tile.addRoundedRect(QRectF(0, 0, s, s), s * 0.22, s * 0.22)
+    tile.addRoundedRect(QRectF(0, 0, 96, 96), 20, 20)
     p.fillPath(tile, ORANGE)
     # One stem becomes two connected leaves: knowledge growing from a shared root.
-    pen = QPen(WHITE, max(1.0, s * 0.085), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    pen = QPen(WHITE, 9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     p.setPen(pen)
     mark = QPainterPath()
-    mark.moveTo(s * 0.5, s * 0.79)
-    mark.lineTo(s * 0.5, s * 0.48)
-    mark.cubicTo(s * 0.5, s * 0.30, s * 0.34, s * 0.20, s * 0.21, s * 0.23)
-    mark.cubicTo(s * 0.18, s * 0.39, s * 0.31, s * 0.51, s * 0.5, s * 0.48)
-    mark.cubicTo(s * 0.5, s * 0.30, s * 0.66, s * 0.20, s * 0.79, s * 0.23)
-    mark.cubicTo(s * 0.82, s * 0.39, s * 0.69, s * 0.51, s * 0.5, s * 0.48)
+    mark.moveTo(48, 79)
+    mark.lineTo(48, 48)
+    mark.cubicTo(48, 30, 32, 20, 19, 23)
+    mark.cubicTo(16, 39, 29, 52, 48, 48)
+    mark.moveTo(48, 48)
+    mark.cubicTo(48, 30, 64, 20, 77, 23)
+    mark.cubicTo(80, 39, 67, 52, 48, 48)
     p.drawPath(mark)
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(WHITE)
-    p.drawEllipse(QPointF(s * 0.5, s * 0.79), s * 0.07, s * 0.07)
+    p.drawEllipse(QPointF(48, 79), 7, 7)
     p.end()
     return image
 
